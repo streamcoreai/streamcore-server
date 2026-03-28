@@ -1,195 +1,256 @@
-# Voice Agent
+# StreamCoreAI Server
 
-A real-time AI voice agent built with WebRTC. Speak naturally in your browser—the agent transcribes your speech, runs it through an LLM, and speaks back with low-latency TTS, all over a peer-to-peer audio connection. Signaling follows the [WHIP standard (RFC 9725)](https://www.rfc-editor.org/rfc/rfc9725.html) — a single HTTP POST exchanges the SDP offer/answer with no persistent signaling connection required.
+**Open-source real-time voice agent server built on WebRTC, with multi-language client SDKs, plugin extensibility, and Markdown-based skills.**
 
-This directory is one component of a multi-package layout. For mapping it to separate Git repositories and published SDK versions, see [Repository layout](../docs/repository-structure.md).
+StreamCoreAI keeps the latency-sensitive media and orchestration path in Go, while letting the rest of your stack stay in the languages your team already uses.
+
+That means you can:
+
+- run the core media pipeline in **Go**
+- connect from **TypeScript, Python, Rust, or Go**
+- extend the agent with **Python, TypeScript, or JavaScript plugins**
+- register **native Go tools** inside the server when you want zero-IPC integrations
+- shape behavior with **Markdown skills**
+
+Most voice stacks force everything into one runtime. StreamCoreAI is built differently: keep the real-time path in Go, but let product, AI, and integration teams move faster in TypeScript and Python.
+
+This directory is the Go server component in a multi-package repository. For how it maps to split repositories and published SDKs, see [Repository layout](../docs/repository-structure.md).
+
+## Why StreamCoreAI
+
+StreamCoreAI is designed for teams building real-time AI voice products who want:
+
+- **a fast Go core** for media, session handling, and orchestration
+- **multi-language SDKs** so clients are not tied to one stack
+- **plugin extensibility** without forcing every integration into Go
+- **skills** that shape tone and behavior without burying everything in prompts or code
+- **an open-source, self-hostable foundation** for browser, SDK, and telephony voice flows
+
+It is a strong fit for:
+
+- browser voice agents
+- AI assistants
+- internal copilots
+- AI calling systems
+- support agents
+- custom vertical voice products
 
 ## Features
 
-- **Real-time voice conversation** — WebRTC audio streaming with sub-100ms round-trip
-- **Configurable TTS** — [Cartesia Sonic](https://cartesia.ai/sonic) (default) or [Deepgram Aura](https://deepgram.com) for text-to-speech
-- **Streaming STT** — [Deepgram](https://deepgram.com) real-time transcription with built-in VAD
-- **LLM-powered** — [OpenAI GPT-4o-mini](https://platform.openai.com) with conversation history
-- **Plugin system** — Extend the agent with Python, TypeScript/JS, or Go native plugins via [OpenAI function calling](https://platform.openai.com/docs/guides/function-calling)
-- **Skills** — Markdown-based behavioral instructions that shape the agent's personality and responses
-- **Session-based** — Each connection gets a unique session ID (UUID); no shared rooms
-- **Open source** — Apache 2.0 licensed, Go + Next.js stack
-- **Client SDKs** — Framework-agnostic [TypeScript](typescript-sdk/), [Go](golang-sdk/), [Rust](rust-sdk/), and [Python](python-sdk/) SDKs
-- **Plugin SDKs** — [Python](plugin-sdk/python/) and [TypeScript](plugin-sdk/typescript/) SDKs for building plugins
+- **Real-time bidirectional voice** over WebRTC with Opus audio
+- **WHIP signaling** ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) with a single HTTP POST for SDP exchange
+- **Streaming STT** with Deepgram, plus OpenAI Whisper support for final-only transcription
+- **Streaming LLM responses** with OpenAI and conversation history
+- **Configurable TTS** with Cartesia, Deepgram, or ElevenLabs
+- **Barge-in support** so users can interrupt the assistant mid-response
+- **Plugin system** for Python, TypeScript, and JavaScript tools over JSON-RPC
+- **Native Go tool interface** for zero-IPC extensions compiled into the server
+- **Skills system** that injects Markdown instructions into the system prompt
+- **Client SDKs** for [TypeScript](../typescript-sdk/), [Go](../golang-sdk/), [Python](../python-sdk/), and [Rust](../rust-sdk/)
+- **Plugin SDKs** for [TypeScript](../plugin-sdk/typescript/) and [Python](../plugin-sdk/python/)
+- **Health endpoint** at `/health`
 
-## In Function Now
+## What Makes It Different
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| WebRTC audio (Pion) | ✅ | Opus RTP bidirectional streaming |
-| WHIP signaling | ✅ | Single HTTP POST, full ICE gathering |
-| DataChannel events | ✅ | Transcript & response messages over DC |
-| Session management | ✅ | Auto-generated UUID per session |
-| Deepgram STT | ✅ | Streaming WebSocket, Nova-2, endpointing |
-| OpenAI LLM | ✅ | GPT-4o-mini, streaming, conversation history |
-| Cartesia TTS | ✅ | Sonic-3, Katie voice, pcm_s16le |
-| Deepgram TTS | ✅ | Aura Asteria, switchable via env |
-| Next.js client | ✅ | One-click connect, live transcript, audio visualizer |
-| Plugin system | ✅ | Python, TypeScript/JS, Go native plugins |
-| Skills system | ✅ | Markdown-based behavioral instructions |
-| OpenAI tool calling | ✅ | Streaming function calling with tool loop |
+### Go where it matters
 
-## TODO
+The hot path runs in Go with Pion WebRTC, goroutines, and bounded channels:
 
-- [x] **Tool calling** — LLM function/tool execution via plugin system
-- [ ] **RAG** — Retrieval-augmented generation (documents, knowledge base)
-- [ ] **Memory** — Persistent conversation memory across sessions
-- [ ] **Sip connection** connect to the agent with sip client
-- [x] **Client SDK** — TypeScript, Go, Rust, and Python SDKs in `typescript-sdk/`, `golang-sdk/`, `rust-sdk/`, and `python-sdk/`
-- [x] **Plugin system** — Extensible plugin/skills architecture with Python and TypeScript SDKs
+- RTP read and Opus decode
+- STT streaming and VAD
+- LLM orchestration and tool calls
+- TTS synthesis
+- Opus encode and RTP write
+
+That keeps the real-time loop predictable and low-latency.
+
+### SDKs in four languages
+
+Clients can connect from:
+
+- **TypeScript**
+- **Python**
+- **Rust**
+- **Go**
+
+That makes it practical to build browser apps, backend workers, CLI tools, test harnesses, and desktop integrations without reimplementing the protocol for each environment.
+
+### Plugins and skills are separate layers
+
+Plugins give the agent **capabilities**. Skills shape its **behavior**.
+
+- Plugins call APIs, databases, calendars, CRMs, workflows, and internal tools
+- Skills define tone, personality, guardrails, brand voice, and workflow guidance
+
+This keeps business logic and behavioral instructions easier to manage than a single giant prompt.
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────┐                    ┌─────────────────────────────────────┐
-│   Next.js Client    │                    │           Go Server (Pion)           │
-│                     │                    │                                       │
-│  Mic → WebRTC ──────┼──── Opus RTP ──────┼──→ Opus Decode → Deepgram STT        │
-│  Speaker ← WebRTC ←─┼──── Opus RTP ←─────┼──← Opus Encode ← TTS (Cartesia/DG)    │
-│                     │                    │         │                            │
-│  HTTP POST ─────────┼── WHIP (SDP) ──────┼──→ Peer created, answer returned       │
-│  DataChannel ◄──────┼──── transcript ←───┼──← OpenAI GPT (streaming)              │
-│                     │                    │                                       │
+│    Client / SDK     │                    │          Go Server (Pion)           │
+│                     │                    │                                     │
+│  Mic → WebRTC ──────┼──── Opus RTP ──────┼──→ Opus Decode → STT               │
+│  Speaker ← WebRTC ←─┼──── Opus RTP ←─────┼──← Opus Encode ← TTS               │
+│                     │                    │               │                     │
+│  HTTP POST ─────────┼── WHIP (SDP) ──────┼──→ Peer + session created          │
+│  DataChannel ◄──────┼──── events   ←─────┼──← LLM streaming                   │
+│                     │                    │               │                     │
+│                     │                    │               ├── Skills prompt     │
+│                     │                    │               ├── Plugin runtime    │
+│                     │                    │               │   ├── Python        │
+│                     │                    │               │   ├── TypeScript    │
+│                     │                    │               │   └── JavaScript    │
+│                     │                    │               └── Native Go tools   │
 └─────────────────────┘                    └─────────────────────────────────────┘
 ```
 
-**Signaling:** Client creates a DataChannel + SDP offer (with all ICE candidates gathered), POSTs it to `/whip`, and receives the SDP answer with a server-generated session ID (UUID). No persistent signaling connection needed.
+Signaling flow: the client creates an SDP offer, gathers ICE candidates, and `POST`s it to `/whip`. The server creates a peer, gathers its ICE candidates, and returns the SDP answer with a server-generated session ID. No persistent signaling socket is required.
 
-**Pipeline flow:** Browser captures mic → Opus over WebRTC → Server decodes to PCM → Deepgram STT → OpenAI LLM (with tool calling) → Cartesia/Deepgram TTS → Opus over WebRTC → Browser plays audio. Transcript and response text are delivered back to the client via a WebRTC DataChannel.
+Pipeline flow: microphone audio enters over WebRTC, is decoded to PCM, sent through STT, passed to the LLM, optionally routed through tools, synthesized with TTS, encoded back to Opus, and streamed to the client. Transcript and response text are sent back over a WebRTC DataChannel.
 
-**Plugins & Skills:** The LLM can invoke external tools (Python/TypeScript plugins) via function calling. Skills inject behavioral instructions into the system prompt. See the [Plugin Guide](docs/plugins.md) and [Skills Guide](docs/skills.md) for details.
+Telephony note: SIP and phone connectivity live in the sibling [sip-server](../sip-server/) package, which bridges calls into the same voice pipeline.
 
 ## Prerequisites
 
-**For Docker:** Docker and Docker Compose
+For Docker:
 
-**For local development:**
-- **Go 1.22+**
-- **Node.js 18+** and npm
-- **Rust 1.87+** (for building the Rust SDK or example)
-- **Python 3.10+** (for building the Python SDK or example)
+- Docker
+- Docker Compose
 
-**API keys (required):**
-  - [Deepgram](https://deepgram.com) — required for STT
-  - [OpenAI](https://platform.openai.com) — required for LLM
-  - [Cartesia](https://cartesia.ai) — for TTS (default), or use Deepgram for TTS
+For local development:
+
+- Go 1.22+
+- Node.js 20+ and npm
+- Python 3.10+ if you want Python plugins or examples
+- Rust 1.87+ if you want Rust SDKs or examples
+
+Provider requirements:
+
+| Role | Providers | Required credentials |
+|------|-----------|----------------------|
+| STT | `deepgram`, `openai` | Deepgram API key or OpenAI API key |
+| LLM | `openai` | OpenAI API key |
+| TTS | `cartesia`, `deepgram`, `elevenlabs` | Matching provider API key |
 
 ## Quick Start
 
-### Option A: Docker Compose (recommended)
+### Option A: Docker Compose
 
-**1. Configure the server**
+Run this from the repository root:
 
 ```bash
 cp server/config.toml.example server/config.toml
 # Edit server/config.toml with your API keys
-```
 
-**2. Build and run**
-
-```bash
 docker compose up --build
 ```
 
-**3. Open [http://localhost:3000](http://localhost:3000)** — click Connect.
+Then open [http://localhost:3000](http://localhost:3000) and click **Connect**.
 
-> **Note:** The client connects to `http://localhost:8080/whip` by default. If you access the app via a different host (e.g. `http://192.168.1.x:3000`), rebuild the client with:
-> ```bash
-> docker compose build --build-arg NEXT_PUBLIC_WHIP_URL=http://YOUR_HOST:8080/whip client
-> docker compose up
-> ```
+The browser example connects to `http://localhost:8080/whip` by default. If you need to access the app from another host, rebuild the client with a different `NEXT_PUBLIC_WHIP_URL`:
 
-### Option B: Local development
+```bash
+docker compose build --build-arg NEXT_PUBLIC_WHIP_URL=http://YOUR_HOST:8080/whip client
+docker compose up
+```
 
-**1. Clone and configure the server**
+For the split-repo Docker layout, see [Full-stack Docker](../infra/README.md).
+
+### Option B: Local Development
+
+Start the server:
 
 ```bash
 cd server
 cp config.toml.example config.toml
 # Edit config.toml with your API keys
+
+go run .
 ```
 
-**2. Start the server**
+In another terminal, start the browser example from the repo root:
 
 ```bash
-go run main.go
-```
-
-**3. Start the client**
-
-```bash
-npm install          # from project root (uses workspaces)
+npm install
 cd examples/typescript
 npm run dev
 ```
 
-**4. Open [http://localhost:3000](http://localhost:3000)** — click Connect.
+Then open [http://localhost:3000](http://localhost:3000).
 
 ## Configuration
 
-### Server (`server/config.toml`)
+Use [`config.toml.example`](./config.toml.example) as your starting point:
 
 ```toml
 [server]
 port = "8080"
 
+[plugins]
+directory = "./plugins"
+
 [pipeline]
-barge_in = true           # Allow user to interrupt agent mid-speech (default: true)
+barge_in = true
+greeting = ""
+greeting_outgoing = ""
+debug = false
 
 [stt]
-provider = "deepgram"     # Supported: deepgram, openai
+provider = "deepgram"
 
 [llm]
-provider = "openai"       # Supported: openai
+provider = "openai"
 
 [tts]
-provider = "cartesia"     # Supported: cartesia, deepgram, elevenlabs
+provider = "cartesia"
 
 [deepgram]
-api_key = ""              # Required — used by STT (and TTS if selected)
+api_key = ""
+model = "nova-3"
 
 [openai]
-api_key = ""              # Required — used by LLM
-model = "gpt-4o-mini"     # Model name (default: gpt-4o-mini)
-system_prompt = "..."     # Optional — defaults to helpful assistant
+api_key = ""
+model = "gpt-4o-mini"
+system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [cartesia]
-api_key = ""              # Required if tts.provider = "cartesia"
-voice_id = ""             # Optional — Cartesia voice ID (default: Katie)
+api_key = ""
+voice_id = ""
 
 [elevenlabs]
-api_key = ""              # Required if tts.provider = "elevenlabs"
-voice_id = ""             # Optional — ElevenLabs voice ID (default: Rachel)
-model = ""                # Optional — model (default: eleven_turbo_v2_5)
-
-[plugins]
-directory = "./plugins"   # Path to plugin/skills directory (default: ./plugins)
+api_key = ""
+voice_id = ""
+model = ""
 ```
 
-To switch providers, change the `provider` field in `[stt]`, `[llm]`, or `[tts]` and add the matching provider section with credentials.
+Notes:
 
-## Plugins & Skills
+- `plugins.directory` is required if you want plugins and skills loaded. If it is omitted, the server skips plugin discovery.
+- `pipeline.barge_in` lets users interrupt the assistant while it is speaking.
+- `pipeline.greeting` plays when a session starts. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
+- `pipeline.debug = true` emits timing events over the DataChannel.
+- `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
 
-The agent supports a plugin system for extending functionality and a skills system for shaping behavior. Plugins give the LLM the ability to call external tools during conversation. Skills inject instructions into the system prompt.
+## Plugins And Skills
 
-- **[Plugin Guide](docs/plugins.md)** — How to build plugins in Python, TypeScript/JS, or Go
-- **[Skills Guide](docs/skills.md)** — How to create skills that shape agent behavior
-- **[Architecture & Protocol](plugins-skills-system.md)** — Full system design document
+Plugins give the LLM callable tools during a conversation. Skills inject Markdown instructions into the system prompt for every session.
 
-### Quick Example
+- [Plugin Development Guide](../docs/plugins.md)
+- [Skills Development Guide](../docs/skills.md)
+
+This repo already includes sample plugins and skills under [plugins/](./plugins/).
+
+### Quick Plugin Example
 
 Create a Python plugin that tells the time:
 
 ```bash
-mkdir -p server/plugins/plugins/time-get
+mkdir -p plugins/plugins/time-get
 ```
 
-**`plugin.yaml`**
+`plugins/plugins/time-get/plugin.yaml`
+
 ```yaml
 name: time.get
 description: Get the current time in a timezone
@@ -206,7 +267,8 @@ parameters:
     - timezone
 ```
 
-**`main.py`**
+`plugins/plugins/time-get/main.py`
+
 ```python
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -223,142 +285,87 @@ def handle(params):
 plugin.run()
 ```
 
-Restart the server — the agent can now tell users the time when asked.
+Restart the server, then ask the agent for the time in a specific timezone.
 
-### Client
+If you need zero-IPC extensions, you can also register native Go tools directly in the server via `pluginMgr.RegisterNative(...)`. See the Go section in [Plugin Development Guide](../docs/plugins.md).
 
-The TypeScript example at `examples/typescript/` uses `@streamcoreai/js-sdk` to connect. The WHIP endpoint defaults to `http://localhost:8080/whip` and can be configured via the SDK's `StreamCoreAIConfig`.
+## SDKs And Examples
 
-## Signaling Protocol (WHIP — RFC 9725)
+Client SDKs:
 
-Signaling follows [RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html) (WebRTC-HTTP Ingestion Protocol).
+- [TypeScript SDK](../typescript-sdk/)
+- [Go SDK](../golang-sdk/)
+- [Python SDK](../python-sdk/)
+- [Rust SDK](../rust-sdk/)
 
-### HTTP — SDP Exchange
+Plugin SDKs:
+
+- [TypeScript plugin SDK](../plugin-sdk/typescript/)
+- [Python plugin SDK](../plugin-sdk/python/)
+
+Examples:
+
+- [TypeScript browser app](../examples/typescript/)
+- [Go CLI](../examples/golang/)
+- [Go TUI](../examples/golang-tui/)
+- [Python examples](../examples/python/)
+- [Rust CLI](../examples/rust/)
+- [Rust TUI](../examples/rust-tui/)
+
+## WHIP Protocol
+
+Signaling follows [RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html).
+
+### HTTP SDP Exchange
 
 | Step | Method | Path | Body | Response |
 |------|--------|------|------|----------|
-| 1 | `POST` | `/whip` | SDP offer (`application/sdp`) | `201 Created` with SDP answer, `Location: /whip/{sessionId}`, `ETag` header |
-| 2 | `DELETE` | `/whip/{sessionId}` | — | `200 OK` (session terminated) |
-| — | `OPTIONS` | `/whip/*` | — | `204` with `Accept-Post: application/sdp` |
+| 1 | `POST` | `/whip` | SDP offer (`application/sdp`) | `201 Created` with SDP answer, `Location: /whip/{sessionId}`, and `ETag` |
+| 2 | `DELETE` | `/whip/{sessionId}` | none | `200 OK` |
+| - | `OPTIONS` | `/whip` or `/whip/{sessionId}` | none | `204 No Content` with `Accept-Post: application/sdp` |
 
-The client gathers all ICE candidates before sending the offer. The server gathers all ICE candidates before returning the answer. No trickle ICE.
+The client gathers ICE candidates before sending the offer. The server gathers ICE candidates before returning the answer. No trickle ICE is used.
 
-### DataChannel — Event Messages
+### DataChannel Events
 
-The client creates a DataChannel labelled `"events"` before generating the offer. Once the WebRTC connection is established, the server sends JSON text messages on it:
+The client must create a DataChannel labeled `events` before generating the offer. The server currently sends these JSON messages:
 
 | Type | Payload | Description |
 |------|---------|-------------|
-| `transcript` | `{ text: string, final: boolean }` | User speech transcription (partial + final) |
-| `response` | `{ text: string }` | LLM response chunks (streamed) |
-| `error` | `{ message: string }` | Server-side errors |
+| `transcript` | `{ "type": "transcript", "text": string, "final": boolean }` | User transcript updates |
+| `response` | `{ "type": "response", "text": string }` | Streamed LLM response text |
+| `timing` | `{ "type": "timing", "stage": string, "ms": number }` | Optional latency timings when `pipeline.debug = true` |
 
-### RFC 9725 Compliance
+Current timing stages are:
 
-This implementation follows and aligns with [RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html):
+- `llm_first_token`
+- `tts_first_byte`
 
-- ✅ `POST` with `application/sdp` offer → `201 Created` with SDP answer (§4.2)
-- ✅ `Location` header pointing to WHIP session URL (§4.2)
-- ✅ `ETag` header identifying the ICE session (§4.3.1)
-- ✅ `DELETE` on session URL for teardown (§4.2)
-- ✅ `OPTIONS` with `Accept-Post: application/sdp` for CORS (§4.2)
-- ✅ Full ICE gathering (no trickle ICE) on both client and server (§4.3.2)
+### RFC Notes
 
-**Bidirectional extensions:** WHIP was designed for unidirectional ingestion. This project extends it for bidirectional voice by using `sendrecv` (allowed per §4.2: client "MAY use sendrecv") and adding a DataChannel for server→client event delivery.
+This implementation aligns with the core WHIP flow in RFC 9725:
 
-## Pipeline Architecture
+- `POST` with `application/sdp`
+- `201 Created` with SDP answer
+- `Location` header for the session URL
+- `ETag` header for the ICE session
+- `DELETE` for teardown
+- `OPTIONS` with `Accept-Post: application/sdp`
+- full ICE gathering on both sides
 
-The server uses a **channel-based streaming pipeline** — no giant buffers, no dumb forwarding. Each session runs four goroutines connected by bounded channels:
+The server uses `sendrecv` audio and a DataChannel to support bidirectional voice interaction.
 
-```
-Browser mic → WebRTC → RTP read → Opus decode → PCM frames
-    → VAD (barge-in detection) + STT feed
-    → Agent orchestrator (LLM → TTS)
-    → Opus encode → RTP write → WebRTC → Browser speaker
-```
+## Scaling And Roadmap
 
-| Goroutine | Channel In | Channel Out | Responsibility |
-|-----------|-----------|-------------|----------------|
-| **Reader** | Remote track | `inPCMCh` | RTP read → Opus decode → 20ms PCM frames |
-| **Inbound** | `inPCMCh` | `transcriptCh` | Feed STT + VAD barge-in detection |
-| **Agent** | `transcriptCh` | `outPCMCh` | LLM streaming → TTS synthesis → PCM frames |
-| **Sender** | `outPCMCh` | Local track | Opus encode → RTP write with wall-clock pacing |
+Today, session management is in-memory and single-process. For horizontal scaling you will need sticky routing or external session coordination.
 
-**Barge-in:** When the user speaks while the agent is talking, the VAD fires `interruptCh`. The agent cancels the current LLM/TTS response, drains the outbound queue, and waits for the next transcript.
+Near-term areas to build on:
 
-All channels are bounded to prevent latency creep.
-
-## Docker
-
-| File | Purpose |
-|------|---------|
-| `server/Dockerfile` | Multi-stage Go build (pure Go, no CGO) |
-| `examples/typescript/Dockerfile` | Multi-stage Next.js build |
-| `docker-compose.yml` | Orchestrates server + client |
-
-The server reads config from `server/config.toml` (mounted as a volume). Create it from `server/config.toml.example` before running `docker compose up`.
-
-## Project Structure
-
-```
-streamcoreai/
-├── docker-compose.yml
-├── package.json              # npm workspaces root
-│
-├── server/                   # Go backend
-│   ├── config.toml.example
-│   ├── Dockerfile
-│   ├── main.go
-│   └── internal/
-│       ├── audio/            # Opus encode/decode, PCM utilities
-│       ├── config/           # TOML configuration loader
-│       ├── llm/              # LLM provider interface (OpenAI)
-│       ├── peer/             # Pion WebRTC peer + track setup
-│       ├── pipeline/         # Channel-based streaming pipeline
-│       ├── session/          # Session manager, per-session peers
-│       ├── signaling/        # WHIP HTTP signaling (RFC 9725)
-│       ├── stt/              # STT provider interface (Deepgram, OpenAI Whisper)
-│       ├── tts/              # TTS provider interface (Cartesia, Deepgram, ElevenLabs)
-│       └── vad/              # Energy-based voice activity detector
-│
-├── typescript-sdk/           # @streamcore/js-sdk (npm)
-│   └── src/                  # StreamCoreAIClient, WHIP, types
-│
-├── golang-sdk/               # github.com/streamcoreai/voice-agent-sdk-go
-│   ├── client.go             # Client, Connect/Disconnect
-│   ├── whip.go               # WHIP signaling
-│   └── types.go              # Config, EventHandler, types
-│
-├── rust-sdk/                 # streamcoreai-voice-agent-sdk (Rust/Crates.io)
-│   ├── src/
-│   │   ├── client.rs         # Client, Connect/Disconnect
-│   │   ├── whip.rs           # WHIP signaling
-│   │   ├── types.rs          # Config, EventHandler, types
-│   │   └── lib.rs
-│   └── Cargo.toml
-│
-├── examples/
-│   ├── typescript/           # Next.js client (uses typescript-sdk)
-│   │   └── src/
-│   │       ├── app/           # Next.js app router
-│   │       ├── components/    # StreamCoreAI, AudioVisualizer
-│   │       └── hooks/         # useStreamCoreAI (wraps SDK)
-│   ├── golang/               # Go CLI example (uses golang-sdk)
-│   │   └── main.go
-│   └── rust/                 # Rust CLI example (uses rust-sdk)
-│       └── src/main.rs
-│
-└── README.md
-```
-
-## Scaling
-
-The session manager is in-memory (single process). For horizontal scaling, add a Redis-backed session manager with pub/sub for cross-instance signaling.
-
-## Contributing
-
-Contributions welcome. See [TODO](#todo) for planned features.
+- retrieval / RAG
+- persistent memory across sessions
+- more end-to-end SDK and plugin examples
+- easier deployment and hosted workflows
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](./LICENSE).

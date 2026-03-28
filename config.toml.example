@@ -1,0 +1,44 @@
+# StreamCoreAI Server Configuration
+
+[server]
+port = "8080"
+
+[plugins]
+directory = "./plugins" # Required if you want plugins and skills loaded
+
+[pipeline]
+barge_in = true
+greeting = ""           # Spoken when a session connects
+greeting_outgoing = ""  # Spoken for outbound SIP calls; falls back to greeting
+debug = false           # Emit timing events over the DataChannel
+
+# Provider selection
+
+[stt]
+provider = "deepgram"   # Supported: deepgram, openai
+
+[llm]
+provider = "openai"     # Supported: openai
+
+[tts]
+provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs
+
+# Provider credentials
+
+[deepgram]
+api_key = ""            # Required for Deepgram STT, and for Deepgram TTS if selected
+model = "nova-3"        # STT model
+
+[openai]
+api_key = ""            # Required for LLM, and for OpenAI STT if selected
+model = "gpt-4o-mini"
+system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+
+[cartesia]
+api_key = ""            # Required if tts.provider = "cartesia"
+voice_id = ""           # Optional; defaults to Cartesia Katie
+
+[elevenlabs]
+api_key = ""            # Required if tts.provider = "elevenlabs"
+voice_id = ""           # Optional; defaults to ElevenLabs Rachel
+model = ""              # Optional; defaults to eleven_turbo_v2_5
