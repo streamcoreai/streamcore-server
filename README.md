@@ -14,7 +14,7 @@ That means you can:
 
 Most voice stacks force everything into one runtime. StreamCoreAI is built differently: keep the real-time path in Go, but let product, AI, and integration teams move faster in TypeScript and Python.
 
-This directory is the Go server component in a multi-package repository. For how it maps to split repositories and published SDKs, see [Repository layout](../docs/repository-structure.md).
+This repository is the Go server component in the StreamCoreAI project family. For the split-repo layout, see [Repository layout](https://github.com/streamcoreai/docs/blob/main/repository-structure.md).
 
 ## Why StreamCoreAI
 
@@ -46,8 +46,8 @@ It is a strong fit for:
 - **Plugin system** for Python, TypeScript, and JavaScript tools over JSON-RPC
 - **Native Go tool interface** for zero-IPC extensions compiled into the server
 - **Skills system** that injects Markdown instructions into the system prompt
-- **Client SDKs** for [TypeScript](../typescript-sdk/), [Go](../golang-sdk/), [Python](../python-sdk/), and [Rust](../rust-sdk/)
-- **Plugin SDKs** for [TypeScript](../plugin-sdk/typescript/) and [Python](../plugin-sdk/python/)
+- **Client SDKs** for [TypeScript](https://github.com/streamcoreai/typescript-sdk), [Go](https://github.com/streamcoreai/voice-agent-sdk-go), [Python](https://github.com/streamcoreai/python-sdk), and [Rust](https://github.com/streamcoreai/rust-sdk)
+- **Plugin SDKs** for [TypeScript](https://github.com/streamcoreai/plugin-sdk/tree/main/typescript) and [Python](https://github.com/streamcoreai/plugin-sdk/tree/main/python)
 - **Health endpoint** at `/health`
 
 ## What Makes It Different
@@ -109,7 +109,7 @@ Signaling flow: the client creates an SDP offer, gathers ICE candidates, and `PO
 
 Pipeline flow: microphone audio enters over WebRTC, is decoded to PCM, sent through STT, passed to the LLM, optionally routed through tools, synthesized with TTS, encoded back to Opus, and streamed to the client. Transcript and response text are sent back over a WebRTC DataChannel.
 
-Telephony note: SIP and phone connectivity live in the sibling [sip-server](../sip-server/) package, which bridges calls into the same voice pipeline.
+Telephony note: SIP and phone connectivity live in [streamcoreai/sip-server](https://github.com/streamcoreai/sip-server), which bridges calls into the same voice pipeline.
 
 ## Prerequisites
 
@@ -135,49 +135,39 @@ Provider requirements:
 
 ## Quick Start
 
-### Option A: Docker Compose
-
-Run this from the repository root:
+### Option A: Docker
 
 ```bash
-cp server/config.toml.example server/config.toml
-# Edit server/config.toml with your API keys
+cp config.toml.example config.toml
+# Edit config.toml with your API keys
 
-docker compose up --build
+docker build -t streamcoreai-server .
+docker run --rm -p 8080:8080 -v "$(pwd)/config.toml:/config.toml:ro" streamcoreai-server
 ```
 
-Then open [http://localhost:3000](http://localhost:3000) and click **Connect**.
-
-The browser example connects to `http://localhost:8080/whip` by default. If you need to access the app from another host, rebuild the client with a different `NEXT_PUBLIC_WHIP_URL`:
-
-```bash
-docker compose build --build-arg NEXT_PUBLIC_WHIP_URL=http://YOUR_HOST:8080/whip client
-docker compose up
-```
-
-For the split-repo Docker layout, see [Full-stack Docker](../infra/README.md).
+Then connect a client to `http://localhost:8080/whip`. You can use the browser client from [streamcoreai/examples-typescript](https://github.com/streamcoreai/examples-typescript) or any of the SDKs linked below.
 
 ### Option B: Local Development
 
-Start the server:
+Start the server from this repository:
 
 ```bash
-cd server
 cp config.toml.example config.toml
 # Edit config.toml with your API keys
 
 go run .
 ```
 
-In another terminal, start the browser example from the repo root:
+In another terminal, run a client from its own repository. For example, with the browser app:
 
 ```bash
+git clone https://github.com/streamcoreai/examples-typescript.git
+cd examples-typescript
 npm install
-cd examples/typescript
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+Then open [http://localhost:3000](http://localhost:3000). By default it connects to `http://localhost:8080/whip`.
 
 ## Configuration
 
@@ -236,8 +226,8 @@ Notes:
 
 Plugins give the LLM callable tools during a conversation. Skills inject Markdown instructions into the system prompt for every session.
 
-- [Plugin Development Guide](../docs/plugins.md)
-- [Skills Development Guide](../docs/skills.md)
+- [Plugin Development Guide](https://github.com/streamcoreai/docs/blob/main/plugins.md)
+- [Skills Development Guide](https://github.com/streamcoreai/docs/blob/main/skills.md)
 
 This repo already includes sample plugins and skills under [plugins/](./plugins/).
 
@@ -287,30 +277,28 @@ plugin.run()
 
 Restart the server, then ask the agent for the time in a specific timezone.
 
-If you need zero-IPC extensions, you can also register native Go tools directly in the server via `pluginMgr.RegisterNative(...)`. See the Go section in [Plugin Development Guide](../docs/plugins.md).
+If you need zero-IPC extensions, you can also register native Go tools directly in the server via `pluginMgr.RegisterNative(...)`. See the Go section in the [Plugin Development Guide](https://github.com/streamcoreai/docs/blob/main/plugins.md).
 
 ## SDKs And Examples
 
 Client SDKs:
 
-- [TypeScript SDK](../typescript-sdk/)
-- [Go SDK](../golang-sdk/)
-- [Python SDK](../python-sdk/)
-- [Rust SDK](../rust-sdk/)
+- [TypeScript SDK](https://github.com/streamcoreai/typescript-sdk)
+- [Go SDK](https://github.com/streamcoreai/voice-agent-sdk-go)
+- [Python SDK](https://github.com/streamcoreai/python-sdk)
+- [Rust SDK](https://github.com/streamcoreai/rust-sdk)
 
 Plugin SDKs:
 
-- [TypeScript plugin SDK](../plugin-sdk/typescript/)
-- [Python plugin SDK](../plugin-sdk/python/)
+- [TypeScript plugin SDK](https://github.com/streamcoreai/plugin-sdk/tree/main/typescript)
+- [Python plugin SDK](https://github.com/streamcoreai/plugin-sdk/tree/main/python)
 
 Examples:
 
-- [TypeScript browser app](../examples/typescript/)
-- [Go CLI](../examples/golang/)
-- [Go TUI](../examples/golang-tui/)
-- [Python examples](../examples/python/)
-- [Rust CLI](../examples/rust/)
-- [Rust TUI](../examples/rust-tui/)
+- [TypeScript browser app](https://github.com/streamcoreai/examples-typescript)
+- [Go CLI and TUI examples](https://github.com/streamcoreai/examples-golang)
+- [Python examples](https://github.com/streamcoreai/examples-python)
+- [Rust CLI and TUI examples](https://github.com/streamcoreai/examples-rust)
 
 ## WHIP Protocol
 
