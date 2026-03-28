@@ -1,0 +1,44 @@
+# Node (plugin packages under plugins/)
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local server config (API keys); keep *example* files tracked
+config.toml
+
+# Go build / test artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+__debug_bin
+*.a
+
+# Coverage
+*.coverprofile
+coverage.*
+profile.cov
+
+# Optional vendoring
+vendor/
+
+# Go workspace (if used locally at repo root)
+go.work
+go.work.sum
+
+# Logs
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

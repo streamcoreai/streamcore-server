@@ -1,0 +1,39 @@
+# Voice Agent Server Configuration
+
+[server]
+port = "8080"
+
+[pipeline]
+barge_in = true           # Allow user to interrupt agent mid-speech (default: true)
+
+# ── Provider selection ──────────────────────────────────────────────
+# Each role (stt, llm, tts) selects a provider by name.
+# Add the matching provider section below with its credentials.
+
+[stt]
+provider = "deepgram"     # Supported: deepgram, openai
+
+[llm]
+provider = "openai"       # Supported: openai
+
+[tts]
+provider = "cartesia"     # Supported: cartesia, deepgram, elevenlabs
+
+# ── Provider credentials ────────────────────────────────────────────
+
+[deepgram]
+api_key = ""              # Required — used by STT (and TTS if selected)
+
+[openai]
+api_key = ""              # Required — used by LLM
+model = "gpt-4o-mini"     # Model name (default: gpt-4o-mini)
+system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+
+[cartesia]
+api_key = ""              # Required if tts.provider = "cartesia"
+voice_id = ""             # Optional — Cartesia voice ID (default: Katie)
+
+[elevenlabs]
+api_key = ""              # Required if tts.provider = "elevenlabs"
+voice_id = ""             # Optional — ElevenLabs voice ID (default: Rachel)
+model = ""                # Optional — model (default: eleven_turbo_v2_5)

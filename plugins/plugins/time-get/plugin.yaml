@@ -1,0 +1,13 @@
+name: time.get
+description: Get the current date and time, optionally for a specific timezone
+version: 1
+language: python
+entrypoint: main.py
+parameters:
+  type: object
+  properties:
+    timezone:
+      type: string
+      description: "IANA timezone name (e.g. America/New_York, Europe/London). Defaults to UTC."
+  required: []
+confirmation_required: false
