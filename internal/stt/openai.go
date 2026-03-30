@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"sync"
@@ -15,14 +14,14 @@ import (
 )
 
 const (
-	whisperModel    = "whisper-1"
-	sampleRate      = 16000
-	numChannels     = 1
-	bitsPerSample   = 16
-	bytesPerSample  = bitsPerSample / 8
+	whisperModel   = "whisper-1"
+	sampleRate     = 16000
+	numChannels    = 1
+	bitsPerSample  = 16
+	bytesPerSample = bitsPerSample / 8
 
 	// VAD parameters
-	speechEnergyThreshold = 500.0         // RMS threshold to detect speech
+	speechEnergyThreshold = 500.0                  // RMS threshold to detect speech
 	silenceTimeout        = 600 * time.Millisecond // Silence after speech triggers transcription
 	maxBufferDuration     = 30 * time.Second       // Force-flush after 30s
 	minSpeechDuration     = 200 * time.Millisecond // Ignore very short bursts
@@ -43,11 +42,11 @@ type openaiClient struct {
 	audioBuf bytes.Buffer
 
 	// VAD state
-	speaking     bool
-	speechStart  time.Time
-	lastSpeech   time.Time
-	vadTicker    *time.Ticker
-	done         chan struct{}
+	speaking    bool
+	speechStart time.Time
+	lastSpeech  time.Time
+	vadTicker   *time.Ticker
+	done        chan struct{}
 }
 
 func NewOpenAIClient(ctx context.Context, apiKey string, onResult func(TranscriptResult)) (*openaiClient, error) {
@@ -221,12 +220,12 @@ func encodeWAV(pcm []byte, sampleRate, channels, bitsPerSample int) []byte {
 	buf.WriteString("WAVE")
 	// fmt chunk
 	buf.WriteString("fmt ")
-	binary.Write(buf, binary.LittleEndian, uint32(16))          // chunk size
-	binary.Write(buf, binary.LittleEndian, uint16(1))           // PCM format
-	binary.Write(buf, binary.LittleEndian, uint16(channels))    // channels
-	binary.Write(buf, binary.LittleEndian, uint32(sampleRate))  // sample rate
-	binary.Write(buf, binary.LittleEndian, uint32(byteRate))    // byte rate
-	binary.Write(buf, binary.LittleEndian, uint16(blockAlign))  // block align
+	binary.Write(buf, binary.LittleEndian, uint32(16))            // chunk size
+	binary.Write(buf, binary.LittleEndian, uint16(1))             // PCM format
+	binary.Write(buf, binary.LittleEndian, uint16(channels))      // channels
+	binary.Write(buf, binary.LittleEndian, uint32(sampleRate))    // sample rate
+	binary.Write(buf, binary.LittleEndian, uint32(byteRate))      // byte rate
+	binary.Write(buf, binary.LittleEndian, uint16(blockAlign))    // block align
 	binary.Write(buf, binary.LittleEndian, uint16(bitsPerSample)) // bits per sample
 	// data chunk
 	buf.WriteString("data")
@@ -235,6 +234,3 @@ func encodeWAV(pcm []byte, sampleRate, channels, bitsPerSample int) []byte {
 
 	return buf.Bytes()
 }
-
-// io.Reader is used by openai.AudioRequest — ensure we have the import.
-var _ io.Reader = (*bytes.Reader)(nil)

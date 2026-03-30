@@ -1,0 +1,5 @@
+# Install the plugin SDK from the local repo (not yet published to PyPI):
+#   pip install -e ../../../plugin-sdk/python
+#
+# Or set PLUGIN_SDK_DIR when running the server:
+#   PLUGIN_SDK_DIR=../plugin-sdk go run .

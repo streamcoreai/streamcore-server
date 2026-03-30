@@ -46,7 +46,7 @@ It is a strong fit for:
 - **Plugin system** for Python, TypeScript, and JavaScript tools over JSON-RPC
 - **Native Go tool interface** for zero-IPC extensions compiled into the server
 - **Skills system** that injects Markdown instructions into the system prompt
-- **Client SDKs** for TypeScript (`@streamcore/js-sdk`), Go (`github.com/streamcoreai/voice-agent-sdk-go`), Python (`streamcoreai-sdk`), and [Rust](https://github.com/streamcoreai/rust-sdk)
+- **Client SDKs** for TypeScript (`@streamcore/js-sdk`), Go (`github.com/streamcoreai/go-sdk`), Python (`streamcoreai-sdk`), and [Rust](https://github.com/streamcoreai/rust-sdk)
 - **Plugin SDKs** for TypeScript (`@streamcore/plugin`) and Python (`streamcore-plugin`)
 - **Health endpoint** at `/health`
 
@@ -284,7 +284,7 @@ If you need zero-IPC extensions, you can also register native Go tools directly 
 Client SDKs:
 
 - TypeScript SDK: `@streamcore/js-sdk`
-- Go SDK: `github.com/streamcoreai/voice-agent-sdk-go`
+- Go SDK: `github.com/streamcoreai/go-sdk`
 - Python SDK: `streamcoreai-sdk`
 - [Rust SDK](https://github.com/streamcoreai/rust-sdk)
 

@@ -19,13 +19,24 @@ type Manager struct {
 	plugins map[string]Tool
 	skills  []Skill
 	dir     string
+	sdkDir  string // set via PLUGIN_SDK_DIR env var (dev only)
 }
 
 // NewManager creates a plugin manager that scans the given directory.
+// If the PLUGIN_SDK_DIR environment variable is set, the manager injects
+// SDK paths into plugin subprocesses (development use only — production
+// plugins install the SDK via pip/npm).
 func NewManager(pluginDir string) *Manager {
+	sdkDir := os.Getenv("PLUGIN_SDK_DIR")
+	if sdkDir != "" {
+		if abs, err := filepath.Abs(sdkDir); err == nil {
+			sdkDir = abs
+		}
+	}
 	return &Manager{
 		plugins: make(map[string]Tool),
 		dir:     pluginDir,
+		sdkDir:  sdkDir,
 	}
 }
 
@@ -179,7 +190,7 @@ func (m *Manager) loadPlugins(ctx context.Context, dir string) error {
 			continue
 		}
 
-		plugin := NewExternalPlugin(manifest, pluginDir)
+		plugin := NewExternalPlugin(manifest, pluginDir, m.sdkDir)
 		if err := plugin.Start(ctx); err != nil {
 			log.Printf("[plugins] failed to start %s: %v", manifest.Name, err)
 			continue

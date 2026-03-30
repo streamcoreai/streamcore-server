@@ -7,7 +7,7 @@ import (
 	"github.com/streamcoreai/server/internal/config"
 )
 
-// Client synthesizes text to PCM audio (linear16, 48kHz).
+// Client synthesizes text to PCM audio (linear16, 16kHz mono).
 type Client interface {
 	Synthesize(ctx context.Context, text string) ([]byte, error)
 }

@@ -18,6 +18,7 @@ import (
 type ExternalPlugin struct {
 	manifest Manifest
 	dir      string
+	sdkDir   string
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -28,10 +29,11 @@ type ExternalPlugin struct {
 }
 
 // NewExternalPlugin creates a plugin from a manifest and its directory path.
-func NewExternalPlugin(m Manifest, dir string) *ExternalPlugin {
+func NewExternalPlugin(m Manifest, dir string, sdkDir string) *ExternalPlugin {
 	return &ExternalPlugin{
 		manifest: m,
 		dir:      dir,
+		sdkDir:   sdkDir,
 	}
 }
 
@@ -77,18 +79,25 @@ func (p *ExternalPlugin) Start(ctx context.Context) error {
 	p.stdout.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
 	p.running.Store(true)
 
-	// Init handshake
+	// Init handshake — send initialize and wait for a response.
+	// If the process crashes (e.g. import error), stdout closes and Scan returns false.
 	initReq := JSONRPCRequest{
 		JSONRPC: "2.0",
 		Method:  "initialize",
 		ID:      int(p.nextID.Add(1)),
 	}
 	if err := p.stdin.Encode(initReq); err != nil {
-		log.Printf("[plugin:%s] init send failed: %v", p.manifest.Name, err)
-	} else if p.stdout.Scan() {
-		// Consume init response, ignore errors — plugin may not support init
-		log.Printf("[plugin:%s] initialized", p.manifest.Name)
+		p.running.Store(false)
+		cmd.Process.Kill()
+		cmd.Wait()
+		return fmt.Errorf("plugin %s: init send: %w", p.manifest.Name, err)
 	}
+	if !p.stdout.Scan() {
+		p.running.Store(false)
+		waitErr := cmd.Wait()
+		return fmt.Errorf("plugin %s: process exited during init: %v", p.manifest.Name, waitErr)
+	}
+	log.Printf("[plugin:%s] initialized", p.manifest.Name)
 
 	return nil
 }
@@ -158,36 +167,36 @@ func (p *ExternalPlugin) Stop() {
 
 // buildCommand returns the command and args for the plugin's language runtime.
 func (p *ExternalPlugin) buildCommand() (string, []string, error) {
-	// Add SDK paths to environment
-	sdkRoot := "/Users/jason/development/github/voiceagent/plugin-sdk"
+	if p.sdkDir != "" {
+		p.injectSDKPaths()
+	}
 
 	switch p.manifest.Language {
 	case "python":
-		// Set PYTHONPATH to include the SDK
-		pythonPath := sdkRoot + "/python"
-		if existingPath := os.Getenv("PYTHONPATH"); existingPath != "" {
-			pythonPath = existingPath + ":" + pythonPath
-		}
-		os.Setenv("PYTHONPATH", pythonPath)
 		return "python3", []string{p.manifest.Entrypoint}, nil
 	case "typescript":
-		// Set NODE_PATH to include the compiled SDK
-		nodePath := sdkRoot + "/typescript/dist"
-		if existingPath := os.Getenv("NODE_PATH"); existingPath != "" {
-			nodePath = existingPath + ":" + nodePath
-		}
-		os.Setenv("NODE_PATH", nodePath)
 		return "npx", []string{"tsx", p.manifest.Entrypoint}, nil
 	case "javascript":
-		nodePath := sdkRoot + "/typescript/dist"
-		if existingPath := os.Getenv("NODE_PATH"); existingPath != "" {
-			nodePath = existingPath + ":" + nodePath
-		}
-		os.Setenv("NODE_PATH", nodePath)
 		return "node", []string{p.manifest.Entrypoint}, nil
 	default:
 		return "", nil, fmt.Errorf("unsupported plugin language: %s", p.manifest.Language)
 	}
+}
+
+// injectSDKPaths adds the plugin SDK directories to PYTHONPATH and NODE_PATH
+// so plugin subprocesses can import the SDK helpers.
+func (p *ExternalPlugin) injectSDKPaths() {
+	pythonPath := p.sdkDir + "/python"
+	if existing := os.Getenv("PYTHONPATH"); existing != "" {
+		pythonPath = existing + ":" + pythonPath
+	}
+	os.Setenv("PYTHONPATH", pythonPath)
+
+	nodePath := p.sdkDir + "/typescript/dist"
+	if existing := os.Getenv("NODE_PATH"); existing != "" {
+		nodePath = existing + ":" + nodePath
+	}
+	os.Setenv("NODE_PATH", nodePath)
 }
 
 // logWriter writes plugin stderr output to the server log.

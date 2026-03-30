@@ -4,7 +4,7 @@
 port = "8080"
 
 [plugins]
-directory = "./plugins" # Required if you want plugins and skills loaded
+directory = "./plugins"     # Required if you want plugins and skills loaded
 
 [pipeline]
 barge_in = true
