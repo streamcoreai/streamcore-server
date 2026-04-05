@@ -135,7 +135,16 @@ Provider requirements:
 
 ## Quick Start
 
-### Option A: Docker
+The server has two modes:
+
+- **Standard (WHIP)** — direct WebRTC between client and server, no SFU required
+- **Mediasoup** — joins a mediasoup SFU room as a peer, consumes audio from other participants
+
+### Standard Mode (WHIP)
+
+This is the default mode. Clients connect directly to the server over WebRTC using WHIP signaling.
+
+#### Option A: Docker
 
 ```bash
 cp config.toml.example config.toml
@@ -145,20 +154,18 @@ docker build -t streamcoreai-server .
 docker run --rm -p 8080:8080 -v "$(pwd)/config.toml:/config.toml:ro" streamcoreai-server
 ```
 
-Then connect a client to `http://localhost:8080/whip`. You can use the browser client from [streamcoreai/examples](https://github.com/streamcoreai/examples/tree/main/typescript) or any of the SDKs listed below.
-
-### Option B: Local Development
-
-Start the server from this repository:
+#### Option B: Local Development
 
 ```bash
 cp config.toml.example config.toml
 # Edit config.toml with your API keys
 
-go run .
+go run ./cmd/standard
 ```
 
-In another terminal, run a client from its own repository. For example, with the browser app:
+Then connect a client to `http://localhost:8080/whip`. You can use the browser client from [streamcoreai/examples](https://github.com/streamcoreai/examples/tree/main/typescript) or any of the SDKs listed below.
+
+For example, with the browser app:
 
 ```bash
 git clone https://github.com/streamcoreai/examples.git
@@ -168,6 +175,72 @@ npm run dev
 ```
 
 Then open [http://localhost:3000](http://localhost:3000). By default it connects to `http://localhost:8080/whip`.
+
+### Mediasoup Mode
+
+In this mode the server joins a [mediasoup](https://mediasoup.org/) SFU room as a peer. It consumes audio from other participants in the room, runs it through the voice pipeline (STT → LLM → TTS), and produces audio back into the room. The signaling is based on the [mediasoup-demo](https://github.com/versatica/mediasoup-demo/).
+
+#### 1. Run the mediasoup demo
+
+Clone and start the mediasoup demo server and client:
+
+```bash
+git clone https://github.com/versatica/mediasoup-demo.git
+cd mediasoup-demo
+
+# Start the server
+cd server
+npm install
+npm start
+
+# In another terminal, start the client
+cd ../app
+npm install
+npm start
+```
+
+Open the demo client in your browser and join a room (e.g. `https://localhost:3443/?roomId=dev`). Make sure your microphone is enabled.
+
+#### 2. Configure and start the StreamCoreAI mediasoup server
+
+Add the mediasoup section to your `config.toml`:
+
+```toml
+[mediasoup]
+signaling_url = "https://localhost:4443"
+room_id = "dev"
+origin_header = "https://localhost:4443"
+```
+
+Then start the mediasoup server:
+
+```bash
+go run ./cmd/mediasoup
+```
+
+#### 3. Dispatch an agent into the room
+
+Send a `POST` to `/dispatch` to start an agent that joins the room:
+
+```bash
+curl -X POST http://localhost:8080/dispatch \
+  -H "Content-Type: application/json" \
+  -d '{"roomId": "dev"}'
+```
+
+Response:
+
+```json
+{ "agentId": "agent-1", "roomId": "dev" }
+```
+
+The agent joins the mediasoup room, consumes audio from existing peers, and produces its responses back into the room. You can speak in the browser client and the agent will respond.
+
+To stop an agent:
+
+```bash
+curl -X DELETE http://localhost:8080/dispatch/agent-1
+```
 
 ## Configuration
 
