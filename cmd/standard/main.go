@@ -51,7 +51,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		log.Printf("Voice agent server listening on :%s", cfg.Server.Port)
+		log.Printf("Voice agent server (standard) listening on :%s", cfg.Server.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}

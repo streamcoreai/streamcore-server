@@ -43,7 +43,7 @@ func New(ctx context.Context, id string) (*Peer, error) {
 		RTPCodecCapability: webrtc.RTPCodecCapability{
 			MimeType:    webrtc.MimeTypeOpus,
 			ClockRate:   48000,
-			Channels:    1,
+			Channels:    2,
 			SDPFmtpLine: "minptime=10;useinbandfec=1",
 		},
 		PayloadType: 111,
@@ -71,7 +71,7 @@ func New(ctx context.Context, id string) (*Peer, error) {
 		webrtc.RTPCodecCapability{
 			MimeType:  webrtc.MimeTypeOpus,
 			ClockRate: 48000,
-			Channels:  1,
+			Channels:  2,
 		},
 		"audio-agent",
 		"streamcoreai",

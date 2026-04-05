@@ -11,26 +11,32 @@ import (
 	"github.com/streamcoreai/server/internal/plugin"
 )
 
+// PipelineOptsFunc is called per-peer to build pipeline options (e.g. bridge hooks).
+// Return nil for default (standard) behavior.
+type PipelineOptsFunc func(sessionID, peerID string) *pipeline.PipelineOptions
+
 type Session struct {
-	ID        string
-	cfg       *config.Config
-	pluginMgr *plugin.Manager
-	ctx       context.Context
-	cancel    context.CancelFunc
+	ID             string
+	cfg            *config.Config
+	pluginMgr      *plugin.Manager
+	pipelineOptsFn PipelineOptsFunc
+	ctx            context.Context
+	cancel         context.CancelFunc
 
 	mu    sync.Mutex
 	peers map[string]*peer.Peer
 }
 
-func NewSession(id string, cfg *config.Config, pluginMgr *plugin.Manager) *Session {
+func NewSession(id string, cfg *config.Config, pluginMgr *plugin.Manager, pipelineOptsFn PipelineOptsFunc) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{
-		ID:        id,
-		cfg:       cfg,
-		pluginMgr: pluginMgr,
-		ctx:       ctx,
-		cancel:    cancel,
-		peers:     make(map[string]*peer.Peer),
+		ID:             id,
+		cfg:            cfg,
+		pluginMgr:      pluginMgr,
+		pipelineOptsFn: pipelineOptsFn,
+		ctx:            ctx,
+		cancel:         cancel,
+		peers:          make(map[string]*peer.Peer),
 	}
 }
 
@@ -61,7 +67,11 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 			log.Printf("[session:%s] remote track ready, starting pipeline", s.ID)
 
 			var err error
-			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, direction)
+			var pipelineOpts *pipeline.PipelineOptions
+			if s.pipelineOptsFn != nil {
+				pipelineOpts = s.pipelineOptsFn(s.ID, peerID)
+			}
+			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, direction, pipelineOpts)
 			if err != nil {
 				log.Printf("[session:%s] pipeline create error: %v", s.ID, err)
 				p.Close()

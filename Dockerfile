@@ -12,6 +12,8 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o /server .
+RUN CGO_ENABLED=1 GOOS=linux go build -o /server-standard ./cmd/standard
+RUN CGO_ENABLED=1 GOOS=linux go build -o /server-mediasoup ./cmd/mediasoup
 
 # Run stage
 FROM debian:bookworm-slim
@@ -21,6 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /server /server
+COPY --from=builder /server-standard /server-standard
+COPY --from=builder /server-mediasoup /server-mediasoup
 
 EXPOSE 8080
 

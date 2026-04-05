@@ -82,6 +82,16 @@ func (p *Pipeline) encodeAndSend(frame PCMFrame) {
 		return
 	}
 
+	// Forward raw Opus payload to bridge if hooked.
+	if p.onOutboundOpus != nil {
+		p.onOutboundOpus(opusData)
+	}
+
+	// When no local track (mediasoup mode), only the callback above is used.
+	if p.localTrack == nil {
+		return
+	}
+
 	p.rtpMu.Lock()
 	p.seqNum++
 	p.timestamp += audio.RTPTimestampIncr

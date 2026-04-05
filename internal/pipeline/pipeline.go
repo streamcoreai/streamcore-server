@@ -70,6 +70,10 @@ type Pipeline struct {
 	// Call metadata
 	direction string // "outbound" for outgoing SIP calls, empty otherwise
 
+	// Optional hooks for audio bridging (e.g. mediasoup)
+	onOutboundOpus func(opusPayload []byte) // called for each outbound Opus packet
+	onInboundOpus  func(opusPayload []byte) // called for each inbound Opus packet
+
 	// RTP outbound state
 	rtpMu      sync.Mutex
 	seqNum     uint16
@@ -78,8 +82,12 @@ type Pipeline struct {
 	markerNext bool
 }
 
-// New creates a pipeline wired to the given WebRTC tracks.
-// Call Start() to launch the goroutine chain.
+// PipelineOptions holds optional configuration for the pipeline.
+type PipelineOptions struct {
+	OnOutboundOpus func(opusPayload []byte) // called for each outbound Opus packet
+	OnInboundOpus  func(opusPayload []byte) // called for each inbound Opus packet
+}
+
 func New(
 	ctx context.Context,
 	cfg *config.Config,
@@ -88,14 +96,30 @@ func New(
 	sendEvent func(interface{}) error,
 	pluginMgr *plugin.Manager,
 	direction string,
+	opts *PipelineOptions,
 ) (*Pipeline, error) {
-	dec, err := audio.NewOpusDecoder()
-	if err != nil {
-		return nil, err
+	var dec *audio.OpusDecoder
+	var enc *audio.OpusEncoder
+	var err error
+
+	// Only create decoder/encoder when we have WebRTC tracks.
+	if remoteTrack != nil {
+		dec, err = audio.NewOpusDecoder()
+		if err != nil {
+			return nil, err
+		}
 	}
-	enc, err := audio.NewOpusEncoder()
-	if err != nil {
-		return nil, err
+	if localTrack != nil {
+		enc, err = audio.NewOpusEncoder()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Mediasoup mode: still need encoder for onOutboundOpus
+		enc, err = audio.NewOpusEncoder()
+		if err != nil {
+			return nil, err
+		}
 	}
 	llmClient, err := llm.NewClient(cfg)
 	if err != nil {
@@ -128,6 +152,11 @@ func New(
 		direction:    direction,
 		ssrc:         12345678,
 		markerNext:   true,
+	}
+
+	if opts != nil {
+		p.onOutboundOpus = opts.OnOutboundOpus
+		p.onInboundOpus = opts.OnInboundOpus
 	}
 
 	// Wire plugins into the LLM as function-calling tools.
@@ -164,17 +193,34 @@ func New(
 	return p, nil
 }
 
+// PushPCM feeds decoded PCM frames into the pipeline from an external source
+// (e.g. mediasoup consumer). Use this when remoteTrack is nil.
+func (p *Pipeline) PushPCM(samples []int16) {
+	select {
+	case p.inPCMCh <- PCMFrame{Samples: samples}:
+	case <-p.ctx.Done():
+	}
+}
+
 // Start launches all pipeline goroutines and blocks until the context is cancelled.
 func (p *Pipeline) Start() {
+	goroutines := 2 // inbound + agent always run
 	var wg sync.WaitGroup
-	wg.Add(4)
 
-	go func() { defer wg.Done(); p.runReader() }()
+	if p.remoteTrack != nil {
+		goroutines++
+		wg.Add(1)
+		go func() { defer wg.Done(); p.runReader() }()
+	}
+
+	wg.Add(2)
 	go func() { defer wg.Done(); p.runInbound() }()
 	go func() { defer wg.Done(); p.runAgent() }()
+
+	wg.Add(1)
 	go func() { defer wg.Done(); p.runSender() }()
 
-	log.Println("[pipeline] started — reader, inbound, agent, sender")
+	log.Printf("[pipeline] started — %d goroutines", goroutines+2)
 
 	// Send initial greeting if configured.
 	if g := p.greetingText(); g != "" {

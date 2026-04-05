@@ -35,6 +35,11 @@ func (p *Pipeline) runReader() {
 			continue
 		}
 
+		// Forward raw Opus payload to bridge if hooked.
+		if p.onInboundOpus != nil {
+			p.onInboundOpus(pkt.Payload)
+		}
+
 		pcm, err := p.decoder.Decode(pkt.Payload)
 		if err != nil {
 			log.Printf("[reader] opus decode error (payload %d bytes): %v", len(pkt.Payload), err)
