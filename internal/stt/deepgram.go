@@ -88,7 +88,9 @@ func NewDeepgramClient(ctx context.Context, cfg config.DeepgramConfig, onResult 
 
 	cb := &deepgramCallback{onResult: onResult}
 
-	ws, err := websocketv1.NewUsingCallbackWithCancel(sttCtx, cancel, cfg.APIKey, &clientinterfaces.ClientOptions{}, tOptions, cb)
+	ws, err := websocketv1.NewUsingCallbackWithCancel(sttCtx, cancel, cfg.APIKey, &clientinterfaces.ClientOptions{
+		EnableKeepAlive: true,
+	}, tOptions, cb)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("deepgram client: %w", err)

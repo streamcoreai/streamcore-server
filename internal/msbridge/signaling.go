@@ -134,6 +134,33 @@ func NewProtooClient(signalingURL, roomID, peerID, originHeader string) (*Protoo
 	return pc, nil
 }
 
+// Notify sends a protoo notification (fire-and-forget, no response expected).
+func (c *ProtooClient) Notify(method string, data interface{}) error {
+	if c.closed.Load() {
+		return fmt.Errorf("protoo client closed")
+	}
+
+	var rawData json.RawMessage
+	if data != nil {
+		var err error
+		rawData, err = json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("marshal notification data: %w", err)
+		}
+	}
+
+	notif := protooNotification{
+		Notification: true,
+		Method:       method,
+		Data:         rawData,
+	}
+
+	if err := c.conn.WriteJSON(notif); err != nil {
+		return fmt.Errorf("write notification: %w", err)
+	}
+	return nil
+}
+
 // Request sends a protoo request and waits for the response.
 func (c *ProtooClient) Request(method string, data interface{}) (json.RawMessage, error) {
 	if c.closed.Load() {

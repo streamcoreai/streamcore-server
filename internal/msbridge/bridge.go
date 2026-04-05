@@ -288,6 +288,16 @@ func (b *Bridge) onNewConsumer(data json.RawMessage) error {
 	// Start reading audio from this consumer in a goroutine
 	go b.readConsumerAudio(consumer, req.PeerID)
 
+	// Resume the consumer — mediasoup creates consumers paused by default.
+	// resumeConsumer is a notification (not a request) in the mediasoup protoo protocol.
+	if err := b.protoo.Notify("resumeConsumer", map[string]string{
+		"consumerId": req.ConsumerID,
+	}); err != nil {
+		log.Printf("[msbridge] resumeConsumer error for %s: %v", req.ConsumerID, err)
+	} else {
+		log.Printf("[msbridge] resumed consumer %s", req.ConsumerID)
+	}
+
 	return nil
 }
 
@@ -469,11 +479,17 @@ func (b *Bridge) createRecvTransport() (*mediasoupclient.RecvTransport, error) {
 			DTLSParameters: resp.DtlsParameters,
 			SCTPParameters: resp.SctpParameters,
 			OnConnect: func(ctx context.Context, req mediasoupclient.ConnectRequest) error {
+				log.Printf("[msbridge] RecvTransport OnConnect fired — connecting DTLS")
 				connectData := map[string]interface{}{
 					"transportId":    resp.TransportID,
 					"dtlsParameters": req.DtlsParameters,
 				}
 				_, err := protoo.Request("connectWebRtcTransport", connectData)
+				if err != nil {
+					log.Printf("[msbridge] RecvTransport connect error: %v", err)
+				} else {
+					log.Printf("[msbridge] RecvTransport connected successfully")
+				}
 				return err
 			},
 		},
@@ -481,6 +497,8 @@ func (b *Bridge) createRecvTransport() (*mediasoupclient.RecvTransport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create recv transport: %w", err)
 	}
+
+	log.Printf("[msbridge] RecvTransport created id=%s", resp.TransportID)
 
 	return transport, nil
 }
