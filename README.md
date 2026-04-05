@@ -182,24 +182,7 @@ In this mode the server joins a [mediasoup](https://mediasoup.org/) SFU room as 
 
 #### 1. Run the mediasoup demo
 
-Clone and start the mediasoup demo server and client:
-
-```bash
-git clone https://github.com/versatica/mediasoup-demo.git
-cd mediasoup-demo
-
-# Start the server
-cd server
-npm install
-npm start
-
-# In another terminal, start the client
-cd ../app
-npm install
-npm start
-```
-
-Open the demo client in your browser and join a room (e.g. `https://localhost:3443/?roomId=dev`). Make sure your microphone is enabled.
+Clone the [mediasoup-demo](https://github.com/versatica/mediasoup-demo/) and follow their instructions to run the server and client. Once running, open the demo client in your browser and join a room (e.g. `https://localhost:3443/?roomId=dev`). Make sure your microphone is enabled.
 
 #### 2. Configure and start the StreamCoreAI mediasoup server
 
