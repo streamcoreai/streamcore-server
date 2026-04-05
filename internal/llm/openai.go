@@ -94,6 +94,7 @@ func (c *openaiClient) AppendSystemPrompt(text string) {
 // continues until the LLM produces a text response.
 func (c *openaiClient) Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error) {
 	c.mu.Lock()
+	c.history = sanitizeHistory(c.history)
 	c.history = append(c.history, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleUser,
 		Content: userText,
@@ -298,6 +299,43 @@ func (c *openaiClient) streamCompletion(ctx context.Context, onChunk func(string
 
 	log.Printf("[llm] response: %s", truncate(fullResponse.String(), 80))
 	return fullResponse.String(), nil, nil
+}
+
+// sanitizeHistory removes dangling tool-call sequences from the conversation
+// history. If an assistant message with tool_calls is not followed by a tool
+// result for every call ID, the entire incomplete sequence is stripped.
+// This prevents OpenAI 400 errors after barge-in interrupts a tool-call round.
+func sanitizeHistory(history []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
+	// Walk backwards to find the last assistant message with tool calls.
+	for i := len(history) - 1; i >= 0; i-- {
+		msg := history[i]
+		if msg.Role != openai.ChatMessageRoleAssistant || len(msg.ToolCalls) == 0 {
+			continue
+		}
+
+		// Collect required tool_call IDs from this assistant message.
+		required := make(map[string]bool, len(msg.ToolCalls))
+		for _, tc := range msg.ToolCalls {
+			required[tc.ID] = true
+		}
+
+		// Check subsequent messages for matching tool results.
+		for j := i + 1; j < len(history); j++ {
+			if history[j].Role == openai.ChatMessageRoleTool {
+				delete(required, history[j].ToolCallID)
+			}
+		}
+
+		// If all tool results are present, history is valid.
+		if len(required) == 0 {
+			continue
+		}
+
+		// Incomplete tool sequence — truncate history at this point.
+		log.Printf("[llm] sanitizeHistory: removing dangling tool-call sequence at index %d (%d missing results)", i, len(required))
+		return history[:i]
+	}
+	return history
 }
 
 func findSentenceEnd(s string) int {
