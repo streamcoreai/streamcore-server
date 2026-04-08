@@ -31,7 +31,9 @@ func NewClient(ctx context.Context, cfg *config.Config, onResult func(Transcript
 			return nil, fmt.Errorf("stt provider %q requires [openai] api_key to be set", cfg.STT.Provider)
 		}
 		return NewOpenAIClient(ctx, cfg.OpenAI.APIKey, onResult)
+	case "vibevoice":
+		return NewVibeVoiceClient(ctx, cfg.VibeVoice.ASRURL, onResult)
 	default:
-		return nil, fmt.Errorf("unknown stt provider %q (supported: deepgram, openai)", cfg.STT.Provider)
+		return nil, fmt.Errorf("unknown stt provider %q (supported: deepgram, openai, vibevoice)", cfg.STT.Provider)
 	}
 }

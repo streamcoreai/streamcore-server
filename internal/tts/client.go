@@ -30,7 +30,9 @@ func NewClient(cfg *config.Config) (Client, error) {
 			return nil, ErrMissingAPIKey{Provider: "elevenlabs", Field: "[elevenlabs] api_key"}
 		}
 		return NewElevenLabsClient(cfg.ElevenLabs.APIKey, cfg.ElevenLabs.VoiceID, cfg.ElevenLabs.Model), nil
+	case "vibevoice":
+		return NewVibeVoiceClient(cfg.VibeVoice.TTSURL, cfg.VibeVoice.Voice), nil
 	default:
-		return nil, fmt.Errorf("unknown tts provider %q (supported: cartesia, deepgram, elevenlabs)", cfg.TTS.Provider)
+		return nil, fmt.Errorf("unknown tts provider %q (supported: cartesia, deepgram, elevenlabs, vibevoice)", cfg.TTS.Provider)
 	}
 }

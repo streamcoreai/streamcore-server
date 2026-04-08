@@ -45,7 +45,9 @@ func NewClient(cfg *config.Config) (Client, error) {
 			return nil, fmt.Errorf("llm provider %q requires [openai] api_key to be set", cfg.LLM.Provider)
 		}
 		return NewOpenAIClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.SystemPrompt), nil
+	case "ollama":
+		return NewOllamaClient(cfg.Ollama.BaseURL, cfg.Ollama.Model, cfg.Ollama.SystemPrompt)
 	default:
-		return nil, fmt.Errorf("unknown llm provider %q (supported: openai)", cfg.LLM.Provider)
+		return nil, fmt.Errorf("unknown llm provider %q (supported: openai, ollama)", cfg.LLM.Provider)
 	}
 }

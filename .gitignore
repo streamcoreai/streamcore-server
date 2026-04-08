@@ -8,7 +8,7 @@ node_modules/
 plugins/plugins/*/.env
 plugins/plugins/*/.env.*
 plugins/plugins/*/.venv
-external/.venv
+external/vibeVoice/.venv
 # Local server config (API keys); keep *example* files tracked
 config.toml
 

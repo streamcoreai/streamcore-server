@@ -39,9 +39,9 @@ It is a strong fit for:
 
 - **Real-time bidirectional voice** over WebRTC with Opus audio
 - **WHIP signaling** ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) with a single HTTP POST for SDP exchange
-- **Streaming STT** with Deepgram, plus OpenAI Whisper support for final-only transcription
-- **Streaming LLM responses** with OpenAI and conversation history
-- **Configurable TTS** with Cartesia, Deepgram, or ElevenLabs
+- **Streaming STT** with Deepgram, OpenAI Whisper, or local VibeVoice-ASR
+- **Streaming LLM responses** with OpenAI or Ollama and conversation history
+- **Configurable TTS** with Cartesia, Deepgram, ElevenLabs, or local VibeVoice-Realtime
 - **Barge-in support** so users can interrupt the assistant mid-response
 - **Plugin system** for Python, TypeScript, and JavaScript tools over JSON-RPC
 - **Native Go tool interface** for zero-IPC extensions compiled into the server
@@ -129,9 +129,9 @@ Provider requirements:
 
 | Role | Providers | Required credentials |
 |------|-----------|----------------------|
-| STT | `deepgram`, `openai` | Deepgram API key or OpenAI API key |
-| LLM | `openai` | OpenAI API key |
-| TTS | `cartesia`, `deepgram`, `elevenlabs` | Matching provider API key |
+| STT | `deepgram`, `openai`, `vibevoice` | Deepgram API key, OpenAI API key, or local VibeVoice ASR server |
+| LLM | `openai`, `ollama` | OpenAI API key or local Ollama instance |
+| TTS | `cartesia`, `deepgram`, `elevenlabs`, `vibevoice` | Matching provider API key, or local VibeVoice TTS server |
 
 ## Quick Start
 
@@ -169,6 +169,75 @@ npm run dev
 
 Then open [http://localhost:3000](http://localhost:3000). By default it connects to `http://localhost:8080/whip`.
 
+### Option C: Fully Local Setup (No API Keys)
+
+Run everything locally using Ollama for LLM and VibeVoice for STT/TTS:
+
+**1. Install and start Ollama**
+
+```bash
+# Install from https://ollama.ai or via:
+brew install ollama  # macOS
+# curl -fsSL https://ollama.com/install.sh | sh  # Linux
+
+# Start Ollama and pull a model
+ollama serve  # runs in background on macOS, or start as systemd service on Linux
+ollama pull llama3.2
+```
+
+**2. Install Python dependencies and start VibeVoice servers**
+
+```bash
+# Install dependencies (Apple Silicon)
+pip install mlx-audio numpy websockets fastapi uvicorn
+
+# OR for Linux/CUDA:
+# pip install torch transformers librosa numpy websockets fastapi uvicorn
+
+# Terminal 1: Start ASR server
+python external/vibeVoice/vibeVoiceAsr/server.py
+# Listens on ws://127.0.0.1:8200
+
+# Terminal 2: Start TTS server
+python external/vibeVoice/vibeVoiceTTS/server.py
+# Listens on http://127.0.0.1:8300
+```
+
+**3. Configure the Go server**
+
+```bash
+cp config.toml.example config.toml
+```
+
+Edit `config.toml`:
+```toml
+[stt]
+provider = "vibevoice"
+
+[llm]
+provider = "ollama"
+
+[tts]
+provider = "vibevoice"
+
+[ollama]
+base_url = "http://localhost:11434"
+model = "llama3.2"
+
+[vibevoice]
+asr_url = "ws://127.0.0.1:8200"
+tts_url = "http://127.0.0.1:8300"
+voice = "en-Emma_woman"
+```
+
+**4. Start the Go server**
+
+```bash
+go run .
+```
+
+Now you have a fully local voice AI with no external API dependencies.
+
 ## Configuration
 
 Use [`config.toml.example`](./config.toml.example) as your starting point:
@@ -204,6 +273,11 @@ api_key = ""
 model = "gpt-4o-mini"
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
+[ollama]
+base_url = "http://localhost:11434"
+model = "llama3.2"
+system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+
 [cartesia]
 api_key = ""
 voice_id = ""
@@ -212,6 +286,11 @@ voice_id = ""
 api_key = ""
 voice_id = ""
 model = ""
+
+[vibevoice]
+asr_url = "ws://127.0.0.1:8200"
+tts_url = "http://127.0.0.1:8300"
+voice = "en-Emma_woman"
 ```
 
 Notes:
@@ -221,6 +300,57 @@ Notes:
 - `pipeline.greeting` plays when a session starts. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
 - `pipeline.debug = true` emits timing events over the DataChannel.
 - `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
+- `llm.provider = "ollama"` uses a local Ollama instance instead of OpenAI. Make sure Ollama is running and the specified model is pulled (e.g., `ollama pull llama3.2`).
+- `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local VibeVoice models. Start the Python servers first (see [Local VibeVoice Setup](#local-vibevoice-setup)).
+
+## Local VibeVoice Setup
+
+VibeVoice provides fully local STT and TTS — no API keys needed. It uses [VibeVoice-ASR](https://huggingface.co/mlx-community/VibeVoice-ASR-4bit) for speech recognition and [VibeVoice-Realtime-0.5B](https://huggingface.co/mlx-community/VibeVoice-Realtime-0.5B-6bit) for text-to-speech via two lightweight Python sidecar servers.
+
+On Apple Silicon the servers use [mlx-audio](https://github.com/Blaizzy/mlx-audio) (MLX). On Linux/Windows they fall back to PyTorch automatically.
+
+### 1. Install dependencies
+
+```bash
+# Apple Silicon (MLX)
+pip install mlx-audio numpy websockets fastapi uvicorn
+
+# OR PyTorch (Linux / CUDA)
+pip install torch transformers librosa numpy websockets fastapi uvicorn
+```
+
+### 2. Start the ASR server
+
+```bash
+python external/vibeVoice/vibeVoiceAsr/server.py
+# Listens on ws://127.0.0.1:8200
+# Default model: mlx-community/VibeVoice-ASR-4bit (Mac) or microsoft/VibeVoice-ASR (PyTorch)
+```
+
+### 3. Start the TTS server
+
+```bash
+python external/vibeVoice/vibeVoiceTTS/server.py
+# Listens on http://127.0.0.1:8300
+# Default model: mlx-community/VibeVoice-Realtime-0.5B-6bit (Mac) or microsoft/VibeVoice-Realtime-0.5B (PyTorch)
+```
+
+### 4. Configure the Go server
+
+```toml
+[stt]
+provider = "vibevoice"
+
+[tts]
+provider = "vibevoice"
+
+[vibevoice]
+asr_url = "ws://127.0.0.1:8200"
+tts_url = "http://127.0.0.1:8300"
+voice = "en-Emma_woman"
+```
+
+The ASR server accepts live PCM audio over WebSocket and emits JSON transcript events. The TTS server accepts HTTP POST requests and returns raw PCM audio.
 
 ## Plugins And Skills
 

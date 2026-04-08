@@ -1,0 +1,19 @@
+# Core
+numpy
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# --- Pick ONE backend below ---
+
+# Apple Silicon (MLX) — recommended on Mac
+# pip install mlx-audio
+# Default model: mlx-community/VibeVoice-Realtime-0.5B-6bit
+
+# PyTorch (Linux / Windows / CUDA)
+# Option A – vibevoice package (recommended):
+#   git clone https://github.com/microsoft/VibeVoice && cd VibeVoice
+#   pip install -e .[streamingtts]
+#   Default model: microsoft/VibeVoice-Realtime-0.5B
+#
+# Option B – transformers (experimental):
+#   pip install torch transformers
