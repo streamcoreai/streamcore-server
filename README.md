@@ -182,7 +182,7 @@ brew install ollama  # macOS
 
 # Start Ollama and pull a model
 ollama serve  # runs in background on macOS, or start as systemd service on Linux
-ollama pull llama3.2
+ollama pull gpt-oss:20b
 ```
 
 **2. Install Python dependencies and start VibeVoice servers**
