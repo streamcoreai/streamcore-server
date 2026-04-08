@@ -5,6 +5,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+plugins/plugins/*/.env
+plugins/plugins/*/.env.*
 plugins/plugins/*/.venv
 # Local server config (API keys); keep *example* files tracked
 config.toml
