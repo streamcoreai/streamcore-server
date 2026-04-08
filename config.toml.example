@@ -15,13 +15,13 @@ debug = false           # Emit timing events over the DataChannel
 # Provider selection
 
 [stt]
-provider = "deepgram"   # Supported: deepgram, openai
+provider = "deepgram"   # Supported: deepgram, openai, vibevoice
 
 [llm]
-provider = "openai"     # Supported: openai
+provider = "openai"     # Supported: openai, ollama
 
 [tts]
-provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs
+provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, vibevoice
 
 # Provider credentials
 
@@ -34,6 +34,11 @@ api_key = ""            # Required for LLM, and for OpenAI STT if selected
 model = "gpt-4o-mini"
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
+[ollama]
+base_url = "http://localhost:11434"  # Ollama server URL
+model = "gemma4:e4b"                   # Model name (e.g., gemma4:e4b, mistral, qwen2.5)
+system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+
 [cartesia]
 api_key = ""            # Required if tts.provider = "cartesia"
 voice_id = ""           # Optional; defaults to Cartesia Katie
@@ -42,6 +47,15 @@ voice_id = ""           # Optional; defaults to Cartesia Katie
 api_key = ""            # Required if tts.provider = "elevenlabs"
 voice_id = ""           # Optional; defaults to ElevenLabs Rachel
 model = ""              # Optional; defaults to eleven_turbo_v2_5
+
+# VibeVoice — local STT and TTS via external Python services.
+# Start the servers first:
+#   python external/vibeVoice/vibeVoiceAsr/server.py   (default port 8200)
+#   python external/vibeVoice/vibeVoiceTTS/server.py   (default port 8300)
+[vibevoice]
+asr_url = "ws://127.0.0.1:8200"    # WebSocket URL for VibeVoice ASR server
+tts_url = "http://127.0.0.1:8300"  # HTTP URL for VibeVoice TTS server
+voice = "en-Emma_woman"             # TTS voice name
 
 # Vision (used by the vision-analyze plugin)
 # The plugin reads OPENAI_API_KEY from the environment (same key as [openai]).

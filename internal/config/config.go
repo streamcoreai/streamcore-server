@@ -19,6 +19,8 @@ type Config struct {
 	TTS        TTSConfig        `toml:"tts"`
 	Deepgram   DeepgramConfig   `toml:"deepgram"`
 	OpenAI     OpenAIConfig     `toml:"openai"`
+	Ollama     OllamaConfig     `toml:"ollama"`
+	VibeVoice  VibeVoiceConfig  `toml:"vibevoice"`
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
 }
@@ -61,6 +63,12 @@ type OpenAIConfig struct {
 	SystemPrompt string `toml:"system_prompt"`
 }
 
+type OllamaConfig struct {
+	BaseURL      string `toml:"base_url"`
+	Model        string `toml:"model"`
+	SystemPrompt string `toml:"system_prompt"`
+}
+
 type CartesiaConfig struct {
 	APIKey  string `toml:"api_key"`
 	VoiceID string `toml:"voice_id"`
@@ -70,6 +78,12 @@ type ElevenLabsConfig struct {
 	APIKey  string `toml:"api_key"`
 	VoiceID string `toml:"voice_id"`
 	Model   string `toml:"model"`
+}
+
+type VibeVoiceConfig struct {
+	ASRURL string `toml:"asr_url"` // WebSocket URL for the ASR server
+	TTSURL string `toml:"tts_url"` // HTTP URL for the TTS server
+	Voice  string `toml:"voice"`   // TTS voice name
 }
 
 // Load reads configuration from a TOML file. It tries the given path first,
@@ -94,6 +108,12 @@ func Load(path string) (*Config, error) {
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")
 	setDefault(&cfg.OpenAI.SystemPrompt, "You are a helpful AI voice assistant. Keep your responses concise and conversational.")
+	setDefault(&cfg.Ollama.BaseURL, "http://localhost:11434")
+	setDefault(&cfg.Ollama.Model, "llama3.2")
+	setDefault(&cfg.Ollama.SystemPrompt, "You are a helpful AI voice assistant. Keep your responses concise and conversational.")
+	setDefault(&cfg.VibeVoice.ASRURL, "ws://127.0.0.1:8200")
+	setDefault(&cfg.VibeVoice.TTSURL, "http://127.0.0.1:8300")
+	setDefault(&cfg.VibeVoice.Voice, "en-Emma_woman")
 
 	// Default barge-in to true if not explicitly set
 	if cfg.Pipeline.BargeIn == nil {
