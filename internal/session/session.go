@@ -67,6 +67,11 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 				p.Close()
 				return
 			}
+
+			// Route incoming data channel messages to the pipeline (e.g. image chunks).
+			p.OnDataChannelMessage = func(msg string) {
+				pl.HandleDataChannelMessage(msg)
+			}
 		case <-s.ctx.Done():
 			return
 		}

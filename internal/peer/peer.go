@@ -33,6 +33,11 @@ type Peer struct {
 
 	OnClose func()
 
+	// OnDataChannelMessage is called for each incoming text message on the
+	// "events" DataChannel. Set this before the channel opens (i.e. before
+	// Start) so no messages are missed.
+	OnDataChannelMessage func(msg string)
+
 	closed bool
 	mu     sync.Mutex
 }
@@ -115,6 +120,13 @@ func New(ctx context.Context, id string) (*Peer, error) {
 			p.dcMu.Lock()
 			p.dc = d
 			p.dcMu.Unlock()
+		})
+		d.OnMessage(func(msg webrtc.DataChannelMessage) {
+			if msg.IsString {
+				if handler := p.OnDataChannelMessage; handler != nil {
+					handler(string(msg.Data))
+				}
+			}
 		})
 	})
 

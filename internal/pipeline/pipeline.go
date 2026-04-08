@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -67,6 +68,9 @@ type Pipeline struct {
 	responseMu     sync.Mutex
 	responseCancel context.CancelFunc
 
+	// Vision
+	imageRecv *imageReceiver
+
 	// Call metadata
 	direction string // "outbound" for outgoing SIP calls, empty otherwise
 
@@ -108,6 +112,8 @@ func New(
 
 	pCtx, cancel := context.WithCancel(ctx)
 
+	imgRecv := newImageReceiver()
+
 	p := &Pipeline{
 		ctx:          pCtx,
 		cancel:       cancel,
@@ -119,6 +125,7 @@ func New(
 		llmClient:    llmClient,
 		ttsClient:    ttsClient,
 		pluginMgr:    pluginMgr,
+		imageRecv:    imgRecv,
 		vad:          vad.NewDefault(),
 		inPCMCh:      make(chan PCMFrame, inPCMChSize),
 		transcriptCh: make(chan TranscriptEvent, transcriptChSize),
@@ -144,6 +151,10 @@ func New(
 			}
 			llmClient.SetTools(defs)
 			llmClient.SetToolHandler(func(callCtx context.Context, call llm.ToolCall) (string, error) {
+				// Intercept vision.analyze: capture image first, inject into params.
+				if call.Name == visionToolName {
+					return p.handleVisionToolCall(call)
+				}
 				tool, ok := pluginMgr.GetTool(call.Name)
 				if !ok {
 					return "", fmt.Errorf("unknown tool: %s", call.Name)
@@ -183,6 +194,47 @@ func (p *Pipeline) Start() {
 
 	wg.Wait()
 	log.Println("[pipeline] stopped")
+}
+
+func (p *Pipeline) HandleDataChannelMessage(msg string) {
+	if p.imageRecv.handleMessage(msg) {
+		return
+	}
+}
+
+// handleVisionToolCall intercepts the vision.analyze tool call, captures an
+// image from the ESP32 via data channel, and forwards the enriched params to
+// the TypeScript plugin.
+func (p *Pipeline) handleVisionToolCall(call llm.ToolCall) (string, error) {
+	log.Println("[vision] intercepting vision.analyze — requesting image from client")
+
+	res, err := p.imageRecv.requestAndWait(p.sendEvent)
+	if err != nil {
+		return fmt.Sprintf("Error capturing image: %v. Ask the user to try again.", err), nil
+	}
+
+	// Parse the original LLM arguments and inject the image.
+	var params map[string]interface{}
+	if err := json.Unmarshal(call.Arguments, &params); err != nil {
+		params = make(map[string]interface{})
+	}
+	params["image_base64"] = res.Base64
+	if res.Mime != "" {
+		params["image_mime"] = res.Mime
+	}
+
+	enriched, err := json.Marshal(params)
+	if err != nil {
+		return "", fmt.Errorf("marshal enriched params: %w", err)
+	}
+
+	tool, ok := p.pluginMgr.GetTool(visionToolName)
+	if !ok {
+		return "", fmt.Errorf("vision plugin %q not registered", visionToolName)
+	}
+
+	log.Printf("[vision] forwarding to plugin with %d bytes of base64", len(res.Base64))
+	return tool.Execute(enriched)
 }
 
 // Stop cancels the pipeline context, tearing down all goroutines.

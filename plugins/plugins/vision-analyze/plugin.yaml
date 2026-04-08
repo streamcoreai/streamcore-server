@@ -1,0 +1,14 @@
+name: vision.analyze
+description: Capture an image from the device camera and analyze it using AI vision. Use this when the user asks about something they can see, wants to identify an object, read text, describe a scene, etc.
+version: 1
+language: typescript
+entrypoint: index.ts
+parameters:
+  type: object
+  properties:
+    question:
+      type: string
+      description: "The user's question about what they see (e.g. 'What kind of flower is this?', 'Read this sign for me', 'What do you see?')"
+  required:
+    - question
+confirmation_required: false

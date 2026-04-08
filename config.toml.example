@@ -42,3 +42,7 @@ voice_id = ""           # Optional; defaults to Cartesia Katie
 api_key = ""            # Required if tts.provider = "elevenlabs"
 voice_id = ""           # Optional; defaults to ElevenLabs Rachel
 model = ""              # Optional; defaults to eleven_turbo_v2_5
+
+# Vision (used by the vision-analyze plugin)
+# The plugin reads OPENAI_API_KEY from the environment (same key as [openai]).
+# Set VISION_MODEL env var to override the model (default: gpt-4o).
