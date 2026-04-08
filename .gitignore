@@ -44,4 +44,3 @@ go.work.sum
 *.swo
 .DS_Store
 Thumbs.db
-mediasoup-server/
