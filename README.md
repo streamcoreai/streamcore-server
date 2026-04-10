@@ -46,6 +46,7 @@ It is a strong fit for:
 - **Plugin system** for Python, TypeScript, and JavaScript tools over JSON-RPC
 - **Native Go tool interface** for zero-IPC extensions compiled into the server
 - **Skills system** that injects Markdown instructions into the system prompt
+- **Thinking sound** — optional audible tone played through the RTP stream while a slow tool executes
 - **Client SDKs** for TypeScript (`@streamcore/js-sdk`), Go (`github.com/streamcoreai/go-sdk`), Python (`streamcoreai-sdk`), and [Rust](https://github.com/streamcoreai/rust-sdk)
 - **Plugin SDKs** for TypeScript (`@streamcore/plugin`) and Python (`streamcore-plugin`)
 - **Health endpoint** at `/health`
@@ -406,6 +407,45 @@ plugin.run()
 ```
 
 Restart the server, then ask the agent for the time in a specific timezone.
+
+### Plugin Manifest Reference
+
+The `plugin.yaml` file supports these fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Unique tool name the LLM calls (e.g. `weather.get`) |
+| `description` | string | yes | What the tool does — shown to the LLM |
+| `version` | int | yes | Manifest version |
+| `language` | string | yes | `python`, `typescript`, or `javascript` |
+| `entrypoint` | string | yes | File to run (e.g. `main.py`, `index.ts`) |
+| `parameters` | object | yes | JSON Schema describing the tool's parameters |
+| `confirmation_required` | bool | no | If `true`, the agent asks the user to confirm before executing (default: `false`) |
+| `thinking_sound` | bool | no | If `true`, a soft looping tone plays through the audio stream while the tool executes — useful for slow API calls so the user knows something is happening (default: `false`) |
+
+The thinking sound has a 500ms grace period. If the tool returns faster than that, no sound is played.
+
+### Included Plugins
+
+| Plugin | Language | Description |
+|--------|----------|-------------|
+| `math.calculate` | TypeScript | Evaluate math expressions |
+| `weather.get` | TypeScript | Current weather for a location |
+| `time.get` | Python | Current date/time in any timezone |
+| `vision.analyze` | TypeScript | Analyze images from a device camera |
+| `gmail` | TypeScript | Read and send emails via Gmail (OAuth2). See [Gmail plugin README](plugins/plugins/gmail/README.md) for setup. |
+
+### Included Skills
+
+| Skill | Description |
+|-------|-------------|
+| `tool-savvy` | Guides the agent to use tools instead of guessing |
+| `friendly-conversationalist` | Warm, natural conversational personality |
+| `polite-assistant` | Concise and polite voice interaction style |
+| `concise-responder` | Keeps responses short for spoken delivery |
+| `error-recovery` | Handles errors gracefully in voice conversations |
+| `vision-assistant` | Enables camera-based image analysis |
+| `gmail-assistant` | Walks through emails one-by-one with reply & confirm flow |
 
 If you need zero-IPC extensions, you can also register native Go tools directly in the server via `pluginMgr.RegisterNative(...)`. See the Go section in the plugin development guide.
 

@@ -24,9 +24,10 @@ func New(threshold float64, speechFrames, silentFrames int) *Detector {
 }
 
 // NewDefault creates a VAD tuned for voice agents:
-// ~800 RMS threshold, 120ms onset (6 frames), 300ms offset (15 frames) at 20ms/frame.
+// ~1200 RMS threshold, 200ms onset (10 frames), 300ms offset (15 frames) at 20ms/frame.
+// The higher threshold and longer onset reduce false triggers from background noise.
 func NewDefault() *Detector {
-	return New(800.0, 6, 15)
+	return New(1200.0, 10, 15)
 }
 
 // Process evaluates a PCM frame and returns whether speech just started or ended.

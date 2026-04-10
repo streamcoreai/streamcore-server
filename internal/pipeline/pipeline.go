@@ -159,6 +159,19 @@ func New(
 				if !ok {
 					return "", fmt.Errorf("unknown tool: %s", call.Name)
 				}
+
+				// Play a soft thinking tone while the tool runs (opt-in via plugin.yaml).
+				if tool.ThinkingSound() {
+					done := make(chan struct{})
+					go p.playThinkingSound(done)
+					result, err := tool.Execute(call.Arguments)
+					close(done)
+					if err == nil {
+						p.playSentSound()
+					}
+					return result, err
+				}
+
 				return tool.Execute(call.Arguments)
 			})
 			log.Printf("[pipeline] registered %d tools with LLM", len(defs))

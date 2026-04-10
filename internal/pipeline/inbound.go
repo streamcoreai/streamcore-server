@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"log"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -78,7 +79,9 @@ func (p *Pipeline) runInbound() {
 		if result.IsFinal {
 			ev.TurnStart = time.Now()
 			hasPartialText.Store(false)
-		} else if result.Text != "" {
+		} else if len(strings.TrimSpace(result.Text)) >= 2 {
+			// Require at least 2 non-whitespace characters to count as real
+			// speech. Single-char noise artifacts ("uh", "m") are ignored.
 			hasPartialText.Store(true)
 		}
 		select {
@@ -115,6 +118,7 @@ func (p *Pipeline) runInbound() {
 				if p.vad.IsSpeaking() && p.speaking.Load() && hasPartialText.Load() {
 					log.Println("[inbound] barge-in detected (confirmed by STT)")
 					hasPartialText.Store(false)
+					p.vad.Reset() // prevent immediate re-trigger
 					select {
 					case p.interruptCh <- struct{}{}:
 					default: // non-blocking — one signal is enough
