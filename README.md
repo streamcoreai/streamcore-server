@@ -39,7 +39,7 @@ It is a strong fit for:
 
 See StreamCoreAI in action:
 
-<iframe width="100%" height="400" src="https://www.loom.com/embed/ee079aca75aa4fa1ba6a5e51302fbd56" frameborder="0" allowfullscreen style="border-radius: 8px;"></iframe>
+[![Demo Video](https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-with-play.gif)](https://www.loom.com/share/ee079aca75aa4fa1ba6a5e51302fbd56)
 
 ## Features
 
