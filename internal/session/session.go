@@ -9,12 +9,14 @@ import (
 	"github.com/streamcoreai/server/internal/peer"
 	"github.com/streamcoreai/server/internal/pipeline"
 	"github.com/streamcoreai/server/internal/plugin"
+	"github.com/streamcoreai/server/internal/rag"
 )
 
 type Session struct {
 	ID        string
 	cfg       *config.Config
 	pluginMgr *plugin.Manager
+	ragClient rag.Client
 	ctx       context.Context
 	cancel    context.CancelFunc
 
@@ -22,12 +24,13 @@ type Session struct {
 	peers map[string]*peer.Peer
 }
 
-func NewSession(id string, cfg *config.Config, pluginMgr *plugin.Manager) *Session {
+func NewSession(id string, cfg *config.Config, pluginMgr *plugin.Manager, ragClient rag.Client) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Session{
 		ID:        id,
 		cfg:       cfg,
 		pluginMgr: pluginMgr,
+		ragClient: ragClient,
 		ctx:       ctx,
 		cancel:    cancel,
 		peers:     make(map[string]*peer.Peer),
@@ -61,7 +64,7 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 			log.Printf("[session:%s] remote track ready, starting pipeline", s.ID)
 
 			var err error
-			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, direction)
+			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, s.ragClient, direction)
 			if err != nil {
 				log.Printf("[session:%s] pipeline create error: %v", s.ID, err)
 				p.Close()

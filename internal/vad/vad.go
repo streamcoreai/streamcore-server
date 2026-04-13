@@ -30,6 +30,13 @@ func NewDefault() *Detector {
 	return New(1200.0, 10, 15)
 }
 
+// NewBargeIn creates a VAD optimized for barge-in interrupt detection:
+// same RMS threshold, but only 60ms onset (3 frames) for faster response.
+// The silent frames count stays at 15 to avoid premature end-of-speech.
+func NewBargeIn() *Detector {
+	return New(1200.0, 3, 15)
+}
+
 // Process evaluates a PCM frame and returns whether speech just started or ended.
 func (d *Detector) Process(samples []int16) (started, ended bool) {
 	energy := RMSEnergy(samples)

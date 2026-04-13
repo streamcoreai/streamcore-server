@@ -34,3 +34,9 @@ type timingMsg struct {
 	Stage string `json:"stage"`
 	Ms    int64  `json:"ms"`
 }
+
+type stateMsg struct {
+	Type  string `json:"type"`
+	State string `json:"state"`
+}
+

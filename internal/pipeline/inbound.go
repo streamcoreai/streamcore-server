@@ -3,6 +3,7 @@ package pipeline
 import (
 	"log"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -65,6 +66,14 @@ func (p *Pipeline) runReader() {
 	}
 }
 
+// Backchannel tokens that should not trigger barge-in interruption.
+var backchannelTokens = map[string]bool{
+	"mm-hmm": true, "mm hmm": true, "mhm": true, "uh-huh": true,
+	"uh huh": true, "yeah": true, "yep": true, "yes": true,
+	"okay": true, "ok": true, "right": true, "sure": true,
+	"got it": true, "i see": true,
+}
+
 // runInbound consumes decoded PCM frames from inPCMCh, feeds them to the
 // STT provider, and runs barge-in detection via the energy-based VAD.
 func (p *Pipeline) runInbound() {
@@ -74,15 +83,24 @@ func (p *Pipeline) runInbound() {
 	// interrupts from noise, coughs, or keyboard clicks.
 	var hasPartialText atomic.Bool
 
+	// latestPartial stores the most recent STT partial text (lowercased,
+	// trimmed) for backchannel detection.
+	var latestPartial sync.Map // key: "text", value: string
+
 	sttCallback := func(result stt.TranscriptResult) {
 		ev := TranscriptEvent{Text: result.Text, Final: result.IsFinal}
 		if result.IsFinal {
 			ev.TurnStart = time.Now()
 			hasPartialText.Store(false)
-		} else if len(strings.TrimSpace(result.Text)) >= 2 {
-			// Require at least 2 non-whitespace characters to count as real
-			// speech. Single-char noise artifacts ("uh", "m") are ignored.
-			hasPartialText.Store(true)
+			latestPartial.Store("text", "")
+		} else {
+			trimmed := strings.ToLower(strings.TrimSpace(result.Text))
+			latestPartial.Store("text", trimmed)
+			if len(trimmed) >= 2 {
+				// Require at least 2 non-whitespace characters to count as real
+				// speech. Single-char noise artifacts ("uh", "m") are ignored.
+				hasPartialText.Store(true)
+			}
 		}
 		select {
 		case p.transcriptCh <- ev:
@@ -96,6 +114,11 @@ func (p *Pipeline) runInbound() {
 		return
 	}
 	defer sttClient.Close()
+
+	// Backchannel suppression state machine
+	var bargeInPending bool
+	var bargeInStart time.Time
+	const backchannelWindow = 600 * time.Millisecond
 
 	for {
 		select {
@@ -111,18 +134,47 @@ func (p *Pipeline) runInbound() {
 				return
 			}
 
-			// Barge-in: requires VAD speech + STT-confirmed text + agent speaking.
-			// This prevents noise from interrupting the agent.
+			// Barge-in detection with backchannel suppression.
+			// Uses the fast bargeInVAD (60ms onset) for responsiveness.
 			if *p.cfg.Pipeline.BargeIn {
-				p.vad.Process(frame.Samples)
-				if p.vad.IsSpeaking() && p.speaking.Load() && hasPartialText.Load() {
-					log.Println("[inbound] barge-in detected (confirmed by STT)")
-					hasPartialText.Store(false)
-					p.vad.Reset() // prevent immediate re-trigger
-					select {
-					case p.interruptCh <- struct{}{}:
-					default: // non-blocking — one signal is enough
+				p.bargeInVAD.Process(frame.Samples)
+
+				if bargeInPending {
+					if time.Since(bargeInStart) >= backchannelWindow {
+						// Speech continued past the suppression window — real interruption.
+						log.Println("[inbound] barge-in confirmed (speech > 600ms)")
+						bargeInPending = false
+						p.bargeInVAD.Reset()
+						select {
+						case p.interruptCh <- struct{}{}:
+						default:
+						}
+					} else if !p.bargeInVAD.IsSpeaking() {
+						// Speech ended within the window — check for backchannel.
+						partial, _ := latestPartial.Load("text")
+						partialStr, _ := partial.(string)
+						if backchannelTokens[partialStr] {
+							log.Printf("[inbound] backchannel suppressed: %q", partialStr)
+							bargeInPending = false
+							hasPartialText.Store(false)
+						} else {
+							// Short but not a backchannel — fire immediately.
+							log.Printf("[inbound] barge-in detected (short utterance: %q)", partialStr)
+							bargeInPending = false
+							p.bargeInVAD.Reset()
+							select {
+							case p.interruptCh <- struct{}{}:
+							default:
+							}
+						}
 					}
+					// else: still speaking within window, keep waiting
+				} else if p.bargeInVAD.IsSpeaking() && p.speaking.Load() && hasPartialText.Load() {
+					// Conditions met — start backchannel suppression window.
+					bargeInPending = true
+					bargeInStart = time.Now()
+					hasPartialText.Store(false)
+					log.Println("[inbound] barge-in candidate, checking for backchannel...")
 				}
 			}
 		}

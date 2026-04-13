@@ -13,6 +13,7 @@ import (
 	"github.com/streamcoreai/server/internal/config"
 	"github.com/streamcoreai/server/internal/llm"
 	"github.com/streamcoreai/server/internal/plugin"
+	"github.com/streamcoreai/server/internal/rag"
 	"github.com/streamcoreai/server/internal/tts"
 	"github.com/streamcoreai/server/internal/vad"
 )
@@ -47,12 +48,14 @@ type Pipeline struct {
 	// Providers
 	llmClient llm.Client
 	ttsClient tts.Client
+	ragClient rag.Client
 
 	// Plugins
 	pluginMgr *plugin.Manager
 
 	// VAD
-	vad *vad.Detector
+	vad        *vad.Detector
+	bargeInVAD *vad.Detector
 
 	// Bounded channels
 	inPCMCh      chan PCMFrame
@@ -67,6 +70,10 @@ type Pipeline struct {
 	speaking       atomic.Bool
 	responseMu     sync.Mutex
 	responseCancel context.CancelFunc
+
+	// Interruption tracking
+	lastAgentText   atomic.Value // string — accumulates current response text
+	interruptedText atomic.Value // string — what agent was saying when interrupted
 
 	// Vision
 	imageRecv *imageReceiver
@@ -91,6 +98,7 @@ func New(
 	localTrack *webrtc.TrackLocalStaticRTP,
 	sendEvent func(interface{}) error,
 	pluginMgr *plugin.Manager,
+	ragClient rag.Client,
 	direction string,
 ) (*Pipeline, error) {
 	dec, err := audio.NewOpusDecoder()
@@ -124,9 +132,11 @@ func New(
 		localTrack:   localTrack,
 		llmClient:    llmClient,
 		ttsClient:    ttsClient,
+		ragClient:    ragClient,
 		pluginMgr:    pluginMgr,
 		imageRecv:    imgRecv,
 		vad:          vad.NewDefault(),
+		bargeInVAD:   vad.NewBargeIn(),
 		inPCMCh:      make(chan PCMFrame, inPCMChSize),
 		transcriptCh: make(chan TranscriptEvent, transcriptChSize),
 		outPCMCh:     make(chan PCMFrame, outPCMChSize),
@@ -184,6 +194,10 @@ func New(
 			log.Printf("[pipeline] injected %d skills into system prompt", len(pluginMgr.Skills()))
 		}
 	}
+
+	// Initialize atomic values with empty strings for type consistency.
+	p.lastAgentText.Store("")
+	p.interruptedText.Store("")
 
 	return p, nil
 }
