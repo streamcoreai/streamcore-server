@@ -1,0 +1,33 @@
+name: gmail
+description: Read and send emails via Gmail. Use this when the user asks to check their email, read messages, send an email, or reply to someone.
+version: 1
+language: typescript
+entrypoint: index.ts
+parameters:
+  type: object
+  properties:
+    action:
+      type: string
+      description: "The action to perform: 'read' to fetch recent emails, 'send' to send an email"
+      enum:
+        - read
+        - send
+    to:
+      type: string
+      description: "Recipient email address (required for 'send')"
+    subject:
+      type: string
+      description: "Email subject line (required for 'send')"
+    body:
+      type: string
+      description: "Email body text (required for 'send')"
+    max_results:
+      type: number
+      description: "Number of recent emails to fetch (default: 5, only used with 'read')"
+    query:
+      type: string
+      description: "Optional Gmail search query to filter emails (e.g. 'from:alice@example.com', 'is:unread', 'subject:invoice'). Only used with 'read'."
+  required:
+    - action
+confirmation_required: true
+thinking_sound: true

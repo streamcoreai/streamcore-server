@@ -41,6 +41,7 @@ func (p *ExternalPlugin) Name() string                { return p.manifest.Name }
 func (p *ExternalPlugin) Description() string         { return p.manifest.Description }
 func (p *ExternalPlugin) Parameters() json.RawMessage { return p.manifest.Parameters() }
 func (p *ExternalPlugin) ConfirmationRequired() bool  { return p.manifest.ConfirmationRequired }
+func (p *ExternalPlugin) ThinkingSound() bool         { return p.manifest.ThinkingSound }
 
 // Start launches the plugin subprocess. The process stays alive for the
 // lifetime of the server to avoid per-call startup latency.

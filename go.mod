@@ -1,6 +1,6 @@
 module github.com/streamcoreai/server
 
-go 1.24.1
+go 1.25.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -22,8 +22,13 @@ require (
 	github.com/dvonthenen/websocket v1.5.1-dyv.2 // indirect
 	github.com/fatih/color v1.15.0 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/gorilla/schema v1.3.0 // indirect
 	github.com/hokaccha/go-prettyjson v0.0.0-20211117102719-0474bc63780f // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.9.1 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -45,6 +50,8 @@ require (
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
 	k8s.io/klog/v2 v2.110.1 // indirect
 )

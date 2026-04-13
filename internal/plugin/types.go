@@ -11,6 +11,7 @@ type Manifest struct {
 	Entrypoint           string      `yaml:"entrypoint"`
 	ParametersRaw        interface{} `yaml:"parameters"`
 	ConfirmationRequired bool        `yaml:"confirmation_required"`
+	ThinkingSound        bool        `yaml:"thinking_sound"`
 }
 
 // Parameters returns the parameters as JSON raw message for OpenAI tool compatibility.
@@ -36,6 +37,7 @@ type Tool interface {
 	Parameters() json.RawMessage
 	Execute(params json.RawMessage) (string, error)
 	ConfirmationRequired() bool
+	ThinkingSound() bool
 }
 
 // Skill is a parsed markdown skill file that augments the system prompt.

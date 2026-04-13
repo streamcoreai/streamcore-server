@@ -2,6 +2,8 @@
 
 [server]
 port = "8080"
+jwt_secret = ""         # Shared secret for JWT auth on /whip. Leave empty to disable auth.
+api_key = ""            # API key required to call POST /token. Leave empty to allow unauthenticated token generation.
 
 [plugins]
 directory = "./plugins"     # Required if you want plugins and skills loaded
@@ -60,3 +62,13 @@ voice = "en-Emma_woman"             # TTS voice name
 # Vision (used by the vision-analyze plugin)
 # The plugin reads OPENAI_API_KEY from the environment (same key as [openai]).
 # Set VISION_MODEL env var to override the model (default: gpt-4o).
+
+[rag]
+provider = "supabase"   # or "pgvector", or omit entirely to disable
+top_k = 3
+embedding_model = "text-embedding-3-small"  # optional, this is the default
+
+[supabase]
+url = "https://xxx.supabase.co"
+api_key = "your-service-role-key"
+function = "match_documents"   # optional, this is the default

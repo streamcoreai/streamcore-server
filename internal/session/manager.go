@@ -6,19 +6,22 @@ import (
 
 	"github.com/streamcoreai/server/internal/config"
 	"github.com/streamcoreai/server/internal/plugin"
+	"github.com/streamcoreai/server/internal/rag"
 )
 
 type Manager struct {
 	cfg       *config.Config
 	pluginMgr *plugin.Manager
+	ragClient rag.Client
 	mu        sync.RWMutex
 	sessions  map[string]*Session
 }
 
-func NewManager(cfg *config.Config, pluginMgr *plugin.Manager) *Manager {
+func NewManager(cfg *config.Config, pluginMgr *plugin.Manager, ragClient rag.Client) *Manager {
 	return &Manager{
 		cfg:       cfg,
 		pluginMgr: pluginMgr,
+		ragClient: ragClient,
 		sessions:  make(map[string]*Session),
 	}
 }
@@ -31,7 +34,7 @@ func (m *Manager) GetOrCreate(sessionID string) *Session {
 		return s
 	}
 
-	s := NewSession(sessionID, m.cfg, m.pluginMgr)
+	s := NewSession(sessionID, m.cfg, m.pluginMgr, m.ragClient)
 	m.sessions[sessionID] = s
 	log.Printf("[manager] created session %s", sessionID)
 	return s

@@ -42,10 +42,13 @@ It is a strong fit for:
 - **Streaming STT** with Deepgram, OpenAI Whisper, or local VibeVoice-ASR
 - **Streaming LLM responses** with OpenAI or Ollama and conversation history
 - **Configurable TTS** with Cartesia, Deepgram, ElevenLabs, or local VibeVoice-Realtime
+- **Built-in RAG** with pluggable vector store backends (pgvector, Supabase) — retrieves context before the LLM call with zero tool-call overhead
+- **`streamcore-cli` ingestion tool** — parses `.txt`, `.md`, `.csv`, `.pdf`, `.docx`, `.xlsx` files, chunks them, and uploads embeddings to your vector store
 - **Barge-in support** so users can interrupt the assistant mid-response
 - **Plugin system** for Python, TypeScript, and JavaScript tools over JSON-RPC
 - **Native Go tool interface** for zero-IPC extensions compiled into the server
 - **Skills system** that injects Markdown instructions into the system prompt
+- **Thinking sound** — optional audible tone played through the RTP stream while a slow tool executes
 - **Client SDKs** for TypeScript (`@streamcore/js-sdk`), Go (`github.com/streamcoreai/go-sdk`), Python (`streamcoreai-sdk`), and [Rust](https://github.com/streamcoreai/rust-sdk)
 - **Plugin SDKs** for TypeScript (`@streamcore/plugin`) and Python (`streamcore-plugin`)
 - **Health endpoint** at `/health`
@@ -96,6 +99,7 @@ This keeps business logic and behavioral instructions easier to manage than a si
 │  HTTP POST ─────────┼── WHIP (SDP) ──────┼──→ Peer + session created          │
 │  DataChannel ◄──────┼──── events   ←─────┼──← LLM streaming                   │
 │                     │                    │               │                     │
+│                     │                    │               ├── RAG context       │
 │                     │                    │               ├── Skills prompt     │
 │                     │                    │               ├── Plugin runtime    │
 │                     │                    │               │   ├── Python        │
@@ -132,6 +136,7 @@ Provider requirements:
 | STT | `deepgram`, `openai`, `vibevoice` | Deepgram API key, OpenAI API key, or local VibeVoice ASR server |
 | LLM | `openai`, `ollama` | OpenAI API key or local Ollama instance |
 | TTS | `cartesia`, `deepgram`, `elevenlabs`, `vibevoice` | Matching provider API key, or local VibeVoice TTS server |
+| RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + API key. Also requires an OpenAI API key for embeddings. |
 
 ## Quick Start
 
@@ -291,6 +296,22 @@ model = ""
 asr_url = "ws://127.0.0.1:8200"
 tts_url = "http://127.0.0.1:8300"
 voice = "en-Emma_woman"
+
+# RAG is optional — omit the [rag] section to disable it entirely.
+# [rag]
+# provider = "supabase"       # "pgvector" or "supabase"
+# top_k = 3                   # Number of chunks to retrieve per query
+# embedding_model = "text-embedding-3-small"
+
+# [pgvector]
+# connection_string = "postgres://user:pass@localhost:5432/mydb"
+# table = "documents"         # Table with content TEXT and embedding vector(1536) columns
+
+# [supabase]
+# url = "https://xxx.supabase.co"
+# api_key = ""                # Supabase anon or service_role key
+# function = "match_documents" # Postgres RPC function name (used by server for queries)
+# table = "documents"         # Table name (used by streamcore-cli for ingestion)
 ```
 
 Notes:
@@ -302,6 +323,123 @@ Notes:
 - `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
 - `llm.provider = "ollama"` uses a local Ollama instance instead of OpenAI. Make sure Ollama is running and the specified model is pulled (e.g., `ollama pull llama3.2`).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local VibeVoice models. Start the Python servers first (see [Local VibeVoice Setup](#local-vibevoice-setup)).
+- `rag.provider` enables built-in RAG. When set, the server embeds each user utterance and retrieves the top-k most relevant chunks from your vector store before calling the LLM — all in a single LLM pass with no tool-call overhead.
+
+## RAG (Retrieval-Augmented Generation)
+
+RAG lets the agent answer questions grounded in your own documents. It runs inline in the voice pipeline — the server embeds the user's query, retrieves relevant chunks from a vector store, and injects them as context before the LLM call. This avoids an extra LLM round-trip that a tool-call approach would require.
+
+### Supported providers
+
+| Provider | Backend | Config section |
+|----------|---------|----------------|
+| `pgvector` | PostgreSQL with the pgvector extension | `[pgvector]` |
+| `supabase` | Supabase (calls a Postgres RPC function over HTTP) | `[supabase]` |
+
+Both providers use OpenAI embeddings (`text-embedding-3-small` by default). Your `[openai]` API key must be set.
+
+### pgvector setup
+
+1. Enable the pgvector extension in your Postgres database:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+2. Create the documents table:
+
+```sql
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(1536),
+    source TEXT
+);
+```
+
+3. Add to `config.toml`:
+
+```toml
+[rag]
+provider = "pgvector"
+
+[pgvector]
+connection_string = "postgres://user:pass@localhost:5432/mydb"
+```
+
+### Supabase setup
+
+1. In your Supabase project, create the documents table and an RPC function:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(1536),
+    source TEXT
+);
+
+CREATE OR REPLACE FUNCTION match_documents(
+    query_embedding vector(1536),
+    match_count int DEFAULT 3
+)
+RETURNS TABLE (content text, similarity float)
+LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN QUERY
+    SELECT d.content, 1 - (d.embedding <=> query_embedding) AS similarity
+    FROM documents d
+    ORDER BY d.embedding <=> query_embedding
+    LIMIT match_count;
+END;
+$$;
+```
+
+2. Add to `config.toml`:
+
+```toml
+[rag]
+provider = "supabase"
+
+[supabase]
+url = "https://xxx.supabase.co"
+api_key = "your-service-role-key"
+```
+
+### Ingesting documents
+
+The server handles query-time retrieval only. To populate your vector store, use the `streamcore-cli` tool from the [`streamcore-cli/`](../streamcore-cli/) directory.
+
+**Install:**
+
+```bash
+cd streamcore-cli
+go build -o streamcore-cli .
+```
+
+**Ingest files:**
+
+```bash
+# Ingest one or more files — supports .txt, .md, .csv, .pdf, .docx, .xlsx
+streamcore-cli ingest docs/faq.pdf product-catalog.xlsx notes.md
+
+# Override provider or point to a specific config
+streamcore-cli ingest --provider supabase --config ../server/config.toml data.csv
+
+# Control chunk size and overlap
+streamcore-cli ingest --chunk-size 256 --chunk-overlap 32 manual.docx
+```
+
+The CLI reads your server's `config.toml` automatically for provider credentials, so you don't configure things twice. It parses each file into text, splits it into overlapping chunks (default 512 words with 64-word overlap), embeds each chunk via OpenAI, and inserts it into your vector store.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config` | auto-detected | Path to server `config.toml` |
+| `--provider` | from config | Override RAG provider (`pgvector`, `supabase`) |
+| `--chunk-size` | 512 | Target chunk size in words |
+| `--chunk-overlap` | 64 | Overlap between chunks in words |
 
 ## Local VibeVoice Setup
 
@@ -407,6 +545,45 @@ plugin.run()
 
 Restart the server, then ask the agent for the time in a specific timezone.
 
+### Plugin Manifest Reference
+
+The `plugin.yaml` file supports these fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Unique tool name the LLM calls (e.g. `weather.get`) |
+| `description` | string | yes | What the tool does — shown to the LLM |
+| `version` | int | yes | Manifest version |
+| `language` | string | yes | `python`, `typescript`, or `javascript` |
+| `entrypoint` | string | yes | File to run (e.g. `main.py`, `index.ts`) |
+| `parameters` | object | yes | JSON Schema describing the tool's parameters |
+| `confirmation_required` | bool | no | If `true`, the agent asks the user to confirm before executing (default: `false`) |
+| `thinking_sound` | bool | no | If `true`, a soft looping tone plays through the audio stream while the tool executes — useful for slow API calls so the user knows something is happening (default: `false`) |
+
+The thinking sound has a 500ms grace period. If the tool returns faster than that, no sound is played.
+
+### Included Plugins
+
+| Plugin | Language | Description |
+|--------|----------|-------------|
+| `math.calculate` | TypeScript | Evaluate math expressions |
+| `weather.get` | TypeScript | Current weather for a location |
+| `time.get` | Python | Current date/time in any timezone |
+| `vision.analyze` | TypeScript | Analyze images from a device camera |
+| `gmail` | TypeScript | Read and send emails via Gmail (OAuth2). See [Gmail plugin README](plugins/plugins/gmail/README.md) for setup. |
+
+### Included Skills
+
+| Skill | Description |
+|-------|-------------|
+| `tool-savvy` | Guides the agent to use tools instead of guessing |
+| `friendly-conversationalist` | Warm, natural conversational personality |
+| `polite-assistant` | Concise and polite voice interaction style |
+| `concise-responder` | Keeps responses short for spoken delivery |
+| `error-recovery` | Handles errors gracefully in voice conversations |
+| `vision-assistant` | Enables camera-based image analysis |
+| `gmail-assistant` | Walks through emails one-by-one with reply & confirm flow |
+
 If you need zero-IPC extensions, you can also register native Go tools directly in the server via `pluginMgr.RegisterNative(...)`. See the Go section in the plugin development guide.
 
 ## SDKs And Examples
@@ -481,7 +658,6 @@ Today, session management is in-memory and single-process. For horizontal scalin
 
 Near-term areas to build on:
 
-- retrieval / RAG
 - persistent memory across sessions
 - more end-to-end SDK and plugin examples
 - easier deployment and hosted workflows
