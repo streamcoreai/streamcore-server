@@ -16,6 +16,16 @@ Most voice stacks force everything into one runtime. StreamCoreAI is built diffe
 
 This repository is the Go server component in the StreamCoreAI project family.
 
+## Sponsors & Supporters
+
+The public live demo is powered by generous API credits from our sponsors.
+
+<div align="center">
+<!-- Logos will go here once received -->
+</div>
+
+Thank you! Interested in sponsoring? Reach out for logo placement on GitHub + demo page.
+
 ## Why StreamCoreAI
 
 StreamCoreAI is designed for teams building real-time AI voice products who want:
