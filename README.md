@@ -35,6 +35,12 @@ It is a strong fit for:
 - support agents
 - custom vertical voice products
 
+## Demo
+
+See StreamCoreAI in action:
+
+[Watch demo video](https://www.loom.com/share/ee079aca75aa4fa1ba6a5e51302fbd56)
+
 ## Features
 
 - **Real-time bidirectional voice** over WebRTC with Opus audio
@@ -378,7 +384,8 @@ CREATE TABLE documents (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
     embedding vector(1536),
-    source TEXT
+    source TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
 CREATE OR REPLACE FUNCTION match_documents(
@@ -395,6 +402,27 @@ BEGIN
     LIMIT match_count;
 END;
 $$;
+
+-- Enable Row Level Security
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+
+-- Allow authenticated users and anon to SELECT (for server/agent queries)
+CREATE POLICY "Allow read access to documents"
+ON documents FOR SELECT
+TO authenticated, anon
+USING (true);
+
+-- Allow authenticated users and anon to INSERT (for streamcore-cli ingestion)
+CREATE POLICY "Allow insert access to documents"
+ON documents FOR INSERT
+TO authenticated, anon
+WITH CHECK (true);
+
+-- Allow authenticated users and anon to UPDATE
+CREATE POLICY "Allow update access to documents"
+ON documents FOR UPDATE
+TO authenticated, anon
+USING (true);
 ```
 
 2. Add to `config.toml`:
@@ -406,6 +434,8 @@ provider = "supabase"
 [supabase]
 url = "https://xxx.supabase.co"
 api_key = "your-service-role-key"
+function = "match_documents"
+table = "documents"
 ```
 
 ### Ingesting documents
