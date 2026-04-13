@@ -18,7 +18,7 @@ This repository is the Go server component in the StreamCoreAI project family.
 
 ## Sponsors & Supporters
 
-The public live demo is powered by generous API credits from our sponsors.
+<!-- The public live demo is powered by generous API credits from our sponsors. -->
 
 <div align="center">
 <!-- Logos will go here once received -->
