@@ -1,0 +1,3 @@
+{$DOMAIN} {
+	reverse_proxy voiceagent-server:8080
+}

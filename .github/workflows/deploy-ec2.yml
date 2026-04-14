@@ -1,0 +1,122 @@
+# Deploy VoiceAgent server to AWS EC2 via Docker
+#
+# Triggers on push to main when server code changes, or manually.
+# Connects to EC2 via SSH, pulls the latest Docker image, and restarts.
+#
+# Required GitHub repository secrets:
+#   EC2_HOST          - Elastic IP or public DNS of the EC2 instance
+#   EC2_SSH_KEY       - Private SSH key (PEM) for ec2-user
+#   DOCKER_IMAGE      - Full image name (e.g., ghcr.io/org/voiceagent-server)
+#   CONFIG_TOML       - Full contents of the production config.toml
+#   DOMAIN            - Domain name for HTTPS (e.g., voice.streamcore.ai)
+#
+# Optional secrets:
+#   GHCR_TOKEN        - GitHub token with packages:read (defaults to GITHUB_TOKEN)
+
+name: Deploy Server (EC2)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/deploy-ec2.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+env:
+  DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/voiceagent-server
+
+jobs:
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+            ${{ env.DOCKER_IMAGE }}:latest
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (for compose files)
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            # Write production config
+            mkdir -p /opt/voiceagent
+            cat > /opt/voiceagent/config.toml << 'TOML'
+            ${{ secrets.CONFIG_TOML }}
+            TOML
+
+            # Login to GHCR
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull latest image
+            docker pull ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+
+            # Clean up old images
+            docker image prune -f
+
+      - name: Copy compose files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "server/infrastructure/aws/ec2/docker-compose.yml,server/infrastructure/aws/ec2/Caddyfile"
+          target: /opt/voiceagent
+          strip_components: 4
+
+      - name: Start services
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/voiceagent
+
+            export DOCKER_IMAGE=${{ env.DOCKER_IMAGE }}
+            export IMAGE_TAG=${{ github.sha }}
+            export DOMAIN=${{ secrets.DOMAIN }}
+
+            docker compose up -d --remove-orphans
+
+            # Verify health
+            sleep 5
+            curl -sf http://localhost:8080/health || (docker compose logs && exit 1)

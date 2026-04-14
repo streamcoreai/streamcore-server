@@ -1,0 +1,32 @@
+services:
+  voiceagent-server:
+    image: ${DOCKER_IMAGE:-ghcr.io/streamcoreai/voiceagent-server}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    volumes:
+      - ./config.toml:/config.toml:ro
+    ports:
+      - "3478:3478/udp"
+      - "50000-60000:50000-60000/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN:-voice.streamcore.ai}
+    depends_on:
+      - voiceagent-server
+
+volumes:
+  caddy_data:
+  caddy_config:
