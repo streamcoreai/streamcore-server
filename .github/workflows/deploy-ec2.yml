@@ -1,0 +1,124 @@
+# Deploy VoiceAgent server to AWS EC2 via Docker
+#
+# Triggers on push to main when server code changes, or manually.
+# Connects to EC2 via SSH, pulls the latest Docker image, and restarts.
+#
+# Required GitHub environment secrets (environment: aws-ec2):
+#   EC2_HOST          - Elastic IP or public DNS of the EC2 instance
+#   EC2_SSH_KEY       - Private SSH key (PEM) for ec2-user
+#   CONFIG_TOML       - Full contents of the production config.toml
+#   DOMAIN            - Domain name for HTTPS (e.g., voice.streamcore.ai)
+
+name: Deploy Server (EC2)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**"
+      - ".github/workflows/deploy-ec2.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+env:
+  DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/voiceagent-server
+
+jobs:
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+            ${{ env.DOCKER_IMAGE }}:latest
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: aws-ec2
+
+    steps:
+      - name: Checkout (for compose files)
+        uses: actions/checkout@v4
+
+      - name: Copy compose files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "infrastructure/aws/ec2/docker-compose.yml,infrastructure/aws/ec2/Caddyfile"
+          target: /opt/voiceagent
+          strip_components: 3
+
+      - name: Deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /opt/voiceagent
+
+            # Write production config
+            cat > config.toml << 'TOML'
+            ${{ secrets.CONFIG_TOML }}
+            TOML
+
+            export DOCKER_IMAGE=${{ env.DOCKER_IMAGE }}
+            export IMAGE_TAG=${{ github.sha }}
+            export DOMAIN=${{ secrets.DOMAIN }}
+            export PUBLIC_IP=${{ secrets.EC2_HOST }}
+
+            # Stop running containers first to free CPU/memory for the pull
+            docker compose down --timeout 10 || true
+
+            # Pull new image (with containers stopped so t3.micro isn't overloaded)
+            docker pull ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+
+            # Start services
+            docker compose up -d
+
+            # Clean up old images
+            docker image prune -f
+
+            # Verify health — plugins (especially TypeScript ones using npx tsx) can
+            # take 15–30 s to initialise on a t3.micro, so retry for up to 60 s.
+            echo "Waiting for server to become healthy..."
+            for i in $(seq 1 12); do
+              if curl -sf http://localhost:8080/health; then
+                echo ""
+                echo "Server is healthy!"
+                exit 0
+              fi
+              echo "  attempt $i/12 — not ready yet, retrying in 5 s..."
+              sleep 5
+            done
+            echo "Server failed to become healthy within 60 s"
+            docker compose logs
+            exit 1

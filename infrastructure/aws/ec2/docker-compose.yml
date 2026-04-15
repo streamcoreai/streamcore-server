@@ -1,0 +1,22 @@
+services:
+  voiceagent-server:
+    image: ${DOCKER_IMAGE:-ghcr.io/streamcoreai/voiceagent-server}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config.toml:/config.toml:ro
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - DOMAIN=${DOMAIN:-voice.streamcore.ai}
+
+volumes:
+  caddy_data:
+  caddy_config:

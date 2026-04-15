@@ -1,0 +1,14 @@
+name: weather.get
+description: Get the current weather for a given location
+version: 1
+language: typescript
+entrypoint: index.ts
+parameters:
+  type: object
+  properties:
+    location:
+      type: string
+      description: "A city name or location to get the weather for (e.g. 'London', 'New York', 'Tokyo')"
+  required:
+    - location
+confirmation_required: false

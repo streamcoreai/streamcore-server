@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "name": "math-calculate-plugin",
+  "version": "0.1.0",
+  "dependencies": {
+    "@streamcore/plugin": "^0.1.3"
+  }
+}

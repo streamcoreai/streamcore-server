@@ -1,0 +1,15 @@
+# Core
+numpy
+websockets>=12.0
+onnxruntime          # Silero VAD (ONNX backend)
+requests             # For downloading VAD model
+
+# --- Pick ONE ASR backend below ---
+
+# Apple Silicon (MLX) — recommended on Mac (NO torch required)
+# pip install mlx-audio
+# Default model: mlx-community/VibeVoice-ASR-4bit
+
+# PyTorch (Linux / Windows / CUDA)
+# pip install torch transformers librosa
+# Default model: microsoft/VibeVoice-ASR

@@ -1,0 +1,76 @@
+# StreamCoreAI Server Configuration
+
+[server]
+port = "8080"
+public_ip = ""          # Public IP for ICE candidates when behind NAT (e.g., EC2). Leave empty for local/direct connections.
+turn_secret = ""        # Shared secret for the built-in STUN/TURN server. Required when public_ip is set.
+jwt_secret = ""         # Shared secret for JWT auth on /whip. Leave empty to disable auth.
+api_key = ""            # API key required to call POST /token. Leave empty to allow unauthenticated token generation.
+
+[plugins]
+directory = "./plugins"     # Required if you want plugins and skills loaded
+
+[pipeline]
+barge_in = true
+greeting = ""           # Spoken when a session connects
+greeting_outgoing = ""  # Spoken for outbound SIP calls; falls back to greeting
+debug = false           # Emit timing events over the DataChannel
+
+# Provider selection
+
+[stt]
+provider = "deepgram"   # Supported: deepgram, openai, vibevoice
+
+[llm]
+provider = "openai"     # Supported: openai, ollama
+
+[tts]
+provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, vibevoice
+
+# Provider credentials
+
+[deepgram]
+api_key = ""            # Required for Deepgram STT, and for Deepgram TTS if selected
+model = "nova-3"        # STT model
+
+[openai]
+api_key = ""            # Required for LLM, and for OpenAI STT if selected
+model = "gpt-4o-mini"
+system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+
+[ollama]
+base_url = "http://localhost:11434"  # Ollama server URL
+model = "gemma4:e4b"                   # Model name (e.g., gemma4:e4b, mistral, qwen2.5)
+system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+
+[cartesia]
+api_key = ""            # Required if tts.provider = "cartesia"
+voice_id = ""           # Optional; defaults to Cartesia Katie
+
+[elevenlabs]
+api_key = ""            # Required if tts.provider = "elevenlabs"
+voice_id = ""           # Optional; defaults to ElevenLabs Rachel
+model = ""              # Optional; defaults to eleven_turbo_v2_5
+
+# VibeVoice — local STT and TTS via external Python services.
+# Start the servers first:
+#   python external/vibeVoice/vibeVoiceAsr/server.py   (default port 8200)
+#   python external/vibeVoice/vibeVoiceTTS/server.py   (default port 8300)
+[vibevoice]
+asr_url = "ws://127.0.0.1:8200"    # WebSocket URL for VibeVoice ASR server
+tts_url = "http://127.0.0.1:8300"  # HTTP URL for VibeVoice TTS server
+voice = "en-Emma_woman"             # TTS voice name
+
+# Vision (used by the vision-analyze plugin)
+# The plugin reads OPENAI_API_KEY from the environment (same key as [openai]).
+# Set VISION_MODEL env var to override the model (default: gpt-4o).
+
+[rag]
+provider = "supabase"   # or "pgvector", or omit entirely to disable
+top_k = 3
+embedding_model = "text-embedding-3-small"  # optional, this is the default
+
+[supabase]
+url = "https://xxx.supabase.co"
+api_key = "your-service-role-key"
+function = "match_documents"   # optional, this is the default

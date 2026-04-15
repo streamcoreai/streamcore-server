@@ -1,0 +1,4 @@
+aws_region        = "us-east-1"
+instance_type     = "t3.micro"
+key_pair_name     = "my-ec2-keypair"
+ssh_allowed_cidrs = ["0.0.0.0/0"]  # Restrict to your IP for production

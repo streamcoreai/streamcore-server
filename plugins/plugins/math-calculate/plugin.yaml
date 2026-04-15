@@ -1,0 +1,14 @@
+name: math.calculate
+description: Evaluate a mathematical expression and return the result
+version: 1
+language: typescript
+entrypoint: index.ts
+parameters:
+  type: object
+  properties:
+    expression:
+      type: string
+      description: "A mathematical expression to evaluate (e.g. '2 + 2', 'Math.sqrt(144)', '15 * 3.14')"
+  required:
+    - expression
+confirmation_required: false
