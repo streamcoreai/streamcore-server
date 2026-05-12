@@ -123,6 +123,10 @@ resource "aws_instance" "voiceagent" {
   key_name               = var.key_pair_name
   vpc_security_group_ids = [aws_security_group.voiceagent.id]
 
+  credit_specification {
+    cpu_credits = "unlimited"
+  }
+
   # Free tier: 30 GB gp3
   root_block_device {
     volume_size = 30
