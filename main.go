@@ -18,6 +18,7 @@ import (
 	"github.com/streamcoreai/server/internal/rag"
 	"github.com/streamcoreai/server/internal/session"
 	"github.com/streamcoreai/server/internal/signaling"
+	"github.com/streamcoreai/server/internal/testturn"
 	turnserver "github.com/streamcoreai/server/internal/turn"
 )
 
@@ -68,6 +69,11 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+
+	if cfg.Test.TurnEndpoint {
+		log.Println("Dev test-turn endpoint enabled at POST /test-turn")
+		mux.HandleFunc("/test-turn", testturn.NewHandler(cfg, pluginMgr, ragClient))
+	}
 
 	if cfg.Server.JWTSecret != "" {
 		mux.HandleFunc("/token", tokenHandler(cfg.Server.JWTSecret, cfg.Server.APIKey))
