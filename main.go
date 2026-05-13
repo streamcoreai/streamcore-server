@@ -72,7 +72,12 @@ func main() {
 
 	if cfg.Test.TurnEndpoint {
 		log.Println("Dev test-turn endpoint enabled at POST /test-turn")
-		mux.HandleFunc("/test-turn", testturn.NewHandler(cfg, pluginMgr, ragClient))
+		testTurnHandler := testturn.NewHandler(cfg, pluginMgr, ragClient)
+		if cfg.Server.JWTSecret != "" {
+			log.Println("JWT authentication enabled for /test-turn")
+			testTurnHandler = jwtMiddleware(cfg.Server.JWTSecret, testTurnHandler)
+		}
+		mux.HandleFunc("/test-turn", testTurnHandler)
 	}
 
 	if cfg.Server.JWTSecret != "" {

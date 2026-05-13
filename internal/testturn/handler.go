@@ -3,6 +3,7 @@ package testturn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 )
 
 const maxRequestBytes = 1 << 20
+const unsupportedVisionTool = "vision.analyze"
 
 type Message struct {
 	Role string `json:"role"`
@@ -61,6 +63,11 @@ func newHTTPHandler(run turnRunner) http.HandlerFunc {
 		var req TurnRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBytes))
 		if err := decoder.Decode(&req); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+				return
+			}
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON request"})
 			return
 		}
@@ -73,7 +80,7 @@ func newHTTPHandler(run turnRunner) http.HandlerFunc {
 		resp, err := run(r.Context(), req)
 		if err != nil {
 			log.Printf("[test-turn] error: %v", err)
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "test turn failed"})
 			return
 		}
 
@@ -140,20 +147,26 @@ func (a *agent) configureClient(client llm.Client) {
 	if len(tools) > 0 {
 		defs := make([]llm.ToolDefinition, 0, len(tools))
 		for _, tool := range tools {
+			if tool.Name() == unsupportedVisionTool {
+				log.Printf("[test-turn] skipping unsupported pipeline-dependent tool: %s", tool.Name())
+				continue
+			}
 			defs = append(defs, llm.ToolDefinition{
 				Name:        tool.Name(),
 				Description: tool.Description(),
 				Parameters:  tool.Parameters(),
 			})
 		}
-		client.SetTools(defs)
-		client.SetToolHandler(func(callCtx context.Context, call llm.ToolCall) (string, error) {
-			tool, ok := a.pluginMgr.GetTool(call.Name)
-			if !ok {
-				return "", fmt.Errorf("unknown tool: %s", call.Name)
-			}
-			return tool.Execute(call.Arguments)
-		})
+		if len(defs) > 0 {
+			client.SetTools(defs)
+			client.SetToolHandler(func(callCtx context.Context, call llm.ToolCall) (string, error) {
+				tool, ok := a.pluginMgr.GetTool(call.Name)
+				if !ok {
+					return "", fmt.Errorf("unknown tool: %s", call.Name)
+				}
+				return tool.Execute(call.Arguments)
+			})
+		}
 	}
 
 	if skillsPrompt := a.pluginMgr.SkillsPrompt(); skillsPrompt != "" {
