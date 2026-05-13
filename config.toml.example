@@ -16,6 +16,9 @@ greeting = ""           # Spoken when a session connects
 greeting_outgoing = ""  # Spoken for outbound SIP calls; falls back to greeting
 debug = false           # Emit timing events over the DataChannel
 
+[test]
+turn_endpoint = false   # Dev-only: enable POST /test-turn text regression harness. Do not expose publicly.
+
 # Provider selection
 
 [stt]

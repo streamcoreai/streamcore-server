@@ -14,6 +14,7 @@ type Config struct {
 	Server     ServerConfig     `toml:"server"`
 	Plugins    PluginsConfig    `toml:"plugins"`
 	Pipeline   PipelineConfig   `toml:"pipeline"`
+	Test       TestConfig       `toml:"test"`
 	STT        STTConfig        `toml:"stt"`
 	LLM        LLMConfig        `toml:"llm"`
 	TTS        TTSConfig        `toml:"tts"`
@@ -37,6 +38,10 @@ type PipelineConfig struct {
 	Greeting         string `toml:"greeting"`          // Text spoken by the agent when a user connects
 	GreetingOutgoing string `toml:"greeting_outgoing"` // Text spoken on outgoing SIP calls (falls back to greeting)
 	Debug            bool   `toml:"debug"`             // Emit per-turn timing events over the DataChannel
+}
+
+type TestConfig struct {
+	TurnEndpoint bool `toml:"turn_endpoint"` // Enable dev-only POST /test-turn text harness. Disabled by default.
 }
 
 type ServerConfig struct {

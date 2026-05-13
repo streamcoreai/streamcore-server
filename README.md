@@ -343,6 +343,7 @@ Notes:
 - `pipeline.greeting` plays when a session starts. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
 - `pipeline.debug = true` emits timing events over the DataChannel.
 - `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
+- `test.turn_endpoint = true` enables a dev-only `POST /test-turn` text regression harness. Keep this disabled on public deployments.
 - `llm.provider = "ollama"` uses a local Ollama instance instead of OpenAI. Make sure Ollama is running and the specified model is pulled (e.g., `ollama pull llama3.2`).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local VibeVoice models. Start the Python servers first (see [Local VibeVoice Setup](#local-vibevoice-setup)).
 - `rag.provider` enables built-in RAG. When set, the server embeds each user utterance and retrieves the top-k most relevant chunks from your vector store before calling the LLM — all in a single LLM pass with no tool-call overhead.
