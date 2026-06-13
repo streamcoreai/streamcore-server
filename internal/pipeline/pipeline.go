@@ -2,9 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/streamcoreai/server/internal/llm"
 	"github.com/streamcoreai/server/internal/plugin"
 	"github.com/streamcoreai/server/internal/rag"
+	"github.com/streamcoreai/server/internal/tools"
 	"github.com/streamcoreai/server/internal/tts"
 	"github.com/streamcoreai/server/internal/vad"
 )
@@ -165,6 +168,11 @@ func New(
 				if call.Name == visionToolName {
 					return p.handleVisionToolCall(call)
 				}
+				// Intercept car.* — translate to a data-channel command for the
+				// firmware's motor controller. No subprocess plugin involved.
+				if strings.HasPrefix(call.Name, "car.") {
+					return p.handleCarToolCall(call)
+				}
 				tool, ok := pluginMgr.GetTool(call.Name)
 				if !ok {
 					return "", fmt.Errorf("unknown tool: %s", call.Name)
@@ -227,6 +235,105 @@ func (p *Pipeline) HandleDataChannelMessage(msg string) {
 	if p.imageRecv.handleMessage(msg) {
 		return
 	}
+}
+
+// dcDataPacket is the topic-addressed envelope the firmware's SDK
+// dispatches via its `on_data` callback. Payload is base64-encoded JSON.
+type dcDataPacket struct {
+	Type    string `json:"type"`    // always "data"
+	Topic   string `json:"topic"`   // e.g. "car.command"
+	Payload string `json:"payload"` // base64-encoded JSON
+}
+
+// carCommandPayload is the JSON the firmware decodes inside the data
+// packet for a "car.command" topic.
+type carCommandPayload struct {
+	Action       string `json:"action"`
+	DurationMs   uint32 `json:"duration_ms,omitempty"`
+	SpeedPercent uint8  `json:"speed_percent,omitempty"`
+}
+
+// handleCarToolCall turns a "car.*" LLM tool invocation into a topic-
+// addressed data-channel packet that the firmware's `on_data` handler
+// will dispatch to its MotorController. Returns a short spoken-friendly
+// confirmation for the LLM to read back.
+func (p *Pipeline) handleCarToolCall(call llm.ToolCall) (string, error) {
+	action := strings.TrimPrefix(call.Name, "car.")
+
+	var args struct {
+		DurationMs   *uint32 `json:"duration_ms,omitempty"`
+		SpeedPercent *uint8  `json:"speed_percent,omitempty"`
+	}
+	if len(call.Arguments) > 0 {
+		_ = json.Unmarshal(call.Arguments, &args)
+	}
+
+	payload := carCommandPayload{Action: action}
+	if args.DurationMs != nil {
+		payload.DurationMs = clampU32(*args.DurationMs, 0, 10000)
+	}
+	if args.SpeedPercent != nil {
+		payload.SpeedPercent = clampU8(*args.SpeedPercent, 0, 100)
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal car payload: %w", err)
+	}
+
+	if err := p.sendEvent(dcDataPacket{
+		Type:    "data",
+		Topic:   tools.CarCommandTopic,
+		Payload: base64.StdEncoding.EncodeToString(body),
+	}); err != nil {
+		return "", fmt.Errorf("send car command: %w", err)
+	}
+
+	log.Printf("[car] dispatched action=%s duration_ms=%d speed=%d%%",
+		payload.Action, payload.DurationMs, payload.SpeedPercent)
+
+	return carAck(payload), nil
+}
+
+func carAck(p carCommandPayload) string {
+	switch p.Action {
+	case "stop":
+		return "Stopping."
+	case "fancy":
+		return "Fancy moves!"
+	case "shake":
+		return "Shaking."
+	case "forward":
+		return "Driving forward."
+	case "backward":
+		return "Backing up."
+	case "turn_left":
+		return "Turning left."
+	case "turn_right":
+		return "Turning right."
+	default:
+		return "OK, " + strings.ReplaceAll(p.Action, "_", " ") + "."
+	}
+}
+
+func clampU32(v, lo, hi uint32) uint32 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func clampU8(v, lo, hi uint8) uint8 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // handleVisionToolCall intercepts the vision.analyze tool call, captures an

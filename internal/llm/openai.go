@@ -278,6 +278,7 @@ func (c *openaiClient) streamCompletion(ctx context.Context, onChunk func(string
 
 		c.mu.Lock()
 		c.history = append(c.history, assistantMsg)
+		c.history = pruneHistory(c.history)
 		c.mu.Unlock()
 
 		return fullResponse.String(), toolCalls, nil
@@ -289,11 +290,7 @@ func (c *openaiClient) streamCompletion(ctx context.Context, onChunk func(string
 		Role:    openai.ChatMessageRoleAssistant,
 		Content: fullResponse.String(),
 	})
-	if len(c.history) > 31 {
-		kept := []openai.ChatCompletionMessage{c.history[0]}
-		kept = append(kept, c.history[len(c.history)-30:]...)
-		c.history = kept
-	}
+	c.history = pruneHistory(c.history)
 	c.mu.Unlock()
 
 	log.Printf("[llm] response: %s", truncate(fullResponse.String(), 80))
@@ -333,4 +330,41 @@ func (c *openaiClient) Reset() {
 	c.history = []openai.ChatCompletionMessage{
 		{Role: openai.ChatMessageRoleSystem, Content: c.systemPrompt},
 	}
+}
+
+// pruneHistory keeps the system prompt (history[0]) plus a rolling window
+// of recent messages. Critically, when the window cuts mid-conversation
+// we MUST NOT leave an orphan `tool` message at the start — OpenAI's API
+// rejects a `tool` message that isn't a direct response to a preceding
+// `tool_calls` assistant message.
+//
+// We also try to preserve assistant↔tool pairs by walking backward until
+// every `tool` message at the head of the kept window has its matching
+// `tool_calls` assistant message included.
+//
+// Window size: keep the last 30 messages after the system prompt (31
+// total).
+func pruneHistory(h []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
+	const window = 30
+	if len(h) <= window+1 {
+		return h
+	}
+
+	// Start with the last 30 messages.
+	cut := len(h) - window
+	// Move the cut earlier if the first kept message is a `tool` (orphan
+	// without its preceding assistant `tool_calls`) — keep extending the
+	// window backward until we hit a non-tool message, then drop those
+	// orphan tools entirely so the kept window starts on a valid role.
+	tail := h[cut:]
+	for len(tail) > 0 && tail[0].Role == openai.ChatMessageRoleTool {
+		tail = tail[1:]
+	}
+
+	kept := make([]openai.ChatCompletionMessage, 0, len(tail)+1)
+	if len(h) > 0 && h[0].Role == openai.ChatMessageRoleSystem {
+		kept = append(kept, h[0])
+	}
+	kept = append(kept, tail...)
+	return kept
 }
