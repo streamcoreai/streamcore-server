@@ -18,6 +18,7 @@ import (
 	"github.com/streamcoreai/server/internal/rag"
 	"github.com/streamcoreai/server/internal/session"
 	"github.com/streamcoreai/server/internal/signaling"
+	"github.com/streamcoreai/server/internal/tools"
 	turnserver "github.com/streamcoreai/server/internal/turn"
 )
 
@@ -35,6 +36,13 @@ func main() {
 		log.Printf("Warning: plugin loading: %v", err)
 	}
 	defer pluginMgr.Close()
+
+	// Native drivetrain tools for the desktop-car firmware. These are
+	// metadata-only — the pipeline intercepts "car.*" calls and writes a
+	// data-channel command directly to the device.
+	for _, t := range tools.All() {
+		pluginMgr.RegisterNative(t)
+	}
 
 	// Initialize RAG client (nil if disabled)
 	ragClient, err := rag.NewClient(cfg)
