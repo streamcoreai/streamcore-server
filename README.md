@@ -1,20 +1,156 @@
-# StreamCoreAI Server
+# StreamCore
 
-**Open-source real-time voice agent server built on WebRTC, with multi-language client SDKs, plugin extensibility, and Markdown-based skills.**
+**Realtime media infrastructure for AI-powered applications.**
 
-StreamCoreAI keeps the latency-sensitive media and orchestration path in Go, while letting the rest of your stack stay in the languages your team already uses.
+StreamCore handles the latency-sensitive media path between users, devices, communication networks, and AI services.
 
-That means you can:
+It provides WebRTC audio transport, session management, streaming speech integration, interruption handling, realtime events, and client SDKs — while your application stays in control of the agent, the models, the tools, and the business logic.
 
-- run the core media pipeline in **Go**
-- connect from **TypeScript, Python, Rust, or Go**
-- extend the agent with **Python, TypeScript, or JavaScript plugins**
-- register **native Go tools** inside the server when you want zero-IPC integrations
-- shape behavior with **Markdown skills**
+> **StreamCore is the realtime media layer between your users and your intelligence.**
+>
+> Bring your own agent. StreamCore handles the realtime media.
 
-Most voice stacks force everything into one runtime. StreamCoreAI is built differently: keep the real-time path in Go, but let product, AI, and integration teams move faster in TypeScript and Python.
+Use StreamCore to build:
 
-This repository is the Go server component in the StreamCoreAI project family.
+- voice agents
+- realtime copilots
+- live translation
+- AI-hosted audio experiences
+- embedded voice devices
+- phone and communication applications
+- custom realtime AI products
+
+This repository is the Go media runtime — the core server component of the StreamCore project family.
+
+## The problem StreamCore solves
+
+Building an agent demo is easy. Building reliable realtime media infrastructure around it is not.
+
+Once a prototype has to become a product, the hard parts are not prompts:
+
+| Problem | What StreamCore does today |
+|---------|----------------------------|
+| WebRTC connectivity | Pion-based peer, full ICE gathering, WHIP signaling over a single HTTP POST |
+| NAT traversal | Built-in STUN/TURN server — no external coturn container |
+| Audio transport | Opus over RTP in both directions, decode/encode handled for you |
+| Turn-taking | Energy-based VAD with separate onset/offset tuning for speech end detection |
+| Interruption | Barge-in with a faster VAD profile, cancels in-flight LLM and TTS output |
+| Streaming provider integration | Streaming STT, streaming LLM, sentence-chunked streaming TTS, wired end to end |
+| Session state | Server-generated session IDs, multi-peer sessions, lifecycle and teardown |
+| Realtime events | DataChannel events for transcript, response, agent state, and latency timings |
+| Client integration | SDKs for TypeScript, React Native, Python, Go, and Rust |
+| Telephony | SIP bridge component that transcodes PCMU ↔ Opus and connects over WHIP |
+| Auth | Optional JWT auth on `/whip` with a short-lived token endpoint |
+| Latency visibility | Timing events for first LLM token and first TTS byte |
+
+Anything not in that table — horizontal scaling, session reconnection, a metrics endpoint — is in [Roadmap](#roadmap), not in the product yet.
+
+## How it fits
+
+```text
+┌───────────────────────────────────────────────┐
+│              Applications                     │
+│ Voice agents · Copilots · Translation · Rooms │
+└───────────────────────┬───────────────────────┘
+                        │ SDKs and realtime events
+┌───────────────────────▼───────────────────────┐
+│           StreamCore Media Runtime            │
+│                                               │
+│ WebRTC · RTP · Opus · Sessions · Interruption │
+│ VAD · Streaming audio · Network traversal     │
+└───────────────┬───────────────────┬───────────┘
+                │                   │
+       ┌────────▼────────┐  ┌───────▼──────────┐
+       │ AI and speech   │  │ Application and  │
+       │ services        │  │ agent backends   │
+       │ STT · TTS · LLM │  │ Tools · APIs     │
+       └─────────────────┘  └──────────────────┘
+```
+
+StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is only one way to use it.
+
+## More than an agent framework
+
+Most agent frameworks start with prompts, tools, and model orchestration. StreamCore starts one layer lower: the realtime media path — transport, codecs, speech streaming, turn-taking, interruption, network traversal, session state, and communication with AI services.
+
+Your agent does not have to live inside StreamCore. There are four supported ways to own the intelligence:
+
+**1. Keep your agent behind a tool call.** Plugins (Python, TypeScript, JavaScript over JSON-RPC) and native Go tools let the conversation call into your existing backend — your APIs, your orchestration, your data. StreamCore streams the result back as speech.
+
+**2. Point the model layer at your own infrastructure.** `llm.provider = "ollama"` with a custom `base_url` targets any Ollama-compatible endpoint you run, including one that fronts your own routing or model stack.
+
+**3. Implement the LLM interface directly.** The model layer is a small Go interface in [`internal/llm/llm.go`](./internal/llm/llm.go):
+
+```go
+type Client interface {
+    Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error)
+    SetTools(tools []ToolDefinition)
+    SetToolHandler(handler func(ctx context.Context, call ToolCall) (string, error))
+    AppendSystemPrompt(text string)
+    Reset()
+}
+```
+
+Implement it against your agent server, register it in `NewClient`, and the entire media path — transport, VAD, barge-in, TTS chunking, events — works unchanged.
+
+**4. Use StreamCore's optional built-in agent runtime.** LLM orchestration, tools, skills, RAG, and conversation history ship in the box if you want them. See [Optional agent runtime](#optional-agent-runtime).
+
+A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on the [roadmap](#roadmap); today option 3 is a small file, not a fork.
+
+## Realtime media capabilities
+
+**Transport and connectivity**
+
+- Bidirectional Opus audio over WebRTC (`sendrecv`)
+- WHIP signaling ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) — one HTTP `POST` for SDP exchange, no persistent signaling socket
+- Full ICE gathering on both sides, no trickle ICE
+- Built-in STUN/TURN server using Pion (UDP 3478, relay range 50001–60000)
+- Optional JWT auth on `/whip`, with `POST /token` issuing 1-hour tokens
+- `/health` endpoint and graceful shutdown with a forced-exit safety net
+
+**Media path**
+
+- Opus decode → PCM → pipeline → PCM → Opus encode → RTP
+- Energy-based VAD with configurable onset/offset frame counts
+- Barge-in on a faster VAD profile so users can interrupt mid-response
+- Sentence-boundary chunking so TTS starts before the LLM finishes
+- Thinking sound — an optional tone played through the RTP stream while a slow tool runs (500 ms grace period)
+
+**Sessions and events**
+
+- Server-generated session IDs, in-memory session manager
+- Multiple peers per session, each with an inbound or outbound direction
+- DataChannel `events` channel for `transcript`, `response`, `state`, and `timing`
+- Inbound DataChannel messages routed into the pipeline (used today for camera image chunks)
+
+**Clients**
+
+- TypeScript (`@streamcore/js-sdk`), React Native / Expo (`@streamcore/react-native-sdk`), Python (`streamcoreai-sdk`), Go (`github.com/streamcoreai/go-sdk`), Rust
+
+## Supported endpoints and integrations
+
+| Endpoint type | Status | How |
+|---------------|--------|-----|
+| Browser | Available | TypeScript SDK over WHIP |
+| Mobile | Available | React Native / Expo SDK (`react-native-webrtc` peer dependency) |
+| Backend service / worker | Available | Go, Python, or Rust SDK |
+| CLI and TUI | Available | Go and Rust examples |
+| Telephony (SIP) | Available | [`sip-server/`](../sip-server/) bridges PCMU/RTP ↔ Opus/WHIP, inbound and outbound |
+| Embedded device | Experimental | ESP32-S3 firmware in [`esp32/`](../esp32/) speaking WHIP directly |
+
+| AI integration | Providers |
+|----------------|-----------|
+| Streaming STT | Deepgram, OpenAI, VibeVoice (local) |
+| LLM | OpenAI, Ollama (local or self-hosted) |
+| Streaming TTS | Cartesia, Deepgram, ElevenLabs, VibeVoice (local) |
+| Retrieval | pgvector, Supabase |
+| Custom tools | Python / TypeScript / JavaScript plugins, native Go tools |
+
+## Demo
+
+<a href="https://www.loom.com/share/ee079aca75aa4fa1ba6a5e51302fbd56" target="_blank">
+  <img src="https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-e4ee3f1f1a14a51d.jpg" alt="Demo Video" />
+</a>
 
 ## Sponsors & Supporters
 
@@ -26,163 +162,38 @@ This repository is the Go server component in the StreamCoreAI project family.
 
 Thank you! Interested in sponsoring? Reach out for logo placement on GitHub + demo page.
 
-## Why StreamCoreAI
+## Quick start
 
-StreamCoreAI is designed for teams building real-time AI voice products who want:
+### Prerequisites
 
-- **a fast Go core** for media, session handling, and orchestration
-- **multi-language SDKs** so clients are not tied to one stack
-- **plugin extensibility** without forcing every integration into Go
-- **skills** that shape tone and behavior without burying everything in prompts or code
-- **an open-source, self-hostable foundation** for browser, SDK, and telephony voice flows
-
-It is a strong fit for:
-
-- browser voice agents
-- AI assistants
-- internal copilots
-- AI calling systems
-- support agents
-- custom vertical voice products
-
-## Demo
-
-See StreamCoreAI in action:
-
-<a href="https://www.loom.com/share/ee079aca75aa4fa1ba6a5e51302fbd56" target="_blank">
-  <img src="https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-e4ee3f1f1a14a51d.jpg" alt="Demo Video" />
-</a>
-
-## Features
-
-- **Real-time bidirectional voice** over WebRTC with Opus audio
-- **WHIP signaling** ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) with a single HTTP POST for SDP exchange
-- **Streaming STT** with Deepgram, OpenAI Whisper, or local VibeVoice-ASR
-- **Streaming LLM responses** with OpenAI or Ollama and conversation history
-- **Configurable TTS** with Cartesia, Deepgram, ElevenLabs, or local VibeVoice-Realtime
-- **Built-in RAG** with pluggable vector store backends (pgvector, Supabase) — retrieves context before the LLM call with zero tool-call overhead
-- **`streamcore-cli` ingestion tool** — parses `.txt`, `.md`, `.csv`, `.pdf`, `.docx`, `.xlsx` files, chunks them, and uploads embeddings to your vector store
-- **Barge-in support** so users can interrupt the assistant mid-response
-- **Plugin system** for Python, TypeScript, and JavaScript tools over JSON-RPC
-- **Native Go tool interface** for zero-IPC extensions compiled into the server
-- **Skills system** that injects Markdown instructions into the system prompt
-- **Thinking sound** — optional audible tone played through the RTP stream while a slow tool executes
-- **Client SDKs** for TypeScript (`@streamcore/js-sdk`), Go (`github.com/streamcoreai/go-sdk`), Python (`streamcoreai-sdk`), and [Rust](https://github.com/streamcoreai/rust-sdk)
-- **Plugin SDKs** for TypeScript (`@streamcore/plugin`) and Python (`streamcore-plugin`)
-- **Built-in STUN/TURN server** using Pion — no external coturn container needed; same ports (3478 + 50000-60000)
-- **Health endpoint** at `/health`
-
-## What Makes It Different
-
-### Go where it matters
-
-The hot path runs in Go with Pion WebRTC, goroutines, and bounded channels:
-
-- RTP read and Opus decode
-- STT streaming and VAD
-- LLM orchestration and tool calls
-- TTS synthesis
-- Opus encode and RTP write
-
-That keeps the real-time loop predictable and low-latency.
-
-### SDKs in four languages
-
-Clients can connect from:
-
-- **TypeScript**
-- **Python**
-- **Rust**
-- **Go**
-
-That makes it practical to build browser apps, backend workers, CLI tools, test harnesses, and desktop integrations without reimplementing the protocol for each environment.
-
-### Plugins and skills are separate layers
-
-Plugins give the agent **capabilities**. Skills shape its **behavior**.
-
-- Plugins call APIs, databases, calendars, CRMs, workflows, and internal tools
-- Skills define tone, personality, guardrails, brand voice, and workflow guidance
-
-This keeps business logic and behavioral instructions easier to manage than a single giant prompt.
-
-## Architecture
-
-```text
-┌─────────────────────┐                    ┌─────────────────────────────────────┐
-│    Client / SDK     │                    │          Go Server (Pion)           │
-│                     │                    │                                     │
-│  Mic → WebRTC ──────┼──── Opus RTP ──────┼──→ Opus Decode → STT               │
-│  Speaker ← WebRTC ←─┼──── Opus RTP ←─────┼──← Opus Encode ← TTS               │
-│                     │                    │               │                     │
-│  HTTP POST ─────────┼── WHIP (SDP) ──────┼──→ Peer + session created          │
-│  DataChannel ◄──────┼──── events   ←─────┼──← LLM streaming                   │
-│                     │                    │               │                     │
-│                     │                    │               ├── RAG context       │
-│                     │                    │               ├── Skills prompt     │
-│                     │                    │               ├── Plugin runtime    │
-│                     │                    │               │   ├── Python        │
-│                     │                    │               │   ├── TypeScript    │
-│                     │                    │               │   └── JavaScript    │
-│                     │                    │               └── Native Go tools   │
-└─────────────────────┘                    └─────────────────────────────────────┘
-```
-
-Signaling flow: the client creates an SDP offer, gathers ICE candidates, and `POST`s it to `/whip`. The server creates a peer, gathers its ICE candidates, and returns the SDP answer with a server-generated session ID. No persistent signaling socket is required.
-
-Pipeline flow: microphone audio enters over WebRTC, is decoded to PCM, sent through STT, passed to the LLM, optionally routed through tools, synthesized with TTS, encoded back to Opus, and streamed to the client. Transcript and response text are sent back over a WebRTC DataChannel.
-
-Telephony note: SIP and phone connectivity are handled by a separate SIP bridge in the StreamCoreAI project family.
-
-## Prerequisites
-
-For Docker:
-
-- Docker
-- Docker Compose
+For Docker: Docker and Docker Compose.
 
 For local development:
 
 - Go 1.22+
 - Node.js 20+ and npm
-- Python 3.10+ if you want Python plugins or examples
-- Rust 1.87+ if you want Rust SDKs or examples
+- Python 3.10+ for Python plugins or examples
+- Rust 1.87+ for Rust SDKs or examples
 
-Provider requirements:
-
-| Role | Providers | Required credentials |
-|------|-----------|----------------------|
-| STT | `deepgram`, `openai`, `vibevoice` | Deepgram API key, OpenAI API key, or local VibeVoice ASR server |
-| LLM | `openai`, `ollama` | OpenAI API key or local Ollama instance |
-| TTS | `cartesia`, `deepgram`, `elevenlabs`, `vibevoice` | Matching provider API key, or local VibeVoice TTS server |
-| RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + API key. Also requires an OpenAI API key for embeddings. |
-
-## Quick Start
-
-### Option A: Docker
+### Run the media runtime
 
 ```bash
 cp config.toml.example config.toml
-# Edit config.toml with your API keys
-
-docker build -t streamcoreai-server .
-docker run --rm -p 8080:8080 -v "$(pwd)/config.toml:/config.toml:ro" streamcoreai-server
-```
-
-Then connect a client to `http://localhost:8080/whip`. You can use the browser client from [streamcoreai/examples](https://github.com/streamcoreai/examples/tree/main/typescript) or any of the SDKs listed below.
-
-### Option B: Local Development
-
-Start the server from this repository:
-
-```bash
-cp config.toml.example config.toml
-# Edit config.toml with your API keys
+# Edit config.toml with your provider credentials
 
 go run .
 ```
 
-In another terminal, run a client from its own repository. For example, with the browser app:
+Or with Docker:
+
+```bash
+docker build -t streamcore-server .
+docker run --rm -p 8080:8080 -v "$(pwd)/config.toml:/config.toml:ro" streamcore-server
+```
+
+The server listens on `:8080`. Clients connect to `http://localhost:8080/whip`.
+
+### Connect a client
 
 ```bash
 git clone https://github.com/streamcoreai/examples.git
@@ -191,49 +202,86 @@ npm install
 npm run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000). By default it connects to `http://localhost:8080/whip`.
+Open [http://localhost:3000](http://localhost:3000). It connects to `http://localhost:8080/whip` by default.
 
-### Option C: Fully Local Setup (No API Keys)
+### Connect your own backend
 
-Run everything locally using Ollama for LLM and VibeVoice for STT/TTS:
+The point of StreamCore is that the intelligence is yours. The fastest path is a tool that calls your service — the agent keeps talking while your backend does the work.
+
+```bash
+mkdir -p plugins/plugins/orders-lookup
+```
+
+`plugins/plugins/orders-lookup/plugin.yaml`
+
+```yaml
+name: orders.lookup
+description: Look up an order by ID in the company order system
+version: 1
+language: python
+entrypoint: main.py
+thinking_sound: true
+parameters:
+  type: object
+  properties:
+    order_id:
+      type: string
+      description: The customer's order ID
+  required:
+    - order_id
+```
+
+`plugins/plugins/orders-lookup/main.py`
+
+```python
+import os, requests
+from streamcoreai_plugin import StreamCoreAIPlugin
+
+plugin = StreamCoreAIPlugin()
+
+@plugin.on_execute
+def handle(params):
+    r = requests.get(
+        f"{os.environ['BACKEND_URL']}/orders/{params['order_id']}",
+        timeout=10,
+    )
+    r.raise_for_status()
+    order = r.json()
+    return f"Order {order['id']} is {order['status']}, arriving {order['eta']}."
+
+plugin.run()
+```
+
+Restart the server. Your backend is now part of a realtime voice session, and StreamCore handled every millisecond of the media path around it.
+
+To own the whole conversation rather than one tool call, implement the `llm.Client` interface described in [More than an agent framework](#more-than-an-agent-framework).
+
+### Fully local (no API keys)
+
+Run everything on your own hardware with Ollama for the LLM and VibeVoice for STT/TTS.
 
 **1. Install and start Ollama**
 
 ```bash
-# Install from https://ollama.ai or via:
-brew install ollama  # macOS
-# curl -fsSL https://ollama.com/install.sh | sh  # Linux
-
-# Start Ollama and pull a model
-ollama serve  # runs in background on macOS, or start as systemd service on Linux
+brew install ollama            # macOS; see https://ollama.ai for Linux
+ollama serve
 ollama pull gpt-oss:20b
 ```
 
-**2. Install Python dependencies and start VibeVoice servers**
+**2. Start the VibeVoice sidecars**
 
 ```bash
-# Install dependencies (Apple Silicon)
+# Apple Silicon (MLX)
 pip install mlx-audio numpy websockets fastapi uvicorn
-
-# OR for Linux/CUDA:
+# OR Linux / CUDA
 # pip install torch transformers librosa numpy websockets fastapi uvicorn
 
-# Terminal 1: Start ASR server
-python external/vibeVoice/vibeVoiceAsr/server.py
-# Listens on ws://127.0.0.1:8200
-
-# Terminal 2: Start TTS server
-python external/vibeVoice/vibeVoiceTTS/server.py
-# Listens on http://127.0.0.1:8300
+python external/vibeVoice/vibeVoiceAsr/server.py   # ws://127.0.0.1:8200
+python external/vibeVoice/vibeVoiceTTS/server.py   # http://127.0.0.1:8300
 ```
 
-**3. Configure the Go server**
+**3. Configure and run**
 
-```bash
-cp config.toml.example config.toml
-```
-
-Edit `config.toml`:
 ```toml
 [stt]
 provider = "vibevoice"
@@ -246,7 +294,7 @@ provider = "vibevoice"
 
 [ollama]
 base_url = "http://localhost:11434"
-model = "llama3.2"
+model = "gpt-oss:20b"
 
 [vibevoice]
 asr_url = "ws://127.0.0.1:8200"
@@ -254,23 +302,259 @@ tts_url = "http://127.0.0.1:8300"
 voice = "en-Emma_woman"
 ```
 
-**4. Start the Go server**
-
 ```bash
 go run .
 ```
 
-Now you have a fully local voice AI with no external API dependencies.
+Fully local realtime voice, no external API dependencies. Details in [Local VibeVoice setup](#local-vibevoice-setup).
+
+## Optional agent runtime
+
+Everything below is opt-in. Skip this section entirely if your agent lives in your own stack.
+
+When you do want StreamCore to run the conversation, it provides LLM orchestration with conversation history, tools, behavioral skills, and inline retrieval.
+
+### Plugins and skills
+
+Plugins give the agent **capabilities**. Skills shape its **behavior**.
+
+- Plugins call APIs, databases, calendars, CRMs, workflows, and internal tools
+- Skills define tone, personality, guardrails, brand voice, and workflow guidance
+
+Plugins run as Python, TypeScript, or JavaScript processes over JSON-RPC. Skills are Markdown files injected into the system prompt. Sample plugins and skills live under [`plugins/`](./plugins/). For zero-IPC extensions, register native Go tools with `pluginMgr.RegisterNative(...)`.
+
+**Plugin manifest reference**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Unique tool name the LLM calls (e.g. `weather.get`) |
+| `description` | string | yes | What the tool does — shown to the LLM |
+| `version` | int | yes | Manifest version |
+| `language` | string | yes | `python`, `typescript`, or `javascript` |
+| `entrypoint` | string | yes | File to run (e.g. `main.py`, `index.ts`) |
+| `parameters` | object | yes | JSON Schema describing the tool's parameters |
+| `confirmation_required` | bool | no | Agent asks the user to confirm before executing (default `false`) |
+| `thinking_sound` | bool | no | Plays a soft looping tone while the tool runs, after a 500 ms grace period (default `false`) |
+
+**Included plugins**
+
+| Plugin | Language | Description |
+|--------|----------|-------------|
+| `math.calculate` | TypeScript | Evaluate math expressions |
+| `weather.get` | TypeScript | Current weather for a location |
+| `time.get` | Python | Current date/time in any timezone |
+| `vision.analyze` | TypeScript | Analyze images from a device camera |
+| `gmail` | TypeScript | Read and send emails via Gmail (OAuth2) — see [Gmail plugin README](plugins/plugins/gmail/README.md) |
+
+**Included skills**
+
+| Skill | Description |
+|-------|-------------|
+| `tool-savvy` | Guides the agent to use tools instead of guessing |
+| `friendly-conversationalist` | Warm, natural conversational personality |
+| `polite-assistant` | Concise and polite voice interaction style |
+| `concise-responder` | Keeps responses short for spoken delivery |
+| `error-recovery` | Handles errors gracefully in voice conversations |
+| `vision-assistant` | Enables camera-based image analysis |
+| `gmail-assistant` | Walks through emails one-by-one with reply & confirm flow |
+
+Plugin SDKs: `@streamcore/plugin` (TypeScript), `streamcore-plugin` (Python).
+
+### Retrieval (RAG)
+
+RAG runs inline in the media pipeline: the server embeds each user utterance, retrieves the top-k chunks from your vector store, and injects them before the LLM call — one LLM pass, no tool-call round trip.
+
+| Provider | Backend | Config section |
+|----------|---------|----------------|
+| `pgvector` | PostgreSQL with the pgvector extension | `[pgvector]` |
+| `supabase` | Supabase (Postgres RPC over HTTP) | `[supabase]` |
+
+Both use OpenAI embeddings (`text-embedding-3-small` by default), so `[openai].api_key` must be set. Omit the `[rag]` section to disable retrieval entirely.
+
+**pgvector setup**
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(1536),
+    source TEXT
+);
+```
+
+```toml
+[rag]
+provider = "pgvector"
+
+[pgvector]
+connection_string = "postgres://user:pass@localhost:5432/mydb"
+```
+
+**Supabase setup**
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE documents (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(1536),
+    source TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION match_documents(
+    query_embedding vector(1536),
+    match_count int DEFAULT 3
+)
+RETURNS TABLE (content text, similarity float)
+LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN QUERY
+    SELECT d.content, 1 - (d.embedding <=> query_embedding) AS similarity
+    FROM documents d
+    ORDER BY d.embedding <=> query_embedding
+    LIMIT match_count;
+END;
+$$;
+
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow read access to documents"
+ON documents FOR SELECT TO authenticated, anon USING (true);
+
+CREATE POLICY "Allow insert access to documents"
+ON documents FOR INSERT TO authenticated, anon WITH CHECK (true);
+
+CREATE POLICY "Allow update access to documents"
+ON documents FOR UPDATE TO authenticated, anon USING (true);
+```
+
+```toml
+[rag]
+provider = "supabase"
+
+[supabase]
+url = "https://xxx.supabase.co"
+api_key = "your-service-role-key"
+function = "match_documents"
+table = "documents"
+```
+
+**Ingesting documents**
+
+The server handles query-time retrieval only. Populate your vector store with [`streamcore-cli`](../streamcore-cli/):
+
+```bash
+cd streamcore-cli && go build -o streamcore-cli .
+
+# Supports .txt, .md, .csv, .pdf, .docx, .xlsx
+streamcore-cli ingest docs/faq.pdf product-catalog.xlsx notes.md
+streamcore-cli ingest --provider supabase --config ../server/config.toml data.csv
+streamcore-cli ingest --chunk-size 256 --chunk-overlap 32 manual.docx
+```
+
+The CLI reads your server's `config.toml` for provider credentials, so nothing is configured twice.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config` | auto-detected | Path to server `config.toml` |
+| `--provider` | from config | Override RAG provider (`pgvector`, `supabase`) |
+| `--chunk-size` | 512 | Target chunk size in words |
+| `--chunk-overlap` | 64 | Overlap between chunks in words |
+
+## Provider integrations
+
+| Role | Providers | Required credentials |
+|------|-----------|----------------------|
+| STT | `deepgram`, `openai`, `vibevoice` | Deepgram API key, OpenAI API key, or a local VibeVoice ASR server |
+| LLM | `openai`, `ollama` | OpenAI API key, or an Ollama instance you control |
+| TTS | `cartesia`, `deepgram`, `elevenlabs`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
+| RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
+
+Notes:
+
+- `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
+- `llm.provider = "ollama"` targets any Ollama-compatible endpoint via `base_url` — local or on your own infrastructure.
+- `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.
+
+### Local VibeVoice setup
+
+VibeVoice provides fully local STT and TTS with no API keys, using [VibeVoice-ASR](https://huggingface.co/mlx-community/VibeVoice-ASR-4bit) for recognition and [VibeVoice-Realtime-0.5B](https://huggingface.co/mlx-community/VibeVoice-Realtime-0.5B-6bit) for synthesis via two lightweight Python sidecars. On Apple Silicon they use [mlx-audio](https://github.com/Blaizzy/mlx-audio) (MLX); on Linux/Windows they fall back to PyTorch automatically.
+
+```bash
+# Apple Silicon (MLX)
+pip install mlx-audio numpy websockets fastapi uvicorn
+# OR PyTorch (Linux / CUDA)
+pip install torch transformers librosa numpy websockets fastapi uvicorn
+
+python external/vibeVoice/vibeVoiceAsr/server.py   # ws://127.0.0.1:8200
+python external/vibeVoice/vibeVoiceTTS/server.py   # http://127.0.0.1:8300
+```
+
+```toml
+[stt]
+provider = "vibevoice"
+
+[tts]
+provider = "vibevoice"
+
+[vibevoice]
+asr_url = "ws://127.0.0.1:8200"
+tts_url = "http://127.0.0.1:8300"
+voice = "en-Emma_woman"
+```
+
+The ASR server accepts live PCM over WebSocket and emits JSON transcript events. The TTS server accepts HTTP POST and returns raw PCM.
+
+## Protocol reference
+
+### WHIP signaling
+
+Signaling follows [RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html).
+
+| Step | Method | Path | Body | Response |
+|------|--------|------|------|----------|
+| 1 | `POST` | `/whip` | SDP offer (`application/sdp`) | `201 Created` with SDP answer, `Location: /whip/{sessionId}`, and `ETag` |
+| 2 | `DELETE` | `/whip/{sessionId}` | none | `200 OK` |
+| — | `OPTIONS` | `/whip` or `/whip/{sessionId}` | none | `204 No Content` with `Accept-Post: application/sdp` |
+
+The client creates an SDP offer, gathers ICE candidates, and `POST`s it to `/whip`. The server creates a peer, gathers its own candidates, and returns the answer with a server-generated session ID. No trickle ICE, no persistent signaling socket.
+
+This implementation aligns with the core WHIP flow: `POST` with `application/sdp`, `201 Created` with the answer, `Location` for the session URL, `ETag` for the ICE session, `DELETE` for teardown, `OPTIONS` with `Accept-Post`, and full ICE gathering on both sides. Audio is `sendrecv`, with a DataChannel for bidirectional events.
+
+### Realtime events
+
+The client must create a DataChannel labeled `events` before generating the offer. The server sends:
+
+| Type | Payload | Description |
+|------|---------|-------------|
+| `transcript` | `{ "type": "transcript", "text": string, "final": boolean }` | User transcript updates |
+| `response` | `{ "type": "response", "text": string }` | Streamed response text |
+| `state` | `{ "type": "state", "state": "listening" \| "thinking" \| "speaking" }` | Agent turn state, for UI indicators |
+| `timing` | `{ "type": "timing", "stage": string, "ms": number }` | Latency timings when `pipeline.debug = true` |
+
+Timing stages today: `llm_first_token`, `tts_first_byte`.
+
+Messages the client sends on the same channel are routed into the pipeline — currently used for camera image chunks consumed by the `vision.analyze` plugin.
+
+### Auth
+
+Set `server.jwt_secret` to require `Authorization: Bearer <jwt>` on `/whip`. When it is set, the server also exposes `POST /token`, which issues an HS256 token valid for one hour. Set `server.api_key` to require `Authorization: Bearer <api_key>` on `/token` itself, so only your backend can mint session tokens. Both are empty by default, which disables auth.
 
 ## Configuration
 
-Use [`config.toml.example`](./config.toml.example) as your starting point:
+Start from [`config.toml.example`](./config.toml.example):
 
 ```toml
 [server]
 port = "8080"
-# public_ip = ""       # Set to EC2 Elastic IP for production (enables built-in STUN/TURN)
+# public_ip = ""       # Public IP for ICE candidates (e.g. EC2 Elastic IP); enables built-in STUN/TURN
 # turn_secret = ""     # Shared secret for the built-in STUN/TURN server (required when public_ip is set)
+# jwt_secret = ""      # Enables JWT auth on /whip and the POST /token endpoint
+# api_key = ""         # Required to call POST /token when set
 
 [plugins]
 directory = "./plugins"
@@ -301,7 +585,7 @@ system_prompt = "You are a helpful AI voice assistant. Keep your responses conci
 
 [ollama]
 base_url = "http://localhost:11434"
-model = "llama3.2"
+model = "gpt-oss:20b"
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [cartesia]
@@ -321,330 +605,81 @@ voice = "en-Emma_woman"
 # RAG is optional — omit the [rag] section to disable it entirely.
 # [rag]
 # provider = "supabase"       # "pgvector" or "supabase"
-# top_k = 3                   # Number of chunks to retrieve per query
+# top_k = 3
 # embedding_model = "text-embedding-3-small"
 
 # [pgvector]
 # connection_string = "postgres://user:pass@localhost:5432/mydb"
-# table = "documents"         # Table with content TEXT and embedding vector(1536) columns
+# table = "documents"
 
 # [supabase]
 # url = "https://xxx.supabase.co"
-# api_key = ""                # Supabase anon or service_role key
-# function = "match_documents" # Postgres RPC function name (used by server for queries)
-# table = "documents"         # Table name (used by streamcore-cli for ingestion)
+# api_key = ""
+# function = "match_documents"
+# table = "documents"
 ```
 
 Notes:
 
-- `server.public_ip` enables the built-in STUN/TURN server (Pion) when paired with `server.turn_secret`. This replaces the external coturn container. The TURN server listens on UDP port 3478 and relays media on ports 50001-60000.
-- `plugins.directory` is required if you want plugins and skills loaded. If it is omitted, the server skips plugin discovery.
-- `pipeline.barge_in` lets users interrupt the assistant while it is speaking.
-- `pipeline.greeting` plays when a session starts. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
+- `server.public_ip` plus `server.turn_secret` enables the built-in Pion STUN/TURN server, replacing an external coturn container. TURN listens on UDP 3478 and relays media on 50001–60000.
+- `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
+- `pipeline.barge_in` lets users interrupt the agent while it is speaking.
+- `pipeline.greeting` plays when a session connects. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
 - `pipeline.debug = true` emits timing events over the DataChannel.
-- `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
-- `llm.provider = "ollama"` uses a local Ollama instance instead of OpenAI. Make sure Ollama is running and the specified model is pulled (e.g., `ollama pull llama3.2`).
-- `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local VibeVoice models. Start the Python servers first (see [Local VibeVoice Setup](#local-vibevoice-setup)).
-- `rag.provider` enables built-in RAG. When set, the server embeds each user utterance and retrieves the top-k most relevant chunks from your vector store before calling the LLM — all in a single LLM pass with no tool-call overhead.
 
-## RAG (Retrieval-Augmented Generation)
+## Architecture and implementation
 
-RAG lets the agent answer questions grounded in your own documents. It runs inline in the voice pipeline — the server embeds the user's query, retrieves relevant chunks from a vector store, and injects them as context before the LLM call. This avoids an extra LLM round-trip that a tool-call approach would require.
-
-### Supported providers
-
-| Provider | Backend | Config section |
-|----------|---------|----------------|
-| `pgvector` | PostgreSQL with the pgvector extension | `[pgvector]` |
-| `supabase` | Supabase (calls a Postgres RPC function over HTTP) | `[supabase]` |
-
-Both providers use OpenAI embeddings (`text-embedding-3-small` by default). Your `[openai]` API key must be set.
-
-### pgvector setup
-
-1. Enable the pgvector extension in your Postgres database:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
+```text
+┌─────────────────────┐                    ┌─────────────────────────────────────┐
+│  Client / SDK / SIP │                    │      StreamCore Runtime (Go)        │
+│                     │                    │                                     │
+│  Mic → WebRTC ──────┼──── Opus RTP ──────┼──→ Opus decode → VAD → STT          │
+│  Speaker ← WebRTC ←─┼──── Opus RTP ←─────┼──← Opus encode ← TTS                │
+│                     │                    │               │                     │
+│  HTTP POST ─────────┼── WHIP (SDP) ──────┼──→ Peer + session created           │
+│  DataChannel ◄──────┼──── events   ←─────┼──← transcript · response · state    │
+│                     │                    │               │                     │
+│                     │                    │               ├── your LLM client   │
+│                     │                    │               ├── RAG context       │
+│                     │                    │               ├── Skills prompt     │
+│                     │                    │               ├── Plugin runtime    │
+│                     │                    │               │   ├── Python        │
+│                     │                    │               │   ├── TypeScript    │
+│                     │                    │               │   └── JavaScript    │
+│                     │                    │               └── Native Go tools   │
+└─────────────────────┘                    └─────────────────────────────────────┘
 ```
 
-2. Create the documents table:
-
-```sql
-CREATE TABLE documents (
-    id SERIAL PRIMARY KEY,
-    content TEXT NOT NULL,
-    embedding vector(1536),
-    source TEXT
-);
-```
-
-3. Add to `config.toml`:
-
-```toml
-[rag]
-provider = "pgvector"
-
-[pgvector]
-connection_string = "postgres://user:pass@localhost:5432/mydb"
-```
-
-### Supabase setup
-
-1. In your Supabase project, create the documents table and an RPC function:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE documents (
-    id SERIAL PRIMARY KEY,
-    content TEXT NOT NULL,
-    embedding vector(1536),
-    source TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE OR REPLACE FUNCTION match_documents(
-    query_embedding vector(1536),
-    match_count int DEFAULT 3
-)
-RETURNS TABLE (content text, similarity float)
-LANGUAGE plpgsql AS $$
-BEGIN
-    RETURN QUERY
-    SELECT d.content, 1 - (d.embedding <=> query_embedding) AS similarity
-    FROM documents d
-    ORDER BY d.embedding <=> query_embedding
-    LIMIT match_count;
-END;
-$$;
-
--- Enable Row Level Security
-ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
-
--- Allow authenticated users and anon to SELECT (for server/agent queries)
-CREATE POLICY "Allow read access to documents"
-ON documents FOR SELECT
-TO authenticated, anon
-USING (true);
-
--- Allow authenticated users and anon to INSERT (for streamcore-cli ingestion)
-CREATE POLICY "Allow insert access to documents"
-ON documents FOR INSERT
-TO authenticated, anon
-WITH CHECK (true);
-
--- Allow authenticated users and anon to UPDATE
-CREATE POLICY "Allow update access to documents"
-ON documents FOR UPDATE
-TO authenticated, anon
-USING (true);
-```
-
-2. Add to `config.toml`:
-
-```toml
-[rag]
-provider = "supabase"
-
-[supabase]
-url = "https://xxx.supabase.co"
-api_key = "your-service-role-key"
-function = "match_documents"
-table = "documents"
-```
-
-### Ingesting documents
-
-The server handles query-time retrieval only. To populate your vector store, use the `streamcore-cli` tool from the [`streamcore-cli/`](../streamcore-cli/) directory.
-
-**Install:**
-
-```bash
-cd streamcore-cli
-go build -o streamcore-cli .
-```
-
-**Ingest files:**
-
-```bash
-# Ingest one or more files — supports .txt, .md, .csv, .pdf, .docx, .xlsx
-streamcore-cli ingest docs/faq.pdf product-catalog.xlsx notes.md
-
-# Override provider or point to a specific config
-streamcore-cli ingest --provider supabase --config ../server/config.toml data.csv
-
-# Control chunk size and overlap
-streamcore-cli ingest --chunk-size 256 --chunk-overlap 32 manual.docx
-```
-
-The CLI reads your server's `config.toml` automatically for provider credentials, so you don't configure things twice. It parses each file into text, splits it into overlapping chunks (default 512 words with 64-word overlap), embeds each chunk via OpenAI, and inserts it into your vector store.
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--config` | auto-detected | Path to server `config.toml` |
-| `--provider` | from config | Override RAG provider (`pgvector`, `supabase`) |
-| `--chunk-size` | 512 | Target chunk size in words |
-| `--chunk-overlap` | 64 | Overlap between chunks in words |
-
-## Local VibeVoice Setup
-
-VibeVoice provides fully local STT and TTS — no API keys needed. It uses [VibeVoice-ASR](https://huggingface.co/mlx-community/VibeVoice-ASR-4bit) for speech recognition and [VibeVoice-Realtime-0.5B](https://huggingface.co/mlx-community/VibeVoice-Realtime-0.5B-6bit) for text-to-speech via two lightweight Python sidecar servers.
-
-On Apple Silicon the servers use [mlx-audio](https://github.com/Blaizzy/mlx-audio) (MLX). On Linux/Windows they fall back to PyTorch automatically.
-
-### 1. Install dependencies
-
-```bash
-# Apple Silicon (MLX)
-pip install mlx-audio numpy websockets fastapi uvicorn
-
-# OR PyTorch (Linux / CUDA)
-pip install torch transformers librosa numpy websockets fastapi uvicorn
-```
-
-### 2. Start the ASR server
-
-```bash
-python external/vibeVoice/vibeVoiceAsr/server.py
-# Listens on ws://127.0.0.1:8200
-# Default model: mlx-community/VibeVoice-ASR-4bit (Mac) or microsoft/VibeVoice-ASR (PyTorch)
-```
-
-### 3. Start the TTS server
-
-```bash
-python external/vibeVoice/vibeVoiceTTS/server.py
-# Listens on http://127.0.0.1:8300
-# Default model: mlx-community/VibeVoice-Realtime-0.5B-6bit (Mac) or microsoft/VibeVoice-Realtime-0.5B (PyTorch)
-```
-
-### 4. Configure the Go server
-
-```toml
-[stt]
-provider = "vibevoice"
-
-[tts]
-provider = "vibevoice"
-
-[vibevoice]
-asr_url = "ws://127.0.0.1:8200"
-tts_url = "http://127.0.0.1:8300"
-voice = "en-Emma_woman"
-```
-
-The ASR server accepts live PCM audio over WebSocket and emits JSON transcript events. The TTS server accepts HTTP POST requests and returns raw PCM audio.
-
-## Plugins And Skills
-
-Plugins give the LLM callable tools during a conversation. Skills inject Markdown instructions into the system prompt for every session.
-
-- Plugin Development Guide
-- Skills Development Guide
-
-This repo already includes sample plugins and skills under [plugins/](./plugins/).
-
-### Quick Plugin Example
-
-Create a Python plugin that tells the time:
-
-```bash
-mkdir -p plugins/plugins/time-get
-```
-
-`plugins/plugins/time-get/plugin.yaml`
-
-```yaml
-name: time.get
-description: Get the current time in a timezone
-version: 1
-language: python
-entrypoint: main.py
-parameters:
-  type: object
-  properties:
-    timezone:
-      type: string
-      description: IANA timezone name
-  required:
-    - timezone
-```
-
-`plugins/plugins/time-get/main.py`
-
-```python
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from streamcoreai_plugin import StreamCoreAIPlugin
-
-plugin = StreamCoreAIPlugin()
-
-@plugin.on_execute
-def handle(params):
-    tz = ZoneInfo(params["timezone"])
-    now = datetime.now(tz)
-    return f"The current time is {now.strftime('%I:%M %p')} in {params['timezone']}."
-
-plugin.run()
-```
-
-Restart the server, then ask the agent for the time in a specific timezone.
-
-### Plugin Manifest Reference
-
-The `plugin.yaml` file supports these fields:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | yes | Unique tool name the LLM calls (e.g. `weather.get`) |
-| `description` | string | yes | What the tool does — shown to the LLM |
-| `version` | int | yes | Manifest version |
-| `language` | string | yes | `python`, `typescript`, or `javascript` |
-| `entrypoint` | string | yes | File to run (e.g. `main.py`, `index.ts`) |
-| `parameters` | object | yes | JSON Schema describing the tool's parameters |
-| `confirmation_required` | bool | no | If `true`, the agent asks the user to confirm before executing (default: `false`) |
-| `thinking_sound` | bool | no | If `true`, a soft looping tone plays through the audio stream while the tool executes — useful for slow API calls so the user knows something is happening (default: `false`) |
-
-The thinking sound has a 500ms grace period. If the tool returns faster than that, no sound is played.
-
-### Included Plugins
-
-| Plugin | Language | Description |
-|--------|----------|-------------|
-| `math.calculate` | TypeScript | Evaluate math expressions |
-| `weather.get` | TypeScript | Current weather for a location |
-| `time.get` | Python | Current date/time in any timezone |
-| `vision.analyze` | TypeScript | Analyze images from a device camera |
-| `gmail` | TypeScript | Read and send emails via Gmail (OAuth2). See [Gmail plugin README](plugins/plugins/gmail/README.md) for setup. |
-
-### Included Skills
-
-| Skill | Description |
-|-------|-------------|
-| `tool-savvy` | Guides the agent to use tools instead of guessing |
-| `friendly-conversationalist` | Warm, natural conversational personality |
-| `polite-assistant` | Concise and polite voice interaction style |
-| `concise-responder` | Keeps responses short for spoken delivery |
-| `error-recovery` | Handles errors gracefully in voice conversations |
-| `vision-assistant` | Enables camera-based image analysis |
-| `gmail-assistant` | Walks through emails one-by-one with reply & confirm flow |
-
-If you need zero-IPC extensions, you can also register native Go tools directly in the server via `pluginMgr.RegisterNative(...)`. See the Go section in the plugin development guide.
-
-## SDKs And Examples
+**Media flow.** Microphone audio arrives over WebRTC, is decoded to PCM in 20 ms frames, run through VAD, and streamed to STT. Final transcripts go to the model layer; streamed output is split on sentence boundaries and handed to TTS as it arrives, so synthesis starts before generation finishes. Synthesized PCM is encoded back to Opus and written to the RTP stream. Transcript, response, and state text travel over the DataChannel in parallel.
+
+**Why Go.** The latency-sensitive path is implemented in Go with [Pion](https://github.com/pion/webrtc): goroutines per stage, bounded channels between them, and no GC-heavy buffering in the hot loop. RTP read, Opus decode, VAD, STT streaming, orchestration, TTS, Opus encode, and RTP write are each their own stage. This is an implementation choice in service of predictable turn latency — the surface you build against is the SDKs and the event protocol, in whatever language you prefer.
+
+**Package layout**
+
+| Package | Responsibility |
+|---------|----------------|
+| [`internal/signaling`](./internal/signaling/) | WHIP handler, SDP exchange, session URLs |
+| [`internal/peer`](./internal/peer/) | Pion peer connection, tracks, DataChannel |
+| [`internal/session`](./internal/session/) | Session manager, multi-peer lifecycle |
+| [`internal/pipeline`](./internal/pipeline/) | Inbound/outbound audio, agent loop, barge-in, thinking sound |
+| [`internal/audio`](./internal/audio/) | Opus codec, RTP framing |
+| [`internal/vad`](./internal/vad/) | Energy-based voice activity detection |
+| [`internal/stt`](./internal/stt/), [`internal/tts`](./internal/tts/), [`internal/llm`](./internal/llm/) | Provider adapters |
+| [`internal/plugin`](./internal/plugin/) | Plugin runtime, native tools, skills |
+| [`internal/rag`](./internal/rag/) | Retrieval and embeddings |
+| [`internal/turn`](./internal/turn/) | Built-in STUN/TURN server |
+
+## SDKs and examples
 
 Client SDKs:
 
-- TypeScript SDK: `@streamcore/js-sdk`
-- Go SDK: `github.com/streamcoreai/go-sdk`
-- Python SDK: `streamcoreai-sdk`
-- [Rust SDK](https://github.com/streamcoreai/rust-sdk)
+- TypeScript: `@streamcore/js-sdk`
+- React Native / Expo: `@streamcore/react-native-sdk`
+- Python: `streamcoreai-sdk`
+- Go: `github.com/streamcoreai/go-sdk`
+- [Rust](https://github.com/streamcoreai/rust-sdk)
 
-Plugin SDKs:
-
-- TypeScript plugin SDK: `@streamcore/plugin`
-- Python plugin SDK: `streamcore-plugin`
+Plugin SDKs: `@streamcore/plugin` (TypeScript), `streamcore-plugin` (Python).
 
 Examples:
 
@@ -655,58 +690,17 @@ Examples:
 - [Rust CLI example](https://github.com/streamcoreai/examples/tree/main/rust)
 - [Rust TUI example](https://github.com/streamcoreai/examples/tree/main/rust-tui)
 
-## WHIP Protocol
+## Roadmap
 
-Signaling follows [RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html).
+Not built yet — listed here so the capability tables above stay honest:
 
-### HTTP SDP Exchange
-
-| Step | Method | Path | Body | Response |
-|------|--------|------|------|----------|
-| 1 | `POST` | `/whip` | SDP offer (`application/sdp`) | `201 Created` with SDP answer, `Location: /whip/{sessionId}`, and `ETag` |
-| 2 | `DELETE` | `/whip/{sessionId}` | none | `200 OK` |
-| - | `OPTIONS` | `/whip` or `/whip/{sessionId}` | none | `204 No Content` with `Accept-Post: application/sdp` |
-
-The client gathers ICE candidates before sending the offer. The server gathers ICE candidates before returning the answer. No trickle ICE is used.
-
-### DataChannel Events
-
-The client must create a DataChannel labeled `events` before generating the offer. The server currently sends these JSON messages:
-
-| Type | Payload | Description |
-|------|---------|-------------|
-| `transcript` | `{ "type": "transcript", "text": string, "final": boolean }` | User transcript updates |
-| `response` | `{ "type": "response", "text": string }` | Streamed LLM response text |
-| `timing` | `{ "type": "timing", "stage": string, "ms": number }` | Optional latency timings when `pipeline.debug = true` |
-
-Current timing stages are:
-
-- `llm_first_token`
-- `tts_first_byte`
-
-### RFC Notes
-
-This implementation aligns with the core WHIP flow in RFC 9725:
-
-- `POST` with `application/sdp`
-- `201 Created` with SDP answer
-- `Location` header for the session URL
-- `ETag` header for the ICE session
-- `DELETE` for teardown
-- `OPTIONS` with `Accept-Post: application/sdp`
-- full ICE gathering on both sides
-
-The server uses `sendrecv` audio and a DataChannel to support bidirectional voice interaction.
-
-## Scaling And Roadmap
-
-Today, session management is in-memory and single-process. For horizontal scaling you will need sticky routing or external session coordination.
-
-Near-term areas to build on:
-
-- persistent memory across sessions
-- more end-to-end SDK and plugin examples
-- easier deployment and hosted workflows
+- **Horizontal scaling.** Session state is in-memory and single-process. Multi-instance deployments need sticky routing or external session coordination today.
+- **Session reconnection.** There is no ICE restart or resume path; a dropped connection means a new session.
+- **Metrics and observability.** `/health` and DataChannel timing events exist; there is no Prometheus/OpenTelemetry export.
+- **HTTP agent endpoint.** A configurable OpenAI-compatible or webhook-style agent backend, so bring-your-own-agent needs no Go code.
+- **Persistent memory** across sessions.
+- **Broader examples** proving the positioning: realtime translator, AI-hosted voice room, browser copilot, embedded device, SIP application, and a raw audio-processing app with no LLM at all.
+- **Embedded client hardening.** The ESP32-S3 firmware in [`esp32/`](../esp32/) connects over WHIP but is not production-ready.
 
 ## License
 
