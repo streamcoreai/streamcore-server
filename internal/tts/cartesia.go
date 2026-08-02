@@ -14,7 +14,8 @@ const (
 	cartesiaAPIURL     = "https://api.cartesia.ai/tts/bytes"
 	cartesiaAPIVersion = "2025-04-16"
 	// Katie - stable voice for voice agents (Cartesia docs)
-	defaultCartesiaVoiceID = "f786b574-daa5-4673-aa0c-cbe3e8534c02"
+	defaultCartesiaVoiceID  = "f786b574-daa5-4673-aa0c-cbe3e8534c02"
+	cartesiaStreamChunkSize = 3200
 )
 
 type cartesiaClient struct {
@@ -54,7 +55,7 @@ type cartesiaOutputFormat struct {
 	SampleRate int    `json:"sample_rate"`
 }
 
-func (c *cartesiaClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
+func (c *cartesiaClient) buildRequest(ctx context.Context, text string) (*http.Request, error) {
 	body := cartesiaRequest{
 		ModelID:    "sonic-3",
 		Transcript: text,
@@ -82,6 +83,14 @@ func (c *cartesiaClient) Synthesize(ctx context.Context, text string) ([]byte, e
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cartesia-Version", cartesiaAPIVersion)
+	return req, nil
+}
+
+func (c *cartesiaClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
+	req, err := c.buildRequest(ctx, text)
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -101,4 +110,78 @@ func (c *cartesiaClient) Synthesize(ctx context.Context, text string) ([]byte, e
 
 	log.Printf("[tts:cartesia] synthesized %d bytes for %d chars of text", len(data), len(text))
 	return data, nil
+}
+
+func (c *cartesiaClient) SynthesizeStream(ctx context.Context, text string) (<-chan StreamChunk, error) {
+	req, err := c.buildRequest(ctx, text)
+	if err != nil {
+		ch := make(chan StreamChunk, 1)
+		ch <- StreamChunk{Err: err}
+		close(ch)
+		return ch, nil
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		ch := make(chan StreamChunk, 1)
+		ch <- StreamChunk{Err: fmt.Errorf("cartesia request: %w", err)}
+		close(ch)
+		return ch, nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		ch := make(chan StreamChunk, 1)
+		ch <- StreamChunk{Err: fmt.Errorf("cartesia error %d: %s", resp.StatusCode, string(respBody))}
+		close(ch)
+		return ch, nil
+	}
+
+	ch := make(chan StreamChunk, 16)
+
+	go func() {
+		defer close(ch)
+		defer resp.Body.Close()
+
+		buf := make([]byte, cartesiaStreamChunkSize)
+		totalBytes := 0
+
+		for {
+			// Read a full chunk. The HTTP response body streams PCM bytes
+			// as the server generates them, so the first chunk typically
+			// arrives well before the full audio is ready.
+			n, err := io.ReadFull(resp.Body, buf)
+			if n > 0 {
+				totalBytes += n
+				// Copy the slice so we can reuse buf on the next read.
+				chunk := make([]byte, n)
+				copy(chunk, buf[:n])
+
+				select {
+				case ch <- StreamChunk{PCM: chunk}:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if err != nil {
+				if err == io.EOF || err == io.ErrUnexpectedEOF {
+					// Normal end of stream — io.ErrUnexpectedEOF means
+					// the last read was shorter than buf size, which is
+					// expected for the final chunk.
+					break
+				}
+				// Real error — send it downstream.
+				select {
+				case ch <- StreamChunk{Err: fmt.Errorf("cartesia read: %w", err)}:
+				case <-ctx.Done():
+				}
+				return
+			}
+		}
+
+		log.Printf("[tts:cartesia] streamed %d bytes for %d chars of text", totalBytes, len(text))
+	}()
+
+	return ch, nil
 }

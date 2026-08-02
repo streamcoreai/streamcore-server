@@ -19,6 +19,7 @@ type Config struct {
 	TTS        TTSConfig        `toml:"tts"`
 	RAG        RAGConfig        `toml:"rag"`
 	Deepgram   DeepgramConfig   `toml:"deepgram"`
+	AssemblyAI AssemblyAIConfig `toml:"assemblyai"`
 	OpenAI     OpenAIConfig     `toml:"openai"`
 	Ollama     OllamaConfig     `toml:"ollama"`
 	VibeVoice  VibeVoiceConfig  `toml:"vibevoice"`
@@ -63,6 +64,43 @@ type TTSConfig struct {
 type DeepgramConfig struct {
 	APIKey string `toml:"api_key"`
 	Model  string `toml:"model"`
+	// Language is a BCP-47 tag (e.g. "en-US", "es-MX"). It is mapped to the
+	// language code the Nova-3 model expects; anything outside en/es becomes
+	// "multi". Empty defaults to English.
+	Language string `toml:"language"`
+	// Endpointing is how long (ms, as a string) Deepgram waits for silence
+	// before finalising a transcript. Lower is snappier but fragments natural
+	// mid-sentence pauses ("I want to… um… order a pizza").
+	Endpointing string `toml:"endpointing"`
+	// UtteranceEndMs asks Deepgram to emit an UtteranceEnd event after this
+	// much silence, which the callback uses to flush buffered chunks when no
+	// speech_final arrives. Deepgram requires >= 1000 and interim results.
+	UtteranceEndMs string `toml:"utterance_end_ms"`
+	// Keyterms bias the Nova-3 decoder toward domain vocabulary that is
+	// phonetically ambiguous against common English (product names, place
+	// names). Ignored by other models.
+	Keyterms []string `toml:"keyterms"`
+}
+
+type AssemblyAIConfig struct {
+	APIKey string `toml:"api_key"`
+	// Model selects the Universal-Streaming speech model. Common values:
+	//   - "u3-rt-pro" (Universal-3 Pro, strongest entity capture)
+	//   - "u3-rt"     (Universal-3 baseline, cheaper)
+	Model string `toml:"model"`
+	// Language is a BCP-47 tag; the region is stripped before it is sent as
+	// AssemblyAI's `language_code` (which expects ISO 639-1). Empty lets the
+	// model auto-detect.
+	Language string `toml:"language"`
+	// FormatTurns enables auto-formatted text (capitalisation, punctuation)
+	// on the final turn. Nil means enabled.
+	FormatTurns *bool `toml:"format_turns"`
+	// EndOfTurnSilenceMs tunes how long the model waits before declaring the
+	// turn over. Zero leaves the provider default.
+	EndOfTurnSilenceMs int `toml:"end_of_turn_silence_ms"`
+	// Keyterms are passed as repeated keyterm_prompt parameters to bias the
+	// decoder, mirroring the Deepgram option.
+	Keyterms []string `toml:"keyterms"`
 }
 
 type OpenAIConfig struct {
@@ -80,6 +118,15 @@ type OllamaConfig struct {
 type CartesiaConfig struct {
 	APIKey  string `toml:"api_key"`
 	VoiceID string `toml:"voice_id"`
+	// WSURL overrides the Cartesia WebSocket endpoint. Empty (the default)
+	// talks to wss://api.cartesia.ai/tts/websocket.
+	WSURL string `toml:"ws_url"`
+	// MaxConcurrency caps simultaneous in-flight generations. Cartesia counts
+	// concurrency by active generation context — not by call or connection —
+	// and returns 429 past the account limit, so set this to your plan's TTS
+	// concurrency limit and extra requests queue locally instead of failing.
+	// 0 (unset) defaults to 3; a negative value disables the limiter.
+	MaxConcurrency int `toml:"max_concurrency"`
 }
 
 type ElevenLabsConfig struct {
@@ -136,6 +183,18 @@ func Load(path string) (*Config, error) {
 	setDefault(&cfg.Server.Port, "8080")
 	setDefault(&cfg.STT.Provider, "deepgram")
 	setDefault(&cfg.Deepgram.Model, "nova-3")
+	// 300ms keeps the historical snappy endpointing. utterance_end_ms has no
+	// prior value; 1000 is Deepgram's minimum and switches on the UtteranceEnd
+	// flush that recovers a turn when no speech_final arrives.
+	setDefault(&cfg.Deepgram.Endpointing, "300")
+	setDefault(&cfg.Deepgram.UtteranceEndMs, "1000")
+	setDefault(&cfg.AssemblyAI.Model, "u3-rt-pro")
+	// Cartesia counts concurrency by active generation context; 3 comfortably
+	// serves many concurrent calls because agent speech is bursty and
+	// half-duplex. Negative disables the limiter.
+	if cfg.Cartesia.MaxConcurrency == 0 {
+		cfg.Cartesia.MaxConcurrency = 3
+	}
 	setDefault(&cfg.LLM.Provider, "openai")
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")

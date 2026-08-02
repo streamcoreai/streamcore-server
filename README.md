@@ -125,7 +125,8 @@ A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on
 
 **Clients**
 
-- TypeScript (`@streamcore/js-sdk`), React Native / Expo (`@streamcore/react-native-sdk`), Python (`streamcoreai-sdk`), Go (`github.com/streamcoreai/go-sdk`), Rust
+- TypeScript (`@streamcore/js-sdk`), Python (`streamcore`), Go (`github.com/streamcoreai/go-sdk`), Rust
+- React Native / Expo (`@streamcore/react-native-sdk`) — built, not yet published to npm
 
 ## Supported endpoints and integrations
 
@@ -135,12 +136,12 @@ A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on
 | Mobile | Available | React Native / Expo SDK (`react-native-webrtc` peer dependency) |
 | Backend service / worker | Available | Go, Python, or Rust SDK |
 | CLI and TUI | Available | Go and Rust examples |
-| Telephony (SIP) | Available | [`sip-server/`](../sip-server/) bridges PCMU/RTP ↔ Opus/WHIP, inbound and outbound |
-| Embedded device | Experimental | ESP32-S3 firmware in [`esp32/`](../esp32/) speaking WHIP directly |
+| Telephony (SIP) | Available | [`sip-server`](https://github.com/streamcoreai/sip-server) bridges PCMU/RTP ↔ Opus/WHIP, inbound and outbound |
+| Embedded device | Experimental | ESP32-S3 firmware in [`esp32`](https://github.com/streamcoreai/esp32) speaking WHIP directly |
 
 | AI integration | Providers |
 |----------------|-----------|
-| Streaming STT | Deepgram, OpenAI, VibeVoice (local) |
+| Streaming STT | Deepgram, AssemblyAI, OpenAI, VibeVoice (local) |
 | LLM | OpenAI, Ollama (local or self-hosted) |
 | Streaming TTS | Cartesia, Deepgram, ElevenLabs, Speechify, VibeVoice (local) |
 | Retrieval | pgvector, Supabase |
@@ -445,9 +446,10 @@ table = "documents"
 
 **Ingesting documents**
 
-The server handles query-time retrieval only. Populate your vector store with [`streamcore-cli`](../streamcore-cli/):
+The server handles query-time retrieval only. Populate your vector store with [`streamcore-cli`](https://github.com/streamcoreai/streamcore-cli):
 
 ```bash
+git clone https://github.com/streamcoreai/streamcore-cli
 cd streamcore-cli && go build -o streamcore-cli .
 
 # Supports .txt, .md, .csv, .pdf, .docx, .xlsx
@@ -469,7 +471,7 @@ The CLI reads your server's `config.toml` for provider credentials, so nothing i
 
 | Role | Providers | Required credentials |
 |------|-----------|----------------------|
-| STT | `deepgram`, `openai`, `vibevoice` | Deepgram API key, OpenAI API key, or a local VibeVoice ASR server |
+| STT | `deepgram`, `assemblyai`, `openai`, `vibevoice` | Deepgram API key, AssemblyAI API key, OpenAI API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama` | OpenAI API key, or an Ollama instance you control |
 | TTS | `cartesia`, `deepgram`, `elevenlabs`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
@@ -679,8 +681,8 @@ Notes:
 Client SDKs:
 
 - TypeScript: `@streamcore/js-sdk`
-- React Native / Expo: `@streamcore/react-native-sdk`
-- Python: `streamcoreai-sdk`
+- React Native / Expo: `@streamcore/react-native-sdk` (not yet published to npm)
+- Python: `streamcore`
 - Go: `github.com/streamcoreai/go-sdk`
 - [Rust](https://github.com/streamcoreai/rust-sdk)
 
@@ -705,7 +707,12 @@ Not built yet — listed here so the capability tables above stay honest:
 - **HTTP agent endpoint.** A configurable OpenAI-compatible or webhook-style agent backend, so bring-your-own-agent needs no Go code.
 - **Persistent memory** across sessions.
 - **Broader examples** proving the positioning: realtime translator, AI-hosted voice room, browser copilot, embedded device, SIP application, and a raw audio-processing app with no LLM at all.
-- **Embedded client hardening.** The ESP32-S3 firmware in [`esp32/`](../esp32/) connects over WHIP but is not production-ready.
+- **Embedded client hardening.** The ESP32-S3 firmware in [`esp32`](https://github.com/streamcoreai/esp32) connects over WHIP but is not production-ready.
+
+## Star history
+
+<!-- star-history:start -->
+<!-- star-history:end -->
 
 ## License
 

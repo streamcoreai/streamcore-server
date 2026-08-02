@@ -203,6 +203,17 @@ func New(
 		}
 	}
 
+	// Teach the model the optional delivery tags. Without this rule the tag
+	// vocabulary is never emitted and ParseVoiceTag simply never fires, so
+	// voice controls stay at provider defaults.
+	llmClient.AppendSystemPrompt(
+		"\n\nOPTIONAL tone control: you may start a sentence with exactly one tag from " +
+			"[warm] [empathetic] [calm] [excited] to shape how it is spoken — e.g. " +
+			"\"[empathetic] I'm really sorry to hear that.\" Use it sparingly, only when the " +
+			"moment calls for it (apologies, bad news, congratulations). The tag is never " +
+			"spoken aloud. Never invent other tags.",
+	)
+
 	// Initialize atomic values with empty strings for type consistency.
 	p.lastAgentText.Store("")
 	p.interruptedText.Store("")

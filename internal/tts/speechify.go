@@ -246,3 +246,10 @@ func resample24kTo16k(in []byte) []byte {
 	}
 	return out
 }
+
+// SynthesizeStream emits the whole utterance as one chunk. Speechify returns
+// base64 audio inside a JSON envelope, and the 24 kHz to 16 kHz resampler
+// needs a complete buffer, so there is nothing to stream incrementally.
+func (c *speechifyClient) SynthesizeStream(ctx context.Context, text string) (<-chan StreamChunk, error) {
+	return streamWhole(ctx, c.Synthesize, text)
+}

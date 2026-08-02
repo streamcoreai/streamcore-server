@@ -23,7 +23,7 @@ func NewDeepgramClient(apiKey string) Client {
 	}
 }
 
-func (c *deepgramClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
+func (c *deepgramClient) buildRequest(ctx context.Context, text string) (*http.Request, error) {
 	params := url.Values{}
 	params.Set("model", "aura-asteria-en")
 	params.Set("encoding", "linear16")
@@ -39,6 +39,33 @@ func (c *deepgramClient) Synthesize(ctx context.Context, text string) ([]byte, e
 
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", c.apiKey))
 	req.Header.Set("Content-Type", "text/plain")
+	return req, nil
+}
+
+// SynthesizeStream reads the response body as it arrives. Deepgram returns
+// raw headerless PCM, so bytes are playable the moment they land.
+func (c *deepgramClient) SynthesizeStream(ctx context.Context, text string) (<-chan StreamChunk, error) {
+	req, err := c.buildRequest(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tts request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("tts error %d: %s", resp.StatusCode, string(body))
+	}
+	return streamHTTPResponse(ctx, resp), nil
+}
+
+func (c *deepgramClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
+	req, err := c.buildRequest(ctx, text)
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

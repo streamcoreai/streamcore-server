@@ -121,6 +121,13 @@ func (c *openaiClient) AppendSystemPrompt(text string) {
 // continues until the LLM produces a text response.
 func (c *openaiClient) Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error) {
 	c.mu.Lock()
+	// Reconcile history before adding the new user message. If a previous
+	// Chat call was interrupted mid-tool-execution (barge-in or new turn),
+	// the history may contain an assistant message with tool_calls but no
+	// corresponding tool result messages. OpenAI rejects this. Patch any
+	// dangling tool_call_ids with error placeholders so the conversation
+	// stays valid.
+	c.reconcileHistory()
 	c.history = append(c.history, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleUser,
 		Content: userText,
@@ -128,7 +135,17 @@ func (c *openaiClient) Chat(ctx context.Context, userText string, onChunk func(s
 	c.mu.Unlock()
 
 	// Tool-call loop: LLM may request tools multiple times before answering.
-	const maxToolRounds = 10
+	// Capped conservatively — most legitimate flows complete in <= 2 rounds.
+	// Higher caps just let broken prompts rack up latency.
+	const maxToolRounds = 4
+
+	// Track (name|args) signatures across rounds so we can break out of
+	// pathological loops where the LLM keeps calling the same tool with the
+	// same arguments after it errored (seen when the user requests a
+	// capability that isn't enabled — the model desperately retries unrelated
+	// tools instead of giving up).
+	seenCalls := make(map[string]int)
+
 	for round := 0; ; round++ {
 		result, toolCalls, err := c.streamCompletion(ctx, onChunk, onSentence)
 		if err != nil {
@@ -142,7 +159,8 @@ func (c *openaiClient) Chat(ctx context.Context, userText string, onChunk func(s
 
 		if round >= maxToolRounds {
 			log.Printf("[llm] exceeded %d tool-call rounds, stopping", maxToolRounds)
-			return result, nil
+			return c.forceTextResponse(ctx, onChunk, onSentence,
+				"You've used your tool-call budget for this turn. Reply to the user in plain text now without calling any more tools.")
 		}
 
 		// Execute tool calls and feed results back.
@@ -155,15 +173,35 @@ func (c *openaiClient) Chat(ctx context.Context, userText string, onChunk func(s
 			return result, nil
 		}
 
+		repeatedAll := true
 		for _, tc := range toolCalls {
+			sig := tc.Name + "|" + string(tc.Arguments)
+			prev := seenCalls[sig]
+
 			log.Printf("[llm] tool call: %s(%s)", tc.Name, truncate(string(tc.Arguments), 100))
 
-			output, err := handler(ctx, tc)
-			if err != nil {
-				output = fmt.Sprintf("Error: %v", err)
+			var output string
+			if prev >= 1 {
+				// Model asked for the exact same call again — short-circuit
+				// with a terse note rather than re-running the tool.
+				output = fmt.Sprintf(
+					"The tool %s was already called with these arguments in this turn and returned the same result. Do not call it again; answer the user directly.",
+					tc.Name,
+				)
+				log.Printf("[llm] skipping duplicate tool call: %s", tc.Name)
+			} else {
+				repeatedAll = false
+				out, err := handler(ctx, tc)
+				if err != nil {
+					output = fmt.Sprintf("Error: %v", err)
+				} else {
+					output = out
+					// Only mark as seen on success so the LLM can retry
+					// after transient errors (e.g. broken pipe).
+					seenCalls[sig] = prev + 1
+				}
+				log.Printf("[llm] tool result: %s", truncate(output, 100))
 			}
-
-			log.Printf("[llm] tool result: %s", truncate(output, 100))
 
 			c.mu.Lock()
 			c.history = append(c.history, openai.ChatCompletionMessage{
@@ -173,7 +211,109 @@ func (c *openaiClient) Chat(ctx context.Context, userText string, onChunk func(s
 			})
 			c.mu.Unlock()
 		}
+
+		// Every tool call this round was a duplicate of a previous call.
+		// The model is stuck in a loop — force a text response instead of
+		// letting it burn another round.
+		if repeatedAll {
+			log.Printf("[llm] all tool calls in round %d were duplicates, forcing text response", round)
+			return c.forceTextResponse(ctx, onChunk, onSentence,
+				"Stop calling tools. Reply to the user in plain text explaining what you can and cannot help with based on the tools available in this session.")
+		}
 	}
+}
+
+// reconcileHistory patches any assistant tool_calls that never received a
+// matching tool result — the state left behind when a turn is cancelled
+// mid-execution by a barge-in. OpenAI rejects such a history outright, so a
+// single interrupted tool call would otherwise break every later turn in the
+// call.
+func (c *openaiClient) reconcileHistory() {
+	// Pass 1: collect every tool_call_id an assistant asked for, plus every
+	// tool result already present.
+	type pendingRef struct {
+		assistantIdx int
+		callID       string
+	}
+	var pending []pendingRef
+	answered := make(map[string]bool)
+
+	for i, msg := range c.history {
+		if msg.Role == openai.ChatMessageRoleAssistant {
+			for _, tc := range msg.ToolCalls {
+				pending = append(pending, pendingRef{assistantIdx: i, callID: tc.ID})
+			}
+		}
+		if msg.Role == openai.ChatMessageRoleTool {
+			answered[msg.ToolCallID] = true
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+
+	// Pass 2: build a placeholder result for each unanswered call, tagged
+	// with the assistant message it must follow.
+	type patch struct {
+		insertAfter int
+		msg         openai.ChatCompletionMessage
+	}
+	var patches []patch
+	for _, p := range pending {
+		if answered[p.callID] {
+			continue
+		}
+		log.Printf("[llm] reconciling dangling tool_call_id=%s (cancelled mid-execution)", p.callID)
+		patches = append(patches, patch{
+			insertAfter: p.assistantIdx,
+			msg: openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Content:    "Tool execution was cancelled.",
+				ToolCallID: p.callID,
+			},
+		})
+		// Defensive: mark answered so a duplicate ID can't be patched twice.
+		answered[p.callID] = true
+	}
+	if len(patches) == 0 {
+		return
+	}
+
+	// Pass 3: splice from the back so earlier indices stay valid.
+	for i, j := 0, len(patches)-1; i < j; i, j = i+1, j-1 {
+		patches[i], patches[j] = patches[j], patches[i]
+	}
+	for _, p := range patches {
+		insertAt := p.insertAfter + 1
+		c.history = append(
+			c.history[:insertAt],
+			append([]openai.ChatCompletionMessage{p.msg}, c.history[insertAt:]...)...,
+		)
+	}
+}
+
+// forceTextResponse nudges the model into a text reply when the tool-call loop
+// would otherwise spin. We inject a strongly-worded system message and make a
+// follow-up streaming request; tool use is still technically available but the
+// instruction plus the preceding duplicate results usually suffice.
+func (c *openaiClient) forceTextResponse(ctx context.Context, onChunk, onSentence func(string), instruction string) (string, error) {
+	c.mu.Lock()
+	c.history = append(c.history, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: instruction,
+	})
+	c.mu.Unlock()
+
+	result, toolCalls, err := c.streamCompletion(ctx, onChunk, onSentence)
+	if err != nil {
+		return result, err
+	}
+	if len(toolCalls) > 0 {
+		// The model still insisted on tool calls. Drop them silently and
+		// return whatever text we captured; avoids another round.
+		log.Printf("[llm] force-text fallback still requested %d tool calls, ignoring", len(toolCalls))
+	}
+	return result, nil
 }
 
 // streamCompletion runs one streaming request and returns either a text response
@@ -223,7 +363,7 @@ func (c *openaiClient) streamCompletion(ctx context.Context, onChunk func(string
 
 		// Handle tool call deltas
 		for _, tc := range delta.ToolCalls {
-			idx := *tc.Index
+			idx := toolCallDeltaIndex(tc)
 			existing, ok := toolCallMap[idx]
 			if !ok {
 				existing = &ToolCall{}
@@ -322,6 +462,18 @@ func (c *openaiClient) streamCompletion(ctx context.Context, onChunk func(string
 
 	log.Printf("[llm] response: %s", truncate(fullResponse.String(), 80))
 	return fullResponse.String(), nil, nil
+}
+
+// toolCallDeltaIndex returns the stream tool-call index, defaulting to 0 when
+// the provider omits it. The go-openai SDK types Index as *int and documents
+// it as non-nil only in streaming chunks, but OpenAI-compatible backends and
+// proxies don't always populate it — dereferencing a nil pointer here would
+// panic and kill the call's goroutine mid-turn, so guard it.
+func toolCallDeltaIndex(tc openai.ToolCall) int {
+	if tc.Index == nil {
+		return 0
+	}
+	return *tc.Index
 }
 
 // findSentenceEnd returns the index of the latest sentence-terminating
