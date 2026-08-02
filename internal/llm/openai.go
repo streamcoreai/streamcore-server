@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -24,14 +26,39 @@ type openaiClient struct {
 }
 
 func NewOpenAIClient(apiKey, model, systemPrompt string) Client {
-	return &openaiClient{
-		client:       openai.NewClient(apiKey),
+	// Keep a warm connection pool so turns within a call (and the first turn
+	// after an idle gap) reuse an established TLS+HTTP/2 connection instead of
+	// paying a fresh handshake on the live audio path.
+	transport := &http.Transport{
+		ForceAttemptHTTP2:   true,
+		MaxIdleConns:        16,
+		MaxIdleConnsPerHost: 8,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	cfg := openai.DefaultConfig(apiKey)
+	cfg.HTTPClient = &http.Client{Transport: transport, Timeout: 60 * time.Second}
+
+	c := &openaiClient{
+		client:       openai.NewClientWithConfig(cfg),
 		model:        model,
 		systemPrompt: systemPrompt,
 		history: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 		},
 	}
+
+	// Prime the connection pool in the background: ListModels is unbilled and
+	// establishes the TLS+H2 connection the first real turn will reuse. Errors
+	// are non-fatal (offline/dev) — this is best-effort warmup only.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := c.client.ListModels(ctx); err != nil {
+			log.Printf("[llm] connection warmup skipped: %v", err)
+		}
+	}()
+
+	return c
 }
 
 // SetTools configures the function-calling tools available to the LLM.
@@ -297,13 +324,37 @@ func (c *openaiClient) streamCompletion(ctx context.Context, onChunk func(string
 	return fullResponse.String(), nil, nil
 }
 
+// findSentenceEnd returns the index of the latest sentence-terminating
+// punctuation in s, or -1 if none. '!' and '?' always terminate. A '.' only
+// terminates when it is NOT inside an inline token — an email/domain
+// ("gmail.com"), decimal ("39.99"), or abbreviation ("co.uk") — i.e. when the
+// next character is not alphanumeric. A trailing '.' (last char so far) is
+// ambiguous mid-stream ("gmail." in an address vs end of sentence), so the
+// split is deferred until the next chunk disambiguates it; the end-of-stream
+// flush emits any remainder.
+//
+// Without this, the splitter cut "name@gmail.com" at the internal dot, so TTS
+// dropped the "dot" and read the address as "gmail com".
 func findSentenceEnd(s string) int {
 	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == '.' || s[i] == '!' || s[i] == '?' {
+		switch s[i] {
+		case '!', '?':
+			return i
+		case '.':
+			if i+1 >= len(s) {
+				continue // trailing dot: ambiguous while streaming, wait for more
+			}
+			if isAlphaNumByte(s[i+1]) {
+				continue // part of an email/domain/decimal token, not a boundary
+			}
 			return i
 		}
 	}
 	return -1
+}
+
+func isAlphaNumByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
 // sanitizeToolName replaces characters not allowed by OpenAI's tool name

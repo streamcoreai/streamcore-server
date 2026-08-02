@@ -18,8 +18,8 @@ const (
 )
 
 type cartesiaClient struct {
-	apiKey string
-	voiceID string
+	apiKey     string
+	voiceID    string
 	httpClient *http.Client
 }
 
@@ -32,15 +32,15 @@ func NewCartesiaClient(apiKey, voiceID string) Client {
 	return &cartesiaClient{
 		apiKey:     apiKey,
 		voiceID:    voiceID,
-		httpClient: &http.Client{},
+		httpClient: newPooledHTTPClient(),
 	}
 }
 
 type cartesiaRequest struct {
-	ModelID      string                 `json:"model_id"`
-	Transcript   string                 `json:"transcript"`
-	Voice        cartesiaVoice          `json:"voice"`
-	OutputFormat cartesiaOutputFormat   `json:"output_format"`
+	ModelID      string               `json:"model_id"`
+	Transcript   string               `json:"transcript"`
+	Voice        cartesiaVoice        `json:"voice"`
+	OutputFormat cartesiaOutputFormat `json:"output_format"`
 }
 
 type cartesiaVoice struct {
@@ -57,7 +57,7 @@ type cartesiaOutputFormat struct {
 func (c *cartesiaClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	body := cartesiaRequest{
 		ModelID:    "sonic-3",
-		Transcript:  text,
+		Transcript: text,
 		Voice: cartesiaVoice{
 			Mode: "id",
 			ID:   c.voiceID,

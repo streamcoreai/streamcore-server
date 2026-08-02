@@ -120,13 +120,19 @@ func (p *Pipeline) runInbound() {
 	var bargeInStart time.Time
 	const backchannelWindow = 600 * time.Millisecond
 
+	// Reusable conversion buffer — one per call instead of one per 20ms
+	// frame. Safe: every SendAudio implementation writes the bytes out (or
+	// copies them) before returning.
+	sttBuf := make([]byte, 0, audio.FrameSize*2)
+
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
 		case frame := <-p.inPCMCh:
 			// Feed all audio to STT continuously
-			data := audio.PCMToLinear16Bytes(frame.Samples)
+			data := audio.PCMToLinear16BytesInto(sttBuf, frame.Samples)
+			sttBuf = data[:0]
 			if err := sttClient.SendAudio(data); err != nil {
 				if p.ctx.Err() == nil {
 					log.Printf("[inbound] STT send error: %v", err)

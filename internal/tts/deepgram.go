@@ -19,7 +19,7 @@ type deepgramClient struct {
 func NewDeepgramClient(apiKey string) Client {
 	return &deepgramClient{
 		apiKey:     apiKey,
-		httpClient: &http.Client{},
+		httpClient: newPooledHTTPClient(),
 	}
 }
 
