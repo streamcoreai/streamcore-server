@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/streamcoreai/server/internal/audio"
+	"github.com/streamcoreai/server/internal/tts"
 )
 
 // runAgent is the central orchestrator goroutine. It receives transcript
@@ -138,12 +139,15 @@ func (p *Pipeline) respond(userText string, turnStart time.Time) {
 					Ms:    time.Since(turnStart).Milliseconds(),
 				})
 			}
-			// Accumulate response text for interruption context
+			// Accumulate response text for interruption context. Delivery tags
+			// are stripped: this text is quoted back to the LLM verbatim when
+			// the user barges in, and feeding it "[warm] ..." would teach the
+			// model that tags are part of normal prose.
+			acc := chunk
 			if prev, _ := p.lastAgentText.Load().(string); prev != "" {
-				p.lastAgentText.Store(prev + chunk)
-			} else {
-				p.lastAgentText.Store(chunk)
+				acc = prev + chunk
 			}
+			p.lastAgentText.Store(tts.StripVoiceTags(acc))
 			p.sendEvent(responseMsg{
 				Type: "response",
 				Text: chunk,
@@ -168,65 +172,111 @@ func (p *Pipeline) respond(userText string, turnStart time.Time) {
 // synthesizeSentences reads sentences from the channel, calls TTS for each,
 // and pushes the resulting PCM frames into outPCMCh for the sender goroutine.
 func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan string, turnStart time.Time) {
-	firstSentence := true
 	emittedTTSTiming := false
 	emittedSpeaking := false
+
+	// leftover holds samples that did not fill a complete frame. Streaming
+	// chunks arrive on arbitrary byte boundaries, so the remainder carries
+	// into the next chunk rather than being padded with silence mid-utterance,
+	// which would insert an audible click every chunk.
+	var leftover []int16
+	talkspurtSent := false
+
+	emitFrame := func(frame PCMFrame) bool {
+		select {
+		case p.outPCMCh <- frame:
+			if !emittedTTSTiming && p.cfg.Pipeline.Debug && !turnStart.IsZero() {
+				emittedTTSTiming = true
+				p.sendEvent(timingMsg{
+					Type:  "timing",
+					Stage: "tts_first_byte",
+					Ms:    time.Since(turnStart).Milliseconds(),
+				})
+			}
+			// Send "speaking" state when the first audio frame is actually
+			// produced, not when respond() begins. This keeps the "thinking"
+			// state visible while the LLM and TTS are working.
+			if !emittedSpeaking {
+				emittedSpeaking = true
+				p.speaking.Store(true)
+				p.sendEvent(stateMsg{Type: "state", State: "speaking"})
+			}
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
 
 	for sentence := range sentences {
 		if ctx.Err() != nil {
 			return
 		}
 
-		pcmBytes, err := p.ttsClient.Synthesize(ctx, sentence)
+		// The LLM may prefix a sentence with a delivery tag ([warm], [calm], …)
+		// per the voice-output rules. The tag is stripped here — the caller
+		// never hears it — and mapped to provider voice controls when the
+		// configured TTS supports them.
+		controls, clean := tts.ParseVoiceTag(sentence)
+
+		// Stream so audio starts playing as soon as the first PCM chunk
+		// arrives, instead of waiting for the whole sentence to synthesize.
+		var stream <-chan tts.StreamChunk
+		var err error
+		if cs, ok := p.ttsClient.(tts.ControllableStreamer); ok && !controls.IsZero() {
+			stream, err = cs.SynthesizeStreamWithControls(ctx, clean, controls)
+		} else {
+			stream, err = p.ttsClient.SynthesizeStream(ctx, clean)
+		}
 		if err != nil {
 			if ctx.Err() == nil {
-				log.Printf("[agent] TTS error: %v", err)
+				log.Printf("[agent] TTS stream error: %v", err)
 			}
 			return
 		}
 
-		pcm := audio.Linear16BytesToPCM(pcmBytes)
-
-		for i := 0; i < len(pcm); i += audio.FrameSize {
-			end := i + audio.FrameSize
-			var samples []int16
-			if end > len(pcm) {
-				// Pad last frame with silence
-				samples = make([]int16, audio.FrameSize)
-				copy(samples, pcm[i:])
-			} else {
-				samples = pcm[i:end]
-			}
-
-			frame := PCMFrame{
-				Samples:      samples,
-				NewTalkspurt: (i == 0 && firstSentence),
-			}
-
-			select {
-			case p.outPCMCh <- frame:
-				if !emittedTTSTiming && p.cfg.Pipeline.Debug && !turnStart.IsZero() {
-					emittedTTSTiming = true
-					p.sendEvent(timingMsg{
-						Type:  "timing",
-						Stage: "tts_first_byte",
-						Ms:    time.Since(turnStart).Milliseconds(),
-					})
+		for chunk := range stream {
+			if chunk.Err != nil {
+				if ctx.Err() == nil {
+					log.Printf("[agent] TTS error: %v", chunk.Err)
 				}
-				// Send "speaking" state when the first audio frame is
-				// actually produced, not when respond() begins. This
-				// keeps the "thinking" state visible while the LLM and
-				// TTS are working.
-				if !emittedSpeaking {
-					emittedSpeaking = true
-					p.speaking.Store(true)
-					p.sendEvent(stateMsg{Type: "state", State: "speaking"})
-				}
-			case <-ctx.Done():
 				return
 			}
+			if ctx.Err() != nil {
+				return
+			}
+
+			samples := append(leftover, audio.Linear16BytesToPCM(chunk.PCM)...)
+			leftover = nil
+
+			// Emit complete frames only; the partial tail waits for the next
+			// chunk, or is flushed once every sentence is done.
+			i := 0
+			for ; i+audio.FrameSize <= len(samples); i += audio.FrameSize {
+				frame := PCMFrame{
+					Samples:      make([]int16, audio.FrameSize),
+					NewTalkspurt: !talkspurtSent,
+				}
+				copy(frame.Samples, samples[i:i+audio.FrameSize])
+				talkspurtSent = true
+				if !emitFrame(frame) {
+					return
+				}
+			}
+			if i < len(samples) {
+				leftover = append([]int16{}, samples[i:]...)
+			}
 		}
-		firstSentence = false
+	}
+
+	// Flush the final partial frame, padded with silence. Only the very end of
+	// the turn gets padding, so the click lands where the agent stops talking.
+	if len(leftover) > 0 {
+		frame := PCMFrame{
+			Samples:      make([]int16, audio.FrameSize),
+			NewTalkspurt: !talkspurtSent,
+		}
+		copy(frame.Samples, leftover)
+		emitFrame(frame)
 	}
 }
 

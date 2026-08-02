@@ -78,3 +78,10 @@ func (c *vibevoiceTTSClient) Synthesize(ctx context.Context, text string) ([]byt
 	log.Printf("[tts:vibevoice] synthesized %d bytes for %d chars of text", len(data), len(text))
 	return data, nil
 }
+
+// SynthesizeStream emits the whole utterance as one chunk: the VibeVoice
+// server returns audio in a single JSON envelope, so there is nothing to
+// stream incrementally.
+func (c *vibevoiceTTSClient) SynthesizeStream(ctx context.Context, text string) (<-chan StreamChunk, error) {
+	return streamWhole(ctx, c.Synthesize, text)
+}

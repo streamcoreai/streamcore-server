@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 )
 
@@ -52,14 +53,24 @@ type elevenlabsVoiceSettings struct {
 	SimilarityBoost float64 `json:"similarity_boost"`
 }
 
-func (c *elevenlabsClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
+// buildRequest composes the synthesis request. vc carries optional per-utterance
+// delivery hints; the zero value leaves the voice at its configured defaults.
+func (c *elevenlabsClient) buildRequest(ctx context.Context, text string, vc VoiceControls) (*http.Request, error) {
+	settings := elevenlabsVoiceSettings{
+		Stability:       0.5,
+		SimilarityBoost: 0.75,
+	}
+	// ElevenLabs has no speed parameter on this endpoint, so tone is mapped to
+	// stability instead: calmer tones get a steadier read, livelier ones more
+	// variation. Clamped to the API's valid range.
+	if vc.Speed > 0 {
+		settings.Stability = math.Min(0.9, math.Max(0.15, 0.5+(1.0-vc.Speed)))
+	}
+
 	body := elevenlabsRequest{
-		Text:    text,
-		ModelID: c.model,
-		VoiceSettings: elevenlabsVoiceSettings{
-			Stability:       0.5,
-			SimilarityBoost: 0.75,
-		},
+		Text:          text,
+		ModelID:       c.model,
+		VoiceSettings: settings,
 	}
 
 	jsonBody, err := json.Marshal(body)
@@ -76,6 +87,35 @@ func (c *elevenlabsClient) Synthesize(ctx context.Context, text string) ([]byte,
 
 	req.Header.Set("xi-api-key", c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	return req, nil
+}
+
+func (c *elevenlabsClient) SynthesizeStream(ctx context.Context, text string) (<-chan StreamChunk, error) {
+	return c.SynthesizeStreamWithControls(ctx, text, VoiceControls{})
+}
+
+func (c *elevenlabsClient) SynthesizeStreamWithControls(ctx context.Context, text string, vc VoiceControls) (<-chan StreamChunk, error) {
+	req, err := c.buildRequest(ctx, text, vc)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("elevenlabs request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("elevenlabs error %d: %s", resp.StatusCode, string(respBody))
+	}
+	return streamHTTPResponse(ctx, resp), nil
+}
+
+func (c *elevenlabsClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
+	req, err := c.buildRequest(ctx, text, VoiceControls{})
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

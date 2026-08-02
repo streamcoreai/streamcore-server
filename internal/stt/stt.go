@@ -10,6 +10,11 @@ import (
 type TranscriptResult struct {
 	Text    string
 	IsFinal bool
+	// Confidence is the provider-reported confidence for the transcript in the
+	// range [0, 1]. Zero means the provider did not report a value (or the
+	// reported value was genuinely zero); callers must treat it as "unknown"
+	// rather than "low confidence".
+	Confidence float64
 }
 
 // Client is the interface that all STT providers must implement.
@@ -31,9 +36,14 @@ func NewClient(ctx context.Context, cfg *config.Config, onResult func(Transcript
 			return nil, fmt.Errorf("stt provider %q requires [openai] api_key to be set", cfg.STT.Provider)
 		}
 		return NewOpenAIClient(ctx, cfg.OpenAI.APIKey, onResult)
+	case "assemblyai":
+		if cfg.AssemblyAI.APIKey == "" {
+			return nil, fmt.Errorf("stt provider %q requires [assemblyai] api_key to be set", cfg.STT.Provider)
+		}
+		return NewAssemblyAIClient(ctx, cfg.AssemblyAI, onResult)
 	case "vibevoice":
 		return NewVibeVoiceClient(ctx, cfg.VibeVoice.ASRURL, onResult)
 	default:
-		return nil, fmt.Errorf("unknown stt provider %q (supported: deepgram, openai, vibevoice)", cfg.STT.Provider)
+		return nil, fmt.Errorf("unknown stt provider %q (supported: deepgram, openai, assemblyai, vibevoice)", cfg.STT.Provider)
 	}
 }

@@ -140,7 +140,7 @@ A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on
 
 | AI integration | Providers |
 |----------------|-----------|
-| Streaming STT | Deepgram, OpenAI, VibeVoice (local) |
+| Streaming STT | Deepgram, AssemblyAI, OpenAI, VibeVoice (local) |
 | LLM | OpenAI, Ollama (local or self-hosted) |
 | Streaming TTS | Cartesia, Deepgram, ElevenLabs, Speechify, VibeVoice (local) |
 | Retrieval | pgvector, Supabase |
@@ -469,7 +469,7 @@ The CLI reads your server's `config.toml` for provider credentials, so nothing i
 
 | Role | Providers | Required credentials |
 |------|-----------|----------------------|
-| STT | `deepgram`, `openai`, `vibevoice` | Deepgram API key, OpenAI API key, or a local VibeVoice ASR server |
+| STT | `deepgram`, `assemblyai`, `openai`, `vibevoice` | Deepgram API key, AssemblyAI API key, OpenAI API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama` | OpenAI API key, or an Ollama instance you control |
 | TTS | `cartesia`, `deepgram`, `elevenlabs`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
@@ -706,6 +706,11 @@ Not built yet — listed here so the capability tables above stay honest:
 - **Persistent memory** across sessions.
 - **Broader examples** proving the positioning: realtime translator, AI-hosted voice room, browser copilot, embedded device, SIP application, and a raw audio-processing app with no LLM at all.
 - **Embedded client hardening.** The ESP32-S3 firmware in [`esp32/`](../esp32/) connects over WHIP but is not production-ready.
+
+## Star history
+
+<!-- star-history:start -->
+<!-- star-history:end -->
 
 ## License
 
