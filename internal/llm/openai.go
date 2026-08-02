@@ -571,3 +571,23 @@ func pruneHistory(h []openai.ChatCompletionMessage) []openai.ChatCompletionMessa
 	kept = append(kept, tail...)
 	return kept
 }
+
+// OneShot performs a single non-streaming completion independent of the
+// conversation history, so a background task cannot disturb the live turn.
+func (c *openaiClient) OneShot(ctx context.Context, system, user string) (string, error) {
+	resp, err := c.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model:       c.model,
+		Temperature: 0,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: system},
+			{Role: openai.ChatMessageRoleUser, Content: user},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("oneshot completion: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", nil
+	}
+	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
+}

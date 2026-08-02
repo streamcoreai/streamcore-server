@@ -14,6 +14,9 @@ type TranscriptEvent struct {
 	Text      string
 	Final     bool
 	TurnStart time.Time // set on final transcripts for latency measurement
+	// MergeWaitMs is how long the turn buffer held this turn open merging
+	// continuations, so latency accounting can separate debounce from work.
+	MergeWaitMs int64
 }
 
 // DataChannel message types sent to the client via the events DataChannel.
@@ -39,4 +42,3 @@ type stateMsg struct {
 	Type  string `json:"type"`
 	State string `json:"state"`
 }
-

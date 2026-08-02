@@ -296,3 +296,28 @@ func (c *ollamaClient) Reset() {
 		{Role: "system", Content: c.systemPrompt},
 	}
 }
+func (c *ollamaClient) OneShot(ctx context.Context, system, user string) (string, error) {
+	stream := false
+	req := &api.ChatRequest{
+		Model: c.model,
+		Messages: []api.Message{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		},
+		Stream: &stream,
+		// Disable reasoning. Thinking models (qwen3, deepseek-r1, gpt-oss…)
+		// otherwise emit a long hidden reasoning preamble before any answer,
+		// which blows past the call deadline ("context deadline exceeded") and
+		// wastes tokens for a focused transform. Ignored by non-thinking models.
+		Think: &api.ThinkValue{Value: false},
+	}
+	var out strings.Builder
+	err := c.client.Chat(ctx, req, func(resp api.ChatResponse) error {
+		out.WriteString(resp.Message.Content)
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("oneshot completion: %w", err)
+	}
+	return strings.TrimSpace(out.String()), nil
+}

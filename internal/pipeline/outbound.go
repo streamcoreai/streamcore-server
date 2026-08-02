@@ -76,6 +76,17 @@ func (p *Pipeline) encodeAndSend(frame PCMFrame) {
 		samples = padded
 	}
 
+	// While the caller is talking over the agent, attenuate rather than cut.
+	// A backchannel then costs a brief dip in volume instead of a clipped
+	// word, and the duck lifts as soon as the caller stops.
+	if p.audioMuted.Load() {
+		ducked := make([]int16, len(samples))
+		for i, v := range samples {
+			ducked[i] = int16(int32(v) * duckGainNumerator / duckGainDenominator)
+		}
+		samples = ducked
+	}
+
 	opusData, err := p.encoder.Encode(samples)
 	if err != nil {
 		log.Printf("[sender] encode error: %v", err)
@@ -118,3 +129,11 @@ func (p *Pipeline) markTalkspurt() {
 	defer p.rtpMu.Unlock()
 	p.markerNext = true
 }
+
+// Duck attenuation, expressed as an integer ratio so the hot path does no
+// float conversion. 1/4 is roughly -12 dB: clearly quieter, still audible
+// enough that the caller knows the agent is mid-sentence.
+const (
+	duckGainNumerator   = 1
+	duckGainDenominator = 4
+)

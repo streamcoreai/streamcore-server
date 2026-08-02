@@ -66,14 +66,6 @@ func (p *Pipeline) runReader() {
 	}
 }
 
-// Backchannel tokens that should not trigger barge-in interruption.
-var backchannelTokens = map[string]bool{
-	"mm-hmm": true, "mm hmm": true, "mhm": true, "uh-huh": true,
-	"uh huh": true, "yeah": true, "yep": true, "yes": true,
-	"okay": true, "ok": true, "right": true, "sure": true,
-	"got it": true, "i see": true,
-}
-
 // runInbound consumes decoded PCM frames from inPCMCh, feeds them to the
 // STT provider, and runs barge-in detection via the energy-based VAD.
 func (p *Pipeline) runInbound() {
@@ -93,7 +85,16 @@ func (p *Pipeline) runInbound() {
 			ev.TurnStart = time.Now()
 			hasPartialText.Store(false)
 			latestPartial.Store("text", "")
-		} else {
+			p.storeLastUserConfidence(result.Confidence)
+			// Finals go to the turn buffer, which merges a caller's
+			// mid-sentence pauses into one turn before the agent responds.
+			select {
+			case p.finalCh <- ev:
+			case <-p.ctx.Done():
+			}
+			return
+		}
+		{
 			trimmed := strings.ToLower(strings.TrimSpace(result.Text))
 			latestPartial.Store("text", trimmed)
 			if len(trimmed) >= 2 {
@@ -107,6 +108,8 @@ func (p *Pipeline) runInbound() {
 		case <-p.ctx.Done():
 		}
 	}
+
+	go p.runTurnBuffer()
 
 	sttClient, err := stt.NewClient(p.ctx, p.cfg, sttCallback)
 	if err != nil {
@@ -150,6 +153,7 @@ func (p *Pipeline) runInbound() {
 						// Speech continued past the suppression window — real interruption.
 						log.Println("[inbound] barge-in confirmed (speech > 600ms)")
 						bargeInPending = false
+						p.maybeRestoreDuck()
 						p.bargeInVAD.Reset()
 						select {
 						case p.interruptCh <- struct{}{}:
@@ -159,10 +163,20 @@ func (p *Pipeline) runInbound() {
 						// Speech ended within the window — check for backchannel.
 						partial, _ := latestPartial.Load("text")
 						partialStr, _ := partial.(string)
-						if backchannelTokens[partialStr] {
+						if !isMeaningfulBargeInTranscript(partialStr) {
 							log.Printf("[inbound] backchannel suppressed: %q", partialStr)
 							bargeInPending = false
 							hasPartialText.Store(false)
+							p.maybeRestoreDuck()
+						} else if p.readbackBargeInGuardEnabled() && p.readbackInProgress() &&
+							!isStrongBargeInCommand(partialStr) {
+							// Mid-readback, a weak correction is usually the
+							// caller agreeing along. Only an explicit command
+							// (stop, cancel, hang up) cuts the readback off.
+							log.Printf("[inbound] readback guard held barge-in: %q", partialStr)
+							bargeInPending = false
+							hasPartialText.Store(false)
+							p.maybeRestoreDuck()
 						} else {
 							// Short but not a backchannel — fire immediately.
 							log.Printf("[inbound] barge-in detected (short utterance: %q)", partialStr)
@@ -180,6 +194,10 @@ func (p *Pipeline) runInbound() {
 					bargeInPending = true
 					bargeInStart = time.Now()
 					hasPartialText.Store(false)
+					// Duck rather than cut: the caller hears the agent lower
+					// its voice immediately, and it recovers if this turns out
+					// to be a backchannel.
+					p.maybeStartDuck()
 					log.Println("[inbound] barge-in candidate, checking for backchannel...")
 				}
 			}
