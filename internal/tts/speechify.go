@@ -38,7 +38,7 @@ func NewSpeechifyClient(apiKey, voiceID, model string) Client {
 		apiKey:     apiKey,
 		voiceID:    voiceID,
 		model:      model,
-		httpClient: &http.Client{},
+		httpClient: newPooledHTTPClient(),
 	}
 }
 
