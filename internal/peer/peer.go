@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +77,23 @@ func getOrCreateMux() (ice.UDPMux, net.Addr, error) {
 
 func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*Peer, error) {
 	m := &webrtc.MediaEngine{}
+	// Register both Opus variants so the server accepts:
+	//   - Browser WHIP clients, which advertise `opus/48000/2` per WebRTC convention.
+	//   - `streamcoreai` SDK clients (Go/Rust/Python/TS), which advertise `opus/48000/1`.
+	// Pion's codec matcher is strict on Channels, so we register both.
+	// PayloadType 111 is used by every browser; 109 is a commonly-free slot
+	// we reserve for the mono variant.
+	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeOpus,
+			ClockRate:   48000,
+			Channels:    2,
+			SDPFmtpLine: "minptime=10;useinbandfec=1",
+		},
+		PayloadType: 111,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		return nil, fmt.Errorf("register opus/2 codec: %w", err)
+	}
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
 			MimeType:    webrtc.MimeTypeOpus,
@@ -82,9 +101,9 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 			Channels:    1,
 			SDPFmtpLine: "minptime=10;useinbandfec=1",
 		},
-		PayloadType: 111,
+		PayloadType: 109,
 	}, webrtc.RTPCodecTypeAudio); err != nil {
-		return nil, fmt.Errorf("register opus codec: %w", err)
+		return nil, fmt.Errorf("register opus/1 codec: %w", err)
 	}
 
 	i := &interceptor.Registry{}
@@ -105,10 +124,16 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 		// (on the same machine) reach the server via the private IP,
 		// bypassing EC2 Elastic IP hairpin issues.
 		se.SetNAT1To1IPs([]string{publicIP}, webrtc.ICECandidateTypeSrflx)
-		// Only use the primary network interface (eth0/ens5), skip Docker
+		// Only use the primary network interface and loopback. Skip Docker
 		// bridge interfaces (docker0, br-*) to avoid leaking 172.17.x/172.18.x.
+		// Supports both Linux (eth0/ens5/lo) and macOS (en0/lo0).
 		se.SetInterfaceFilter(func(iface string) bool {
-			return iface == "eth0" || iface == "ens5" || iface == "lo"
+			switch iface {
+			case "eth0", "ens5", "en0", "lo", "lo0":
+				return true
+			default:
+				return false
+			}
 		})
 		se.SetIPFilter(func(ip net.IP) bool {
 			return ip.To4() != nil // IPv4 only
@@ -143,24 +168,11 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 		return nil, fmt.Errorf("create peer connection: %w", err)
 	}
 
-	track, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{
-			MimeType:  webrtc.MimeTypeOpus,
-			ClockRate: 48000,
-			Channels:  1,
-		},
-		"audio-agent",
-		"streamcoreai",
-	)
-	if err != nil {
-		pc.Close()
-		return nil, fmt.Errorf("create local track: %w", err)
-	}
-
-	if _, err := pc.AddTrack(track); err != nil {
-		pc.Close()
-		return nil, fmt.Errorf("add track: %w", err)
-	}
+	// NOTE: The outbound audio track is created inside HandleOffer once we
+	// have inspected the client's offer and know which Opus channel layout
+	// (`/1` for the SDK clients, `/2` for browsers) it's using. Building it
+	// here with a single Channels value would break whichever client type we
+	// didn't pick.
 
 	peerCtx, peerCancel := context.WithCancel(ctx)
 
@@ -169,7 +181,6 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 		pc:            pc,
 		ctx:           peerCtx,
 		cancel:        peerCancel,
-		localTrack:    track,
 		RemoteTrackCh: make(chan *webrtc.TrackRemote, 1),
 	}
 
@@ -242,12 +253,44 @@ func (p *Peer) SendEvent(msg interface{}) error {
 }
 
 func (p *Peer) HandleOffer(sdp string) (string, error) {
+	log.Printf("[peer:%s] offer m-lines: %s", p.ID, summarizeMLines(sdp))
+
+	// Create the outbound audio track now that we can see the offer.
+	// The track's Channels MUST match the remote's offered Opus variant;
+	// otherwise Pion's codec matcher returns "RTPSender created with no codecs".
+	// Browsers always offer `opus/48000/2`; the `streamcoreai` SDK clients
+	// offer `opus/48000/1`.
+	channels := detectOpusChannels(sdp)
+	track, err := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeOpus,
+			ClockRate: 48000,
+			Channels:  channels,
+		},
+		"audio-agent",
+		"streamcoreai",
+	)
+	if err != nil {
+		return "", fmt.Errorf("create local track: %w", err)
+	}
+	if _, err := p.pc.AddTrack(track); err != nil {
+		return "", fmt.Errorf("add track: %w", err)
+	}
+	p.localTrack = track
+	log.Printf("[peer:%s] local track created: opus/48000/%d", p.ID, channels)
+
 	offer := webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  sdp,
 	}
 	if err := p.pc.SetRemoteDescription(offer); err != nil {
 		return "", fmt.Errorf("set remote description: %w", err)
+	}
+
+	// Log transceiver directions as Pion resolved them from the offer.
+	for i, t := range p.pc.GetTransceivers() {
+		log.Printf("[peer:%s] transceiver[%d] kind=%s mid=%s direction=%s",
+			p.ID, i, t.Kind().String(), t.Mid(), t.Direction().String())
 	}
 
 	answer, err := p.pc.CreateAnswer(nil)
@@ -266,7 +309,62 @@ func (p *Peer) HandleOffer(sdp string) (string, error) {
 		log.Printf("[peer:%s] ICE gathering timed out, using partial candidates", p.ID)
 	}
 
-	return p.pc.LocalDescription().SDP, nil
+	answerSDP := p.pc.LocalDescription().SDP
+	log.Printf("[peer:%s] answer m-lines: %s", p.ID, summarizeMLines(answerSDP))
+	return answerSDP, nil
+}
+
+// opusRtpmapRe matches `a=rtpmap:<pt> opus/48000/<channels>` lines in SDP.
+var opusRtpmapRe = regexp.MustCompile(`(?i)a=rtpmap:\d+\s+opus/48000/(\d+)`)
+
+// detectOpusChannels inspects the offer SDP and returns the Opus channel count
+// the remote advertised (1 or 2). Defaults to 2 (browser convention) if no
+// Opus rtpmap is found. When both are offered, `/2` wins — browsers always
+// offer `/2`, so picking it keeps the outbound track compatible.
+func detectOpusChannels(sdp string) uint16 {
+	matches := opusRtpmapRe.FindAllStringSubmatch(sdp, -1)
+	if len(matches) == 0 {
+		return 2
+	}
+	sawOne := false
+	for _, m := range matches {
+		switch m[1] {
+		case "2":
+			return 2
+		case "1":
+			sawOne = true
+		}
+	}
+	if sawOne {
+		return 1
+	}
+	return 2
+}
+
+// summarizeMLines returns a compact one-line summary of the SDP's m-lines
+// and their directions (sendrecv/sendonly/recvonly/inactive).
+func summarizeMLines(sdp string) string {
+	var out []string
+	var currentM string
+	for _, line := range strings.Split(sdp, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, "m=") {
+			if currentM != "" {
+				out = append(out, currentM)
+			}
+			currentM = line
+		} else if currentM != "" &&
+			(strings.HasPrefix(line, "a=sendrecv") ||
+				strings.HasPrefix(line, "a=sendonly") ||
+				strings.HasPrefix(line, "a=recvonly") ||
+				strings.HasPrefix(line, "a=inactive")) {
+			currentM += " [" + strings.TrimPrefix(line, "a=") + "]"
+		}
+	}
+	if currentM != "" {
+		out = append(out, currentM)
+	}
+	return strings.Join(out, " | ")
 }
 
 func (p *Peer) Close() {

@@ -37,14 +37,14 @@ func NewElevenLabsClient(apiKey, voiceID, model string) Client {
 		apiKey:     apiKey,
 		voiceID:    voiceID,
 		model:      model,
-		httpClient: &http.Client{},
+		httpClient: newPooledHTTPClient(),
 	}
 }
 
 type elevenlabsRequest struct {
-	Text          string                   `json:"text"`
-	ModelID       string                   `json:"model_id"`
-	VoiceSettings elevenlabsVoiceSettings  `json:"voice_settings"`
+	Text          string                  `json:"text"`
+	ModelID       string                  `json:"model_id"`
+	VoiceSettings elevenlabsVoiceSettings `json:"voice_settings"`
 }
 
 type elevenlabsVoiceSettings struct {

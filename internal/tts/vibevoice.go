@@ -31,7 +31,7 @@ func NewVibeVoiceClient(baseURL, voice string) Client {
 	return &vibevoiceTTSClient{
 		baseURL:    baseURL,
 		voice:      voice,
-		httpClient: &http.Client{},
+		httpClient: newPooledHTTPClient(),
 	}
 }
 

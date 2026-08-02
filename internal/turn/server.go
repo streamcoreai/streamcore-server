@@ -9,8 +9,8 @@ import (
 )
 
 // Server wraps a Pion TURN server that also handles STUN binding requests.
-// It listens on UDP port 3478 (the standard STUN/TURN port) and relays media
-// on UDP ports 50001-60000. This replaces the external coturn container.
+// It listens on UDP and TCP port 3478 (the standard STUN/TURN port) and relays
+// media on UDP ports 50001-60000. This replaces the external coturn container.
 type Server struct {
 	server *turn.Server
 }
@@ -26,6 +26,14 @@ func Start(publicIP, secret string) (*Server, error) {
 	udpListener, err := net.ListenPacket("udp4", "0.0.0.0:3478")
 	if err != nil {
 		return nil, fmt.Errorf("turn: listen UDP :3478: %w", err)
+	}
+
+	// Also listen on TCP so clients behind firewalls that block outbound UDP
+	// can still reach the relay.
+	tcpListener, err := net.Listen("tcp4", "0.0.0.0:3478")
+	if err != nil {
+		udpListener.Close()
+		return nil, fmt.Errorf("turn: listen TCP :3478: %w", err)
 	}
 
 	realm := publicIP
@@ -49,13 +57,25 @@ func Start(publicIP, secret string) (*Server, error) {
 				},
 			},
 		},
+		ListenerConfigs: []turn.ListenerConfig{
+			{
+				Listener: tcpListener,
+				RelayAddressGenerator: &turn.RelayAddressGeneratorPortRange{
+					RelayAddress: net.ParseIP(publicIP),
+					Address:      "0.0.0.0",
+					MinPort:      50001,
+					MaxPort:      60000,
+				},
+			},
+		},
 	})
 	if err != nil {
 		udpListener.Close()
+		tcpListener.Close()
 		return nil, fmt.Errorf("turn: start server: %w", err)
 	}
 
-	log.Printf("Built-in TURN/STUN server listening on :3478 (relay %s:50001-60000)", publicIP)
+	log.Printf("Built-in TURN/STUN server listening on :3478 UDP+TCP (relay %s:50001-60000)", publicIP)
 	return &Server{server: s}, nil
 }
 
