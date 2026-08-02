@@ -1,6 +1,7 @@
 # Deploy VoiceAgent server to AWS EC2 via Docker
 #
-# Triggers on push to main when server code changes, or manually.
+# Triggers when a GitHub release is published, or manually via workflow_dispatch.
+# Pushing to main no longer deploys — cut a release to ship.
 # Connects to EC2 via SSH, pulls the latest Docker image, and restarts.
 #
 # Required GitHub environment secrets (environment: aws-ec2):
@@ -12,11 +13,8 @@
 name: Deploy Server (EC2)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "**"
-      - ".github/workflows/deploy-ec2.yml"
+  release:
+    types: [published]
   workflow_dispatch:
 
 concurrency:
@@ -45,14 +43,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The commit SHA is always the tag the deploy job pulls (unambiguous for
+      # both triggers). On a release we additionally tag the image with the
+      # release name so you can tell at a glance which version a box is running.
+      - name: Resolve image tags
+        id: tags
+        run: |
+          TAGS="${{ env.DOCKER_IMAGE }}:${{ github.sha }},${{ env.DOCKER_IMAGE }}:latest"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAGS="$TAGS,${{ env.DOCKER_IMAGE }}:${{ github.event.release.tag_name }}"
+          fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
-            ${{ env.DOCKER_IMAGE }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
 
   deploy:
     name: Deploy to EC2
