@@ -39,6 +39,29 @@ type PipelineConfig struct {
 	Greeting         string `toml:"greeting"`          // Text spoken by the agent when a user connects
 	GreetingOutgoing string `toml:"greeting_outgoing"` // Text spoken on outgoing SIP calls (falls back to greeting)
 	Debug            bool   `toml:"debug"`             // Emit per-turn timing events over the DataChannel
+
+	// UserSpeechQuietMs is how long the caller must be quiet before the agent
+	// starts speaking. It stops the agent talking over someone who is still
+	// mid-thought after the transcript went final.
+	UserSpeechQuietMs int `toml:"user_speech_quiet_ms"`
+
+	// TurnMergeMs is the debounce window for merging consecutive final
+	// transcripts into a single turn. A caller who pauses mid-sentence
+	// ("I want to... um... book a table") otherwise fires two turns and the
+	// agent answers the first half.
+	TurnMergeMs int `toml:"turn_merge_ms"`
+
+	// ReadbackBargeInGuardEnabled suppresses weak correction/backchannel
+	// barge-ins ("yeah", "mm-hm", "no that's wrong") while the agent is
+	// reading values back for confirmation. Only strong commands (stop,
+	// cancel, hang up) cut through. Default off, preserving existing
+	// barge-in behaviour.
+	ReadbackBargeInGuardEnabled bool `toml:"readback_bargein_guard_enabled"`
+
+	// RAGPrefetch starts retrieval speculatively during the turn-merge
+	// window so embedding and vector search overlap the debounce instead of
+	// adding to it.
+	RAGPrefetch bool `toml:"rag_prefetch"`
 }
 
 type ServerConfig struct {
@@ -205,6 +228,15 @@ func Load(path string) (*Config, error) {
 	setDefault(&cfg.VibeVoice.ASRURL, "ws://127.0.0.1:8200")
 	setDefault(&cfg.VibeVoice.TTSURL, "http://127.0.0.1:8300")
 	setDefault(&cfg.VibeVoice.Voice, "en-Emma_woman")
+
+	// Quiet grace and turn-merge debounce. Both default to conservative values
+	// that measurably reduce the agent talking over a caller mid-thought.
+	if cfg.Pipeline.UserSpeechQuietMs == 0 {
+		cfg.Pipeline.UserSpeechQuietMs = 600
+	}
+	if cfg.Pipeline.TurnMergeMs == 0 {
+		cfg.Pipeline.TurnMergeMs = 350
+	}
 
 	// Default barge-in to true if not explicitly set
 	if cfg.Pipeline.BargeIn == nil {

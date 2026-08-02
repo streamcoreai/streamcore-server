@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/streamcoreai/server/internal/audio"
+	"github.com/streamcoreai/server/internal/procstat"
+	"github.com/streamcoreai/server/internal/rag"
 	"github.com/streamcoreai/server/internal/tts"
 )
 
@@ -105,17 +107,61 @@ func (p *Pipeline) respond(userText string, turnStart time.Time) {
 		}
 	}
 
-	// Retrieve relevant context via RAG before calling the LLM.
+	timing := &procstat.TurnTiming{}
+	if !turnStart.IsZero() {
+		timing.EndpointMs = time.Since(turnStart).Milliseconds()
+	}
+
+	// Retrieve relevant context via RAG before calling the LLM. Turns with no
+	// content-bearing words ("okay, sure, thanks") can't anchor a vector
+	// search, so skipping them removes a network round trip from the turn.
 	if p.ragClient != nil {
-		chunks, err := p.ragClient.Search(respCtx, userText, 0)
-		if err != nil {
-			log.Printf("[agent] RAG search error: %v", err)
-		} else if len(chunks) > 0 {
-			llmInput = fmt.Sprintf("[Context:\n%s]\n\nUser: %s", strings.Join(chunks, "\n---\n"), llmInput)
+		if skip, reason := shouldSkipRAG(p, userText); skip {
+			timing.RAGSkipped, timing.RAGSkipReason = true, reason
+			log.Printf("[agent] RAG skipped: %s", reason)
+		} else {
+			query := p.ragSearchQuery(userText)
+			var chunks []string
+			var err error
+
+			// A prefetch started during the turn-merge window has already paid
+			// the embedding + vector-search latency.
+			if st := p.takeRAGPrefetch(query); st != nil {
+				chunks, err = st.await(respCtx)
+				timing.RAGPrefetched = true
+				timing.EmbeddingMs, timing.VectorSearchMs = st.timing.EmbedMs, st.timing.QueryMs
+			} else {
+				rt := &rag.Timing{}
+				chunks, err = p.ragClient.Search(rag.WithTiming(respCtx, rt), query, 0)
+				timing.EmbeddingMs, timing.VectorSearchMs = rt.EmbedMs, rt.QueryMs
+			}
+
+			if err != nil {
+				log.Printf("[agent] RAG search error: %v", err)
+			} else if len(chunks) > 0 {
+				timing.RAGChunks = len(chunks)
+				llmInput = fmt.Sprintf("[Context:\n%s]\n\nUser: %s", strings.Join(chunks, "\n---\n"), llmInput)
+			}
 		}
 	}
 
+	// Prepend the rolling summary so facts from early in a long call survive
+	// after the LLM's own history window has dropped them.
+	if block := summaryContextBlock(p.currentRollingSummary()); block != "" {
+		llmInput = block + llmInput
+	}
+
+	// When the caller's speech came through garbled, tell the model to ask
+	// rather than guess. Escalates with consecutive low-confidence turns.
+	if note := p.misunderstandingNote(userText); note != "" {
+		llmInput += note
+	}
+
 	p.lastAgentText.Store("")
+	if p.transcriptLog != nil {
+		p.transcriptLog.Add("user", userText)
+	}
+	p.maybeRefreshRollingSummary()
 
 	// Channel decouples LLM sentence production from TTS synthesis so the
 	// LLM stream isn't blocked while waiting for audio.
@@ -167,6 +213,15 @@ func (p *Pipeline) respond(userText string, turnStart time.Time) {
 	}
 
 	wg.Wait()
+
+	if p.transcriptLog != nil {
+		if txt, _ := p.lastAgentText.Load().(string); txt != "" {
+			p.transcriptLog.Add("agent", txt)
+		}
+	}
+	if p.cfg.Pipeline.Debug {
+		timing.Log()
+	}
 }
 
 // synthesizeSentences reads sentences from the channel, calls TTS for each,

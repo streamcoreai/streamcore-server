@@ -61,7 +61,10 @@ type Pipeline struct {
 	bargeInVAD *vad.Detector
 
 	// Bounded channels
-	inPCMCh      chan PCMFrame
+	inPCMCh chan PCMFrame
+	// finalCh carries raw STT finals to the turn buffer, which merges them
+	// into whole turns before they reach transcriptCh.
+	finalCh      chan TranscriptEvent
 	transcriptCh chan TranscriptEvent
 	outPCMCh     chan PCMFrame
 	interruptCh  chan struct{}
@@ -70,7 +73,41 @@ type Pipeline struct {
 	sendEvent func(interface{}) error
 
 	// Agent state
-	speaking       atomic.Bool
+	speaking atomic.Bool
+
+	// --- Turn quality state (rolling summary, misunderstanding, RAG prefetch) ---
+
+	// transcriptLog is the running record of the conversation. The rolling
+	// summary and the low-confidence heuristics read it; it is not the
+	// LLM's own history.
+	transcriptLog *TranscriptLog
+
+	// rollingSummary holds the most recent background-generated digest of
+	// older turns, so long calls keep their early context after the LLM
+	// history window has dropped it.
+	rollingSummary       atomic.Value // string
+	lastSummaryAtEntries atomic.Int32
+	summaryGenerating    atomic.Bool
+
+	// misunderstandingStreak counts consecutive low-confidence caller turns,
+	// driving an escalating "could you repeat that" rather than a guess.
+	misunderstandingStreak atomic.Int32
+	// userConfidence is the STT confidence of the most recent final turn.
+	userConfidence atomic.Value // float64
+
+	// ragDisabled short-circuits retrieval for the rest of the call after a
+	// hard failure, so every turn does not re-pay the timeout.
+	ragDisabled atomic.Bool
+	// ragPrefetch holds a speculative retrieval started during the turn-merge
+	// window, so embedding and vector search overlap the debounce.
+	ragPrefetchMu sync.Mutex
+	ragPrefetch   *ragPrefetchState
+
+	// duckChangeCh signals the outbound sender to attenuate or restore agent
+	// audio while the caller is talking over it.
+	duckChangeCh   chan bool
+	audioMuted     atomic.Bool
+	processing     atomic.Bool
 	responseMu     sync.Mutex
 	responseCancel context.CancelFunc
 
@@ -126,28 +163,31 @@ func New(
 	imgRecv := newImageReceiver()
 
 	p := &Pipeline{
-		ctx:          pCtx,
-		cancel:       cancel,
-		cfg:          cfg,
-		decoder:      dec,
-		encoder:      enc,
-		remoteTrack:  remoteTrack,
-		localTrack:   localTrack,
-		llmClient:    llmClient,
-		ttsClient:    ttsClient,
-		ragClient:    ragClient,
-		pluginMgr:    pluginMgr,
-		imageRecv:    imgRecv,
-		vad:          vad.NewDefault(),
-		bargeInVAD:   vad.NewBargeIn(),
-		inPCMCh:      make(chan PCMFrame, inPCMChSize),
-		transcriptCh: make(chan TranscriptEvent, transcriptChSize),
-		outPCMCh:     make(chan PCMFrame, outPCMChSize),
-		interruptCh:  make(chan struct{}, 1),
-		sendEvent:    sendEvent,
-		direction:    direction,
-		ssrc:         12345678,
-		markerNext:   true,
+		ctx:           pCtx,
+		cancel:        cancel,
+		cfg:           cfg,
+		decoder:       dec,
+		encoder:       enc,
+		remoteTrack:   remoteTrack,
+		localTrack:    localTrack,
+		llmClient:     llmClient,
+		ttsClient:     ttsClient,
+		ragClient:     ragClient,
+		pluginMgr:     pluginMgr,
+		imageRecv:     imgRecv,
+		vad:           vad.NewDefault(),
+		bargeInVAD:    vad.NewBargeIn(),
+		inPCMCh:       make(chan PCMFrame, inPCMChSize),
+		finalCh:       make(chan TranscriptEvent, transcriptChSize),
+		transcriptCh:  make(chan TranscriptEvent, transcriptChSize),
+		outPCMCh:      make(chan PCMFrame, outPCMChSize),
+		interruptCh:   make(chan struct{}, 1),
+		duckChangeCh:  make(chan bool, 1),
+		transcriptLog: &TranscriptLog{},
+		sendEvent:     sendEvent,
+		direction:     direction,
+		ssrc:          12345678,
+		markerNext:    true,
 	}
 
 	// Wire plugins into the LLM as function-calling tools.

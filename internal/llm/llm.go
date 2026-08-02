@@ -31,6 +31,9 @@ type ToolResult struct {
 // Client is the interface that all LLM providers must implement.
 type Client interface {
 	Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error)
+	// OneShot makes a single non-streaming call independent of conversation
+	// state. Used for focused transformations such as summarisation.
+	OneShot(ctx context.Context, system, user string) (string, error)
 	SetTools(tools []ToolDefinition)
 	SetToolHandler(handler func(ctx context.Context, call ToolCall) (string, error))
 	AppendSystemPrompt(text string)

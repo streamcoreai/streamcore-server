@@ -4,7 +4,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/streamcoreai/server/internal/session"
@@ -16,7 +18,18 @@ import (
 //	POST   /whip                   – Session setup (SDP offer/answer), returns sessionId
 //	DELETE /whip/{sessionId}       – Session teardown
 //	OPTIONS (any)                  – CORS preflight
+//
+// Session creation is rate limited per client IP. /whip is unauthenticated by
+// default, and each POST builds a peer connection and gathers ICE, so an
+// unthrottled endpoint lets one client burn CPU and ports at will.
+// defaultWhipRateLimit caps session-creation POSTs per client IP per minute.
+// Generous for humans — a browser session is one POST — while throttling an
+// abusive burst.
+const defaultWhipRateLimit = 30
+
 func NewWHIPHandler(sm *session.Manager) http.HandlerFunc {
+	limiter := newWidgetRateLimiter(defaultWhipRateLimit, time.Minute)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse path segment: /whip or /whip/{sessionId}
 		trimmed := strings.TrimPrefix(r.URL.Path, "/whip")
@@ -29,6 +42,12 @@ func NewWHIPHandler(sm *session.Manager) http.HandlerFunc {
 			w.WriteHeader(http.StatusNoContent)
 
 		case http.MethodPost:
+			if ok, retryAfter := limiter.Allow(clientIP(r)); !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				log.Printf("[whip] rate limited %s", clientIP(r))
+				http.Error(w, "too many session requests", http.StatusTooManyRequests)
+				return
+			}
 			handleWHIPPost(w, r, sm)
 
 		case http.MethodDelete:
