@@ -24,6 +24,7 @@ type Config struct {
 	VibeVoice  VibeVoiceConfig  `toml:"vibevoice"`
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
+	Speechify  SpeechifyConfig  `toml:"speechify"`
 	Pgvector   PgvectorConfig   `toml:"pgvector"`
 	Supabase   SupabaseConfig   `toml:"supabase"`
 }
@@ -82,6 +83,12 @@ type CartesiaConfig struct {
 }
 
 type ElevenLabsConfig struct {
+	APIKey  string `toml:"api_key"`
+	VoiceID string `toml:"voice_id"`
+	Model   string `toml:"model"`
+}
+
+type SpeechifyConfig struct {
 	APIKey  string `toml:"api_key"`
 	VoiceID string `toml:"voice_id"`
 	Model   string `toml:"model"`

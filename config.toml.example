@@ -25,7 +25,7 @@ provider = "deepgram"   # Supported: deepgram, openai, vibevoice
 provider = "openai"     # Supported: openai, ollama
 
 [tts]
-provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, vibevoice
+provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, speechify, vibevoice
 
 # Provider credentials
 
@@ -51,6 +51,11 @@ voice_id = ""           # Optional; defaults to Cartesia Katie
 api_key = ""            # Required if tts.provider = "elevenlabs"
 voice_id = ""           # Optional; defaults to ElevenLabs Rachel
 model = ""              # Optional; defaults to eleven_turbo_v2_5
+
+[speechify]
+api_key = ""            # Required if tts.provider = "speechify"
+voice_id = ""           # Optional; defaults to Geffen (geffen_32). Simba 3.2 uses its curated voice set.
+model = ""              # Optional; defaults to simba-3.2
 
 # VibeVoice — local STT and TTS via external Python services.
 # Start the servers first:

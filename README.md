@@ -142,7 +142,7 @@ A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on
 |----------------|-----------|
 | Streaming STT | Deepgram, OpenAI, VibeVoice (local) |
 | LLM | OpenAI, Ollama (local or self-hosted) |
-| Streaming TTS | Cartesia, Deepgram, ElevenLabs, VibeVoice (local) |
+| Streaming TTS | Cartesia, Deepgram, ElevenLabs, Speechify, VibeVoice (local) |
 | Retrieval | pgvector, Supabase |
 | Custom tools | Python / TypeScript / JavaScript plugins, native Go tools |
 
@@ -471,7 +471,7 @@ The CLI reads your server's `config.toml` for provider credentials, so nothing i
 |------|-----------|----------------------|
 | STT | `deepgram`, `openai`, `vibevoice` | Deepgram API key, OpenAI API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama` | OpenAI API key, or an Ollama instance you control |
-| TTS | `cartesia`, `deepgram`, `elevenlabs`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
+| TTS | `cartesia`, `deepgram`, `elevenlabs`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
 
 Notes:
@@ -593,6 +593,11 @@ api_key = ""
 voice_id = ""
 
 [elevenlabs]
+api_key = ""
+voice_id = ""
+model = ""
+
+[speechify]
 api_key = ""
 voice_id = ""
 model = ""
