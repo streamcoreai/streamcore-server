@@ -33,15 +33,15 @@ Once a prototype has to become a product, the hard parts are not prompts:
 | WebRTC connectivity | Pion-based peer, full ICE gathering, WHIP signaling over a single HTTP POST |
 | NAT traversal | Built-in STUN/TURN server — no external coturn container |
 | Audio transport | Opus over RTP in both directions, decode/encode handled for you |
-| Turn-taking | Energy-based VAD with separate onset/offset tuning for speech end detection |
-| Interruption | Barge-in with a faster VAD profile, cancels in-flight LLM and TTS output |
-| Streaming provider integration | Streaming STT, streaming LLM, sentence-chunked streaming TTS, wired end to end |
+| Turn-taking | Adaptive VAD that tracks each call's noise floor, plus a debounce that merges a caller's mid-sentence pauses into one turn |
+| Interruption | Barge-in on a faster VAD profile: agent audio ducks first, backchannels ("mm-hm", "yeah okay") are filtered out, and a confirmed interrupt cancels in-flight LLM and TTS |
+| Streaming provider integration | Streaming STT, streaming LLM, and chunk-streaming TTS so audio starts before synthesis finishes — wired end to end |
 | Session state | Server-generated session IDs, multi-peer sessions, lifecycle and teardown |
 | Realtime events | DataChannel events for transcript, response, agent state, and latency timings |
 | Client integration | SDKs for TypeScript, React Native, Python, Go, and Rust |
 | Telephony | SIP bridge component that transcodes PCMU ↔ Opus and connects over WHIP |
 | Auth | Optional JWT auth on `/whip` with a short-lived token endpoint |
-| Latency visibility | Timing events for first LLM token and first TTS byte |
+| Latency visibility | DataChannel timing events, plus a per-turn latency breakdown (endpointing, merge, embedding, vector search, LLM, TTS) in the logs |
 
 Anything not in that table — horizontal scaling, session reconnection, a metrics endpoint — is in [Roadmap](#roadmap), not in the product yet.
 
@@ -84,6 +84,9 @@ Your agent does not have to live inside StreamCore. There are four supported way
 ```go
 type Client interface {
     Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error)
+    // OneShot is a single non-streaming call, independent of conversation
+    // state. Used for background work such as the rolling summary.
+    OneShot(ctx context.Context, system, user string) (string, error)
     SetTools(tools []ToolDefinition)
     SetToolHandler(handler func(ctx context.Context, call ToolCall) (string, error))
     AppendSystemPrompt(text string)
@@ -104,16 +107,18 @@ A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on
 - Bidirectional Opus audio over WebRTC (`sendrecv`)
 - WHIP signaling ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) — one HTTP `POST` for SDP exchange, no persistent signaling socket
 - Full ICE gathering on both sides, no trickle ICE
-- Built-in STUN/TURN server using Pion (UDP 3478, relay range 50001–60000)
+- Built-in STUN/TURN server using Pion (UDP **and TCP** 3478, relay range 50001–60000) — TCP so callers behind UDP-blocking firewalls still connect
 - Optional JWT auth on `/whip`, with `POST /token` issuing 1-hour tokens
 - `/health` endpoint and graceful shutdown with a forced-exit safety net
 
 **Media path**
 
 - Opus decode → PCM → pipeline → PCM → Opus encode → RTP
-- Energy-based VAD with configurable onset/offset frame counts
-- Barge-in on a faster VAD profile so users can interrupt mid-response
-- Sentence-boundary chunking so TTS starts before the LLM finishes
+- Energy-based VAD with configurable onset/offset frame counts, adapting to each call's noise floor so a quiet caller on a clean line and a caller beside a road both register
+- Barge-in on a faster VAD profile: agent audio ducks while the caller talks over it and recovers if the interruption turns out to be a backchannel
+- Turn debounce that merges consecutive final transcripts, so "I want to… um… book a table" is answered once, not twice
+- Sentence-boundary chunking so TTS starts before the LLM finishes, and chunk-level streaming so audio plays before a sentence is fully synthesized
+- Optional per-utterance delivery tags — the model may prefix a sentence with `[warm]`, `[empathetic]`, `[calm]`, or `[excited]`, which map to provider voice controls and are never spoken aloud
 - Thinking sound — an optional tone played through the RTP stream while a slow tool runs (500 ms grace period)
 
 **Sessions and events**
@@ -121,6 +126,7 @@ A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on
 - Server-generated session IDs, in-memory session manager
 - Multiple peers per session, each with an inbound or outbound direction
 - DataChannel `events` channel for `transcript`, `response`, `state`, and `timing`
+- Per-turn latency breakdown logged when `pipeline.debug = true`, separating endpointing, turn merge, embedding, vector search, LLM, and TTS
 - Inbound DataChannel messages routed into the pipeline (used today for camera image chunks)
 
 **Clients**
@@ -315,6 +321,11 @@ Everything below is opt-in. Skip this section entirely if your agent lives in yo
 
 When you do want StreamCore to run the conversation, it provides LLM orchestration with conversation history, tools, behavioral skills, and inline retrieval.
 
+Two behaviours run automatically once the built-in runtime is in use:
+
+- **Rolling summary.** Long calls outlive the model's history window. Older turns are summarized in the background and injected as context, so a fact from minute one survives into minute ten.
+- **Low-confidence handling.** When the speech recogniser reports poor confidence, the agent is told to ask the caller to repeat rather than guess, escalating if it happens on consecutive turns.
+
 ### Plugins and skills
 
 Plugins give the agent **capabilities**. Skills shape its **behavior**.
@@ -363,7 +374,9 @@ Plugin SDKs: `@streamcore/plugin` (TypeScript), `streamcore-plugin` (Python).
 
 ### Retrieval (RAG)
 
-RAG runs inline in the media pipeline: the server embeds each user utterance, retrieves the top-k chunks from your vector store, and injects them before the LLM call — one LLM pass, no tool-call round trip.
+RAG runs inline in the media pipeline: the server embeds the user's turn, retrieves the top-k chunks from your vector store, and injects them before the LLM call — one LLM pass, no tool-call round trip.
+
+Two things keep retrieval off the critical path. Turns with no content-bearing words ("okay, sure, thanks") are skipped, since there is nothing to anchor a vector search on. And with `pipeline.rag_prefetch = true`, retrieval starts speculatively during the turn-merge window, so the embedding and vector-search round trip overlaps a wait the pipeline was doing anyway instead of adding to it.
 
 | Provider | Backend | Config section |
 |----------|---------|----------------|
@@ -523,6 +536,8 @@ Signaling follows [RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html).
 | 2 | `DELETE` | `/whip/{sessionId}` | none | `200 OK` |
 | — | `OPTIONS` | `/whip` or `/whip/{sessionId}` | none | `204 No Content` with `Accept-Post: application/sdp` |
 
+`POST /whip` is rate limited per client IP (30 sessions per minute). Over the limit the server returns `429 Too Many Requests` with a `Retry-After` header. Each POST builds a peer connection and gathers ICE, so the endpoint is throttled even when auth is disabled.
+
 The client creates an SDP offer, gathers ICE candidates, and `POST`s it to `/whip`. The server creates a peer, gathers its own candidates, and returns the answer with a server-generated session ID. No trickle ICE, no persistent signaling socket.
 
 This implementation aligns with the core WHIP flow: `POST` with `application/sdp`, `201 Created` with the answer, `Location` for the session URL, `ETag` for the ICE session, `DELETE` for teardown, `OPTIONS` with `Accept-Post`, and full ICE gathering on both sides. Audio is `sendrecv`, with a DataChannel for bidirectional events.
@@ -566,6 +581,10 @@ barge_in = true
 greeting = ""
 greeting_outgoing = ""
 debug = false
+user_speech_quiet_ms = 600           # Quiet period after the caller stops before the agent speaks
+turn_merge_ms = 350                  # Debounce window for merging finals into one turn
+# rag_prefetch = false               # Start retrieval during the merge window instead of after it
+# readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
 
 [stt]
 provider = "deepgram"
@@ -579,6 +598,18 @@ provider = "cartesia"
 [deepgram]
 api_key = ""
 model = "nova-3"
+# language = ""                      # BCP-47 tag (en-US, es-MX); non-en/es routes to the multilingual model
+endpointing = "300"                  # Silence (ms) before a transcript is finalised
+utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes a turn with no speech_final
+# keyterms = ["Tauranga", "BYD"]     # Nova-3 only: bias the decoder toward domain vocabulary
+
+# [assemblyai]                       # Alternative streaming STT provider
+# api_key = ""
+# model = "u3-rt-pro"                # or "u3-rt" for the cheaper baseline
+# language = ""                      # BCP-47; region is stripped (en-NZ -> en). Empty auto-detects
+# format_turns = true                # Auto-punctuate and capitalise the final turn
+# end_of_turn_silence_ms = 0         # Override how long the model waits before ending a turn
+# keyterms = []
 
 [openai]
 api_key = ""
@@ -593,6 +624,8 @@ system_prompt = "You are a helpful AI voice assistant. Keep your responses conci
 [cartesia]
 api_key = ""
 voice_id = ""
+max_concurrency = 3                  # Generations in flight before requests queue locally instead of 429ing
+# ws_url = ""                        # Defaults to wss://api.cartesia.ai/tts/websocket
 
 [elevenlabs]
 api_key = ""
@@ -628,11 +661,17 @@ voice = "en-Emma_woman"
 
 Notes:
 
-- `server.public_ip` plus `server.turn_secret` enables the built-in Pion STUN/TURN server, replacing an external coturn container. TURN listens on UDP 3478 and relays media on 50001–60000.
+- `server.public_ip` plus `server.turn_secret` enables the built-in Pion STUN/TURN server, replacing an external coturn container. TURN listens on UDP and TCP 3478 and relays media on UDP 50001–60000.
 - `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
-- `pipeline.barge_in` lets users interrupt the agent while it is speaking.
+- `pipeline.barge_in` lets users interrupt the agent while it is speaking. Agent audio ducks as soon as the caller starts talking over it and recovers if the interruption turns out to be a backchannel.
 - `pipeline.greeting` plays when a session connects. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
-- `pipeline.debug = true` emits timing events over the DataChannel.
+- `pipeline.debug = true` emits timing events over the DataChannel and logs a per-turn latency breakdown.
+- `pipeline.turn_merge_ms` is how long a final transcript is held so a continuation can merge into the same turn. Raise it if the agent answers callers halfway through a sentence; lower it if replies feel sluggish. The wait extends automatically when the text ends mid-dictation or on a dangling word.
+- `pipeline.user_speech_quiet_ms` is how long the caller must be quiet before the agent starts speaking.
+- `pipeline.rag_prefetch` overlaps retrieval with the turn-merge window. Off by default; it issues a speculative embedding + search that is discarded if the turn text changes.
+- `pipeline.readback_bargein_guard_enabled` keeps weak corrections and backchannels from cutting off a confirmation readback. Only explicit commands (stop, cancel, hang up) interrupt. Off by default.
+- `deepgram.endpointing` and `deepgram.utterance_end_ms` tune when a turn is considered finished upstream; the turn-merge debounce runs on top of them.
+- `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.
 
 ## Architecture and implementation
 
