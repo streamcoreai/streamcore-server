@@ -21,6 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: narayann7/star-history-action@v1.0.4
+      # Pinned to an immutable commit SHA rather than the v1.0.4 tag: this is a
+      # third-party action running with contents:write, and a tag can be
+      # repointed at any commit by its author. Keep the trailing comment so
+      # Dependabot still offers version bumps.
+      - uses: narayann7/star-history-action@c2061675dacbf6f35d116e556015b8905843387f # v1.0.4
         with:
           repos: ${{ github.repository }}
