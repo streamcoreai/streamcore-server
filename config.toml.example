@@ -14,7 +14,12 @@ directory = "./plugins"     # Required if you want plugins and skills loaded
 barge_in = true
 greeting = ""           # Spoken when a session connects
 greeting_outgoing = ""  # Spoken for outbound SIP calls; falls back to greeting
-debug = false           # Emit timing events over the DataChannel
+debug = false           # Emit timing events over the DataChannel and log a per-turn latency breakdown
+user_speech_quiet_ms = 600   # Quiet period after the caller stops before the agent speaks
+turn_merge_ms = 350          # Debounce window for merging finals into one turn. Raise if the agent
+                             # answers callers halfway through a sentence; lower if replies feel slow
+# rag_prefetch = false                    # Start retrieval during the merge window instead of after it
+# readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
 
 # Provider selection
 
@@ -94,3 +99,9 @@ embedding_model = "text-embedding-3-small"  # optional, this is the default
 url = "https://xxx.supabase.co"
 api_key = "your-service-role-key"
 function = "match_documents"   # optional, this is the default
+table = "documents"            # optional; used by streamcore-cli when ingesting
+
+# Use this instead of [supabase] when rag.provider = "pgvector".
+# [pgvector]
+# connection_string = "postgres://user:pass@localhost:5432/mydb"
+# table = "documents"          # optional, this is the default
