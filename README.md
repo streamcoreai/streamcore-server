@@ -712,6 +712,10 @@ Not built yet — listed here so the capability tables above stay honest:
 ## Star history
 
 <!-- star-history:start -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/star-history/star-history-dark.svg">
+  <img alt="Star history" src="assets/star-history/star-history-light.svg">
+</picture>
 <!-- star-history:end -->
 
 ## License
