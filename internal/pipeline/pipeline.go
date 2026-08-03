@@ -74,6 +74,12 @@ type Pipeline struct {
 
 	// Agent state
 	speaking atomic.Bool
+	// speechEndedAt is the wall-clock nanosecond at which speaking last went
+	// true → false, always written via setSpeaking. STT endpointing delays a
+	// final by several hundred ms, so an acknowledgement spoken over the
+	// agent's closing words routinely arrives after the flag has cleared;
+	// agentSpeechRecent uses this to still classify it as talking-over.
+	speechEndedAt atomic.Int64
 
 	// --- Turn quality state (rolling summary, misunderstanding, RAG prefetch) ---
 
@@ -105,11 +111,20 @@ type Pipeline struct {
 
 	// duckChangeCh signals the outbound sender to attenuate or restore agent
 	// audio while the caller is talking over it.
-	duckChangeCh   chan bool
-	audioMuted     atomic.Bool
-	processing     atomic.Bool
-	responseMu     sync.Mutex
-	responseCancel context.CancelFunc
+	duckChangeCh chan bool
+	audioMuted   atomic.Bool
+	processing   atomic.Bool
+
+	// responseGen identifies the response that currently owns the audio path.
+	// It is bumped every time a response is superseded (new turn or barge-in),
+	// so a cancelled response unwinding late can tell that speaking,
+	// responseCancel, and the client-facing state now belong to its successor
+	// and must not be cleared. Without this, a late unwind strands the live
+	// response with no cancel func and it talks over the next one.
+	responseGen       atomic.Uint64
+	responseMu        sync.Mutex
+	responseCancel    context.CancelFunc
+	responseCancelGen uint64
 
 	// Interruption tracking
 	lastAgentText   atomic.Value // string — accumulates current response text
