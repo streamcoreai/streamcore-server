@@ -17,6 +17,14 @@ type TranscriptEvent struct {
 	// MergeWaitMs is how long the turn buffer held this turn open merging
 	// continuations, so latency accounting can separate debounce from work.
 	MergeWaitMs int64
+	// OverAgentSpeech records whether the agent was mid-utterance when this
+	// final landed. Captured at the STT callback rather than read later,
+	// because the turn buffer holds a turn open for up to turnMergeMax and the
+	// agent can finish speaking inside that window — by the time the agent
+	// goroutine sees the turn, "was the caller talking over me?" is no longer
+	// answerable. Turns merged from several finals keep the flag if ANY of
+	// them landed over agent speech.
+	OverAgentSpeech bool
 }
 
 // DataChannel message types sent to the client via the events DataChannel.

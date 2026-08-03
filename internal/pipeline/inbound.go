@@ -83,6 +83,10 @@ func (p *Pipeline) runInbound() {
 		ev := TranscriptEvent{Text: result.Text, Final: result.IsFinal}
 		if result.IsFinal {
 			ev.TurnStart = time.Now()
+			// Sampled here, not in runAgent: the turn buffer may hold this
+			// final for up to turnMergeMax, by which point the agent has
+			// finished and the talking-over question can no longer be asked.
+			ev.OverAgentSpeech = p.agentSpeechRecent()
 			hasPartialText.Store(false)
 			latestPartial.Store("text", "")
 			p.storeLastUserConfidence(result.Confidence)
