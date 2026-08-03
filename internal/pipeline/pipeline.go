@@ -16,6 +16,7 @@ import (
 	"github.com/streamcoreai/server/internal/llm"
 	"github.com/streamcoreai/server/internal/plugin"
 	"github.com/streamcoreai/server/internal/rag"
+	"github.com/streamcoreai/server/internal/realtime"
 	"github.com/streamcoreai/server/internal/tools"
 	"github.com/streamcoreai/server/internal/tts"
 	"github.com/streamcoreai/server/internal/vad"
@@ -48,10 +49,24 @@ type Pipeline struct {
 	remoteTrack *webrtc.TrackRemote
 	localTrack  *webrtc.TrackLocalStaticRTP
 
-	// Providers
+	// Providers. In realtime mode llmClient and ttsClient are nil — the
+	// speech-to-speech provider covers all three roles.
 	llmClient llm.Client
 	ttsClient tts.Client
 	ragClient rag.Client
+
+	// Realtime (speech-to-speech) mode
+	realtimeMu     sync.Mutex
+	realtimeClient realtime.Client
+	// realtimeReady closes once the provider connection is up, so the
+	// greeting can wait for it instead of racing the dial.
+	realtimeReady chan struct{}
+	// realtimeAudio buffers agent audio between the provider's read
+	// goroutine and the paced outbound sender.
+	realtimeAudio *realtimeAudioQueue
+	// realtimeTurn merges the transcription fragments a provider emits for
+	// one spoken turn, so the client renders a single message.
+	realtimeTurn realtimeUserTurn
 
 	// Plugins
 	pluginMgr *plugin.Manager
@@ -149,13 +164,20 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	llmClient, err := llm.NewClient(cfg)
-	if err != nil {
-		return nil, err
-	}
-	ttsClient, err := tts.NewClient(cfg)
-	if err != nil {
-		return nil, err
+	// In realtime mode the speech-to-speech provider replaces STT, LLM, and
+	// TTS, so those clients are never built — constructing them would demand
+	// API keys for providers this deployment does not use.
+	var llmClient llm.Client
+	var ttsClient tts.Client
+	if !cfg.RealtimeEnabled() {
+		llmClient, err = llm.NewClient(cfg)
+		if err != nil {
+			return nil, err
+		}
+		ttsClient, err = tts.NewClient(cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	pCtx, cancel := context.WithCancel(ctx)
@@ -183,11 +205,22 @@ func New(
 		outPCMCh:      make(chan PCMFrame, outPCMChSize),
 		interruptCh:   make(chan struct{}, 1),
 		duckChangeCh:  make(chan bool, 1),
+		realtimeReady: make(chan struct{}),
+		realtimeAudio: newRealtimeAudioQueue(),
 		transcriptLog: &TranscriptLog{},
 		sendEvent:     sendEvent,
 		direction:     direction,
 		ssrc:          12345678,
 		markerNext:    true,
+	}
+
+	// Realtime mode wires its own tools and instructions when the
+	// speech-to-speech session opens; the rest of this function configures
+	// the LLM client, which does not exist in that mode.
+	if cfg.RealtimeEnabled() {
+		p.lastAgentText.Store("")
+		p.interruptedText.Store("")
+		return p, nil
 	}
 
 	// Wire plugins into the LLM as function-calling tools.
@@ -262,20 +295,38 @@ func New(
 }
 
 // Start launches all pipeline goroutines and blocks until the context is cancelled.
+//
+// runReader and runSender are codec/transport work and run in both modes.
+// Between them, the classic path runs runInbound + runAgent (STT -> LLM ->
+// TTS) while realtime mode runs a single runRealtime loop against a
+// speech-to-speech provider.
 func (p *Pipeline) Start() {
 	var wg sync.WaitGroup
-	wg.Add(4)
 
-	go func() { defer wg.Done(); p.runReader() }()
-	go func() { defer wg.Done(); p.runInbound() }()
-	go func() { defer wg.Done(); p.runAgent() }()
-	go func() { defer wg.Done(); p.runSender() }()
-
-	log.Println("[pipeline] started — reader, inbound, agent, sender")
+	if p.cfg.RealtimeEnabled() {
+		wg.Add(3)
+		go func() { defer wg.Done(); p.runReader() }()
+		go func() { defer wg.Done(); p.runRealtime() }()
+		go func() { defer wg.Done(); p.runSender() }()
+		log.Printf("[pipeline] started in realtime mode (%s) — reader, realtime, sender", p.cfg.Realtime.Provider)
+	} else {
+		wg.Add(4)
+		go func() { defer wg.Done(); p.runReader() }()
+		go func() { defer wg.Done(); p.runInbound() }()
+		go func() { defer wg.Done(); p.runAgent() }()
+		go func() { defer wg.Done(); p.runSender() }()
+		log.Println("[pipeline] started — reader, inbound, agent, sender")
+	}
 
 	// Send initial greeting if configured.
 	if g := p.greetingText(); g != "" {
-		go p.greet(g)
+		if p.cfg.RealtimeEnabled() {
+			// The provider connection is established inside runRealtime, so
+			// wait for the client before asking it to speak.
+			go p.greetRealtimeWhenReady(g)
+		} else {
+			go p.greet(g)
+		}
 	}
 
 	wg.Wait()

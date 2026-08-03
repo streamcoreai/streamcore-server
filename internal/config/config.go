@@ -10,10 +10,16 @@ import (
 // Config is the top-level application configuration. Each provider (Deepgram,
 // OpenAI, Cartesia, etc.) has its own section. The [stt], [llm], and [tts]
 // sections select which provider to use for each role.
+//
+// Setting [realtime] provider switches the pipeline to a speech-to-speech
+// model that replaces all three roles at once; [stt], [llm], and [tts] are
+// then unused.
 type Config struct {
 	Server     ServerConfig     `toml:"server"`
 	Plugins    PluginsConfig    `toml:"plugins"`
 	Pipeline   PipelineConfig   `toml:"pipeline"`
+	Realtime   RealtimeConfig   `toml:"realtime"`
+	Grok       GrokConfig       `toml:"grok"`
 	STT        STTConfig        `toml:"stt"`
 	LLM        LLMConfig        `toml:"llm"`
 	TTS        TTSConfig        `toml:"tts"`
@@ -70,6 +76,72 @@ type ServerConfig struct {
 	TurnSecret string `toml:"turn_secret"` // Shared secret for the built-in TURN server. Required when public_ip is set.
 	JWTSecret  string `toml:"jwt_secret"`  // Shared secret for HMAC-SHA256 JWT validation on /whip. Leave empty to disable auth.
 	APIKey     string `toml:"api_key"`     // API key required to call /token. Leave empty to allow unauthenticated token generation.
+}
+
+// RealtimeConfig selects a speech-to-speech provider. When Provider is set,
+// the pipeline runs in realtime mode: audio goes straight to the model and
+// comes back as audio, so [stt], [llm], and [tts] are bypassed entirely.
+// Empty (the default) keeps the classic STT -> LLM -> TTS pipeline.
+type RealtimeConfig struct {
+	Provider string `toml:"provider"`
+}
+
+// GrokConfig configures xAI's Grok speech-to-speech model over the Realtime
+// WebSocket API (wss://api.x.ai/v1/realtime). Used when realtime.provider is
+// "grok".
+type GrokConfig struct {
+	APIKey string `toml:"api_key"`
+	// Model is the voice model. "grok-voice-latest" always tracks the newest
+	// one; pin a versioned name (e.g. "grok-voice-think-fast-2.0") in
+	// production so a model change never lands unannounced.
+	Model string `toml:"model"`
+	// Voice is a built-in voice ID (lowercase, e.g. "eve") or a custom voice
+	// ID from the Custom Voices API. Empty uses the model default.
+	Voice string `toml:"voice"`
+	// SystemPrompt maps to the session `instructions`. Grok voice models are
+	// strong enough that a short prompt beats a ported-over GPT one — xAI
+	// explicitly recommends stripping workaround prompting.
+	SystemPrompt string `toml:"system_prompt"`
+	// ReasoningEffort is "high" (default, better on multi-step instructions
+	// and ambiguous queries) or "none" (lower latency).
+	ReasoningEffort string `toml:"reasoning_effort"`
+
+	// --- Server-side turn detection ---
+
+	// VADThreshold is the activation threshold in 0.1-0.9. Higher demands
+	// louder audio to trigger a turn. Zero leaves the provider default (0.85).
+	VADThreshold float64 `toml:"vad_threshold"`
+	// SilenceDurationMs is how long the caller must be silent before the
+	// server ends their turn (0-10000). Zero leaves the provider default.
+	SilenceDurationMs int `toml:"silence_duration_ms"`
+	// PrefixPaddingMs is how much audio before the detected speech onset to
+	// include, so the first word is not clipped. Zero leaves the default (333).
+	PrefixPaddingMs int `toml:"prefix_padding_ms"`
+	// IdleTimeoutMs makes the agent proactively re-engage after this much
+	// silence. Zero disables the proactive check-in.
+	IdleTimeoutMs int `toml:"idle_timeout_ms"`
+
+	// --- Input transcription (for the client-facing transcript only) ---
+
+	// Transcription enables grok-transcribe on the caller's audio so the
+	// DataChannel still receives user transcripts. The model itself hears the
+	// audio directly and does not need this; it costs an extra transcription
+	// pass. Nil means enabled.
+	Transcription *bool `toml:"transcription"`
+	// LanguageHint biases transcription to a BCP-47 language. Spanish and
+	// Portuguese need a regional variant ("es-MX", "pt-BR"); bare "es"/"pt"
+	// are rejected. Unrecognised codes fall back to auto-detection.
+	LanguageHint string `toml:"language_hint"`
+	// Keyterms bias transcription toward domain vocabulary, mirroring the
+	// Deepgram and AssemblyAI options. Up to 100 terms, 50 chars each.
+	Keyterms []string `toml:"keyterms"`
+
+	// --- Server-side tools ---
+
+	// WebSearch and XSearch enable xAI's hosted search tools. These run on
+	// xAI's side and need no local plugin.
+	WebSearch bool `toml:"web_search"`
+	XSearch   bool `toml:"x_search"`
 }
 
 type STTConfig struct {
@@ -244,7 +316,66 @@ func Load(path string) (*Config, error) {
 		cfg.Pipeline.BargeIn = &t
 	}
 
+	// Realtime (speech-to-speech) defaults.
+	setDefault(&cfg.Grok.Model, "grok-voice-latest")
+	setDefault(&cfg.Grok.Voice, "eve")
+	setDefault(&cfg.Grok.ReasoningEffort, "high")
+	setDefault(&cfg.Grok.SystemPrompt, "You are a helpful AI voice assistant on a phone call. Keep responses short and conversational.")
+	if cfg.Grok.Transcription == nil {
+		t := true
+		cfg.Grok.Transcription = &t
+	}
+
+	if err := cfg.validateRealtime(); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// RealtimeEnabled reports whether the pipeline should run in speech-to-speech
+// mode, bypassing the STT, LLM, and TTS providers.
+func (c *Config) RealtimeEnabled() bool {
+	return c.Realtime.Provider != "" && c.Realtime.Provider != "none"
+}
+
+// validateRealtime rejects a bad speech-to-speech configuration at startup.
+// Without this a typo'd provider or a missing key only surfaces when the
+// first caller connects, which reads as a broken deployment rather than a
+// misconfigured one.
+func (c *Config) validateRealtime() error {
+	if !c.RealtimeEnabled() {
+		return nil
+	}
+
+	switch c.Realtime.Provider {
+	case "grok":
+		if c.Grok.APIKey == "" {
+			return fmt.Errorf("realtime.provider = %q requires [grok] api_key to be set", c.Realtime.Provider)
+		}
+	default:
+		return fmt.Errorf("unknown realtime provider %q (supported: grok)", c.Realtime.Provider)
+	}
+
+	if e := c.Grok.ReasoningEffort; e != "high" && e != "none" {
+		return fmt.Errorf("[grok] reasoning_effort = %q must be \"high\" or \"none\"", e)
+	}
+	// Out-of-range values are rejected by the provider mid-call, which is a
+	// far worse place to discover them.
+	if t := c.Grok.VADThreshold; t != 0 && (t < 0.1 || t > 0.9) {
+		return fmt.Errorf("[grok] vad_threshold = %v must be between 0.1 and 0.9", t)
+	}
+	if ms := c.Grok.SilenceDurationMs; ms < 0 || ms > 10000 {
+		return fmt.Errorf("[grok] silence_duration_ms = %d must be between 0 and 10000", ms)
+	}
+	if ms := c.Grok.PrefixPaddingMs; ms < 0 || ms > 10000 {
+		return fmt.Errorf("[grok] prefix_padding_ms = %d must be between 0 and 10000", ms)
+	}
+	if n := len(c.Grok.Keyterms); n > 100 {
+		return fmt.Errorf("[grok] keyterms has %d entries; the maximum is 100", n)
+	}
+
+	return nil
 }
 
 func setDefault(field *string, fallback string) {

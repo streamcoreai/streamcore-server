@@ -11,10 +11,10 @@ import (
 
 // pgvectorClient implements Client using PostgreSQL with the pgvector extension.
 type pgvectorClient struct {
-	pool      *pgxpool.Pool
-	embedder  *embeddingClient
-	table     string
-	topK      int
+	pool     *pgxpool.Pool
+	embedder *embeddingClient
+	table    string
+	topK     int
 }
 
 // NewPgvectorClient creates a RAG client backed by pgvector.
