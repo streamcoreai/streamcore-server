@@ -37,6 +37,9 @@ provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, speechify, 
 [deepgram]
 api_key = ""            # Required for Deepgram STT, and for Deepgram TTS if selected
 model = "nova-3"        # STT model
+tts_model = "aura-2-thalia-en"  # Aura voice used when tts.provider = "deepgram".
+                        # e.g. aura-2-theia-en (Australian, feminine), aura-2-pandora-en (British, feminine).
+                        # Full list: https://developers.deepgram.com/docs/tts-models
 language = ""           # Optional BCP-47 tag (en-US, es-MX). Non-en/es routes to the multilingual model
 endpointing = "300"     # Silence (ms) before a transcript is finalised. Raise it if callers get cut off mid-sentence
 utterance_end_ms = "1000"  # Silence (ms) before an UtteranceEnd event; flushes a turn when no speech_final arrives (min 1000)
