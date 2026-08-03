@@ -10,22 +10,33 @@ import (
 	"strings"
 )
 
+// defaultDeepgramTTSModel is Deepgram's recommended general-purpose Aura-2
+// voice. Voices are named [family]-[voice]-[language]; see
+// https://developers.deepgram.com/docs/tts-models for the full list.
+const defaultDeepgramTTSModel = "aura-2-thalia-en"
+
 type deepgramClient struct {
 	apiKey     string
+	model      string
 	httpClient *http.Client
 }
 
-// NewDeepgramClient creates a Deepgram Aura TTS client.
-func NewDeepgramClient(apiKey string) Client {
+// NewDeepgramClient creates a Deepgram Aura TTS client. An empty model falls
+// back to defaultDeepgramTTSModel.
+func NewDeepgramClient(apiKey, model string) Client {
+	if model == "" {
+		model = defaultDeepgramTTSModel
+	}
 	return &deepgramClient{
 		apiKey:     apiKey,
+		model:      model,
 		httpClient: newPooledHTTPClient(),
 	}
 }
 
 func (c *deepgramClient) buildRequest(ctx context.Context, text string) (*http.Request, error) {
 	params := url.Values{}
-	params.Set("model", "aura-asteria-en")
+	params.Set("model", c.model)
 	params.Set("encoding", "linear16")
 	params.Set("sample_rate", "16000")
 	params.Set("container", "none")

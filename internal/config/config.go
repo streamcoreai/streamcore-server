@@ -175,6 +175,10 @@ type DeepgramConfig struct {
 	// phonetically ambiguous against common English (product names, place
 	// names). Ignored by other models.
 	Keyterms []string `toml:"keyterms"`
+	// TTSModel selects the Aura voice used when tts.provider = "deepgram".
+	// Model is STT-only, so TTS gets its own field on the same section (both
+	// roles share one API key). Empty defaults to aura-2-thalia-en.
+	TTSModel string `toml:"tts_model"`
 }
 
 type AssemblyAIConfig struct {
@@ -283,6 +287,7 @@ func Load(path string) (*Config, error) {
 	// flush that recovers a turn when no speech_final arrives.
 	setDefault(&cfg.Deepgram.Endpointing, "300")
 	setDefault(&cfg.Deepgram.UtteranceEndMs, "1000")
+	setDefault(&cfg.Deepgram.TTSModel, "aura-2-thalia-en")
 	setDefault(&cfg.AssemblyAI.Model, "u3-rt-pro")
 	// Cartesia counts concurrency by active generation context; 3 comfortably
 	// serves many concurrent calls because agent speech is bursty and

@@ -48,7 +48,7 @@ func newProviderClient(cfg *config.Config) (Client, error) {
 		if cfg.Deepgram.APIKey == "" {
 			return nil, ErrMissingAPIKey{Provider: "deepgram", Field: "[deepgram] api_key"}
 		}
-		return NewDeepgramClient(cfg.Deepgram.APIKey), nil
+		return NewDeepgramClient(cfg.Deepgram.APIKey, cfg.Deepgram.TTSModel), nil
 	case "cartesia":
 		if cfg.Cartesia.APIKey == "" {
 			return nil, ErrMissingAPIKey{Provider: "cartesia", Field: "[cartesia] api_key"}
