@@ -90,6 +90,11 @@ func (p *Pipeline) runTurnBuffer() {
 				pending.Text = strings.TrimSpace(pending.Text + " " + text)
 				// Keep the earliest turn start: latency is measured from when
 				// the caller first stopped speaking, not from the last chunk.
+				//
+				// The talking-over flag is sticky across the merge: a turn that
+				// began over the agent's voice was an interruption regardless of
+				// whether its later halves landed after the agent stopped.
+				pending.OverAgentSpeech = pending.OverAgentSpeech || ev.OverAgentSpeech
 			}
 
 			// A caller still mid-thought gets a longer grace period.

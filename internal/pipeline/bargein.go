@@ -97,6 +97,23 @@ func isMeaningfulBargeInTranscript(s string) bool {
 	return contentWords >= 1 && len(tokens) >= 2
 }
 
+// isAcknowledgementOnly reports whether a whole turn is nothing but listening
+// noises — "okay", "yeah yeah", "mm-hm right", "got it".
+//
+// Deliberately a much lower bar than isMeaningfulBargeInTranscript. That
+// predicate decides whether to CUT THE AGENT OFF mid-word, so it can afford to
+// be conservative and demand two tokens plus a content word. This one decides
+// whether a turn is answered at all, so anything carrying meaning has to pass:
+// one-word questions ("why?"), corrections ("no"), and commands ("stop") are
+// all a single token and none of them are acknowledgement vocabulary.
+func isAcknowledgementOnly(s string) bool {
+	normalized := normalizedTranscriptText(s)
+	if normalized == "" {
+		return false
+	}
+	return isBackchannelOnly(strings.Fields(normalized))
+}
+
 func isSpeechActivityTranscript(s string) bool {
 	normalized := normalizedTranscriptText(s)
 	if normalized == "" {
