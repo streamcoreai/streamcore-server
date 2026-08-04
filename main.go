@@ -28,7 +28,14 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	log.Printf("Providers — STT: %s, LLM: %s, TTS: %s", cfg.STT.Provider, cfg.LLM.Provider, cfg.TTS.Provider)
+	if cfg.RealtimeEnabled() {
+		// Naming the STT/LLM/TTS providers here would be actively
+		// misleading: in realtime mode none of them are constructed.
+		log.Printf("Provider — speech-to-speech: %s (model: %s, voice: %s)",
+			cfg.Realtime.Provider, cfg.Grok.Model, cfg.Grok.Voice)
+	} else {
+		log.Printf("Providers — STT: %s, LLM: %s, TTS: %s", cfg.STT.Provider, cfg.LLM.Provider, cfg.TTS.Provider)
+	}
 
 	// Initialize plugin manager
 	pluginMgr := plugin.NewManager(cfg.Plugins.Directory)

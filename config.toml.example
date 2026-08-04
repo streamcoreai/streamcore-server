@@ -23,6 +23,13 @@ turn_merge_ms = 350          # Debounce window for merging finals into one turn.
 
 # Provider selection
 
+# Speech-to-speech mode. Setting a provider here replaces [stt], [llm], and
+# [tts] with a single model that hears audio and answers with audio — it also
+# takes over turn detection and barge-in. Leave empty for the classic
+# STT -> LLM -> TTS pipeline.
+[realtime]
+provider = ""           # Supported: grok (empty = classic pipeline)
+
 [stt]
 provider = "deepgram"   # Supported: deepgram, openai, assemblyai, vibevoice
 
@@ -33,6 +40,33 @@ provider = "openai"     # Supported: openai, ollama
 provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, speechify, vibevoice
 
 # Provider credentials
+
+# xAI Grok speech-to-speech. Used when realtime.provider = "grok".
+[grok]
+api_key = ""                            # Required. Your xAI API key
+model = "grok-voice-latest"             # Tracks the newest model. Pin a version in production,
+                                        # e.g. "grok-voice-think-fast-2.0"
+voice = "eve"                           # Built-in voice ID, or a custom voice ID
+reasoning_effort = "high"               # "high" for nuance and multi-step instructions; "none" for lower latency
+system_prompt = "You are a helpful AI voice assistant on a phone call. Keep responses short and conversational."
+                                        # Keep this short. These models are strong enough that porting a long
+                                        # GPT-era prompt over verbatim makes them worse, not better
+
+# Server-side turn detection. Unset values use xAI's defaults.
+# vad_threshold = 0.85          # 0.1-0.9. Higher demands louder audio to trigger a turn
+# silence_duration_ms = 500     # Silence before the caller's turn ends. Raise if callers get cut off mid-sentence
+# prefix_padding_ms = 333       # Audio kept from before speech onset, so first words are not clipped
+# idle_timeout_ms = 0           # Agent re-engages after this much silence. 0 disables the check-in
+
+# Transcription of the caller's audio, for the client-side transcript only —
+# the model hears the audio directly and does not need it. Costs an extra pass.
+transcription = true
+# language_hint = ""            # BCP-47 tag. Spanish/Portuguese need a region ("es-MX", "pt-BR")
+# keyterms = []                 # Bias transcription toward domain words. Up to 100 terms
+
+# xAI-hosted tools, executed server-side with no local plugin needed.
+# web_search = false
+# x_search = false
 
 [deepgram]
 api_key = ""            # Required for Deepgram STT, and for Deepgram TTS if selected
