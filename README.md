@@ -1,4 +1,6 @@
 # StreamCore
+[![Discord](https://img.shields.io/badge/join-us%20on%20discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/xKGFaGWawT)
+[![Follow @jasonshen_](https://img.shields.io/badge/follow-%40jasonshen__-000000?logo=x&logoColor=white)](https://x.com/jasonshen_)
 
 **Realtime media infrastructure for AI-powered applications.**
 
