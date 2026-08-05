@@ -9,26 +9,42 @@ import (
 	"unicode"
 )
 
-// readbackPhraseMarkers are normalized word sequences that signal the
-// agent's current utterance is a readback / explicit confirmation
-// prompt (the moments when "yeah actually..." style soft corrections
-// destroy context if allowed to barge in). The list is intentionally
-// small and tied to wording the form-readback templates actually emit.
-// Matched on word boundaries against the normalized agent text — a raw
-// substring match would also fire on words that merely CONTAIN a marker.
-var readbackPhraseMarkers = []string{
-	"is that right",
-	"is that correct",
-	"let me read that back",
-	"just to confirm",
-	"could you spell",
+// ---------------------------------------------------------------------------
+// Normalization
+// ---------------------------------------------------------------------------
+
+// normalizedTranscriptText lowercases an utterance and reduces it to
+// space-separated words, keeping only letters, digits, and apostrophes.
+// Every predicate below operates on this form.
+func normalizedTranscriptText(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '\'':
+			b.WriteRune(r)
+		default:
+			b.WriteByte(' ')
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
-// bargeInMinConfidence gates transcript barge-in on STT confidence so a
-// noise-hallucinated transcript can't mute agent audio. Deepgram reports
-// ≥0.8 for clear speech; hallucinations from line noise typically score
-// well below 0.6.
-const bargeInMinConfidence = 0.6
+// lastWord returns the final word of an utterance, lowercased and stripped of
+// surrounding punctuation, or "" if there is none. Shared by the
+// end-of-utterance predicates, which differ only in the vocabulary they
+// match that word against.
+func lastWord(s string) string {
+	const punct = ",.!?;:-—'\""
+	fields := strings.Fields(strings.ToLower(s))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Trim(fields[len(fields)-1], punct)
+}
+
+// ---------------------------------------------------------------------------
+// Barge-in predicates
+// ---------------------------------------------------------------------------
 
 // isBackchannelOnly reports whether every token of the (already normalized)
 // utterance is acknowledgement vocabulary — the combined-backchannel case.
@@ -44,28 +60,10 @@ func isBackchannelOnly(tokens []string) bool {
 	return true
 }
 
-func normalizedTranscriptText(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
-		switch {
-		case unicode.IsLetter(r), unicode.IsDigit(r):
-			b.WriteRune(r)
-		case r == '\'':
-			b.WriteRune(r)
-		default:
-			b.WriteByte(' ')
-		}
-	}
-	return strings.Join(strings.Fields(b.String()), " ")
-}
-
+// isMeaningfulBargeInTranscript reports whether a partial transcript is worth
+// cutting the agent off for.
 func isMeaningfulBargeInTranscript(s string) bool {
-	normalized := normalizedTranscriptText(s)
-	if normalized == "" || backchannelWordTokens[normalized] {
-		return false
-	}
-
-	tokens := strings.Fields(normalized)
+	tokens := strings.Fields(normalizedTranscriptText(s))
 	if len(tokens) == 0 {
 		return false
 	}
@@ -107,26 +105,7 @@ func isMeaningfulBargeInTranscript(s string) bool {
 // one-word questions ("why?"), corrections ("no"), and commands ("stop") are
 // all a single token and none of them are acknowledgement vocabulary.
 func isAcknowledgementOnly(s string) bool {
-	normalized := normalizedTranscriptText(s)
-	if normalized == "" {
-		return false
-	}
-	return isBackchannelOnly(strings.Fields(normalized))
-}
-
-func isSpeechActivityTranscript(s string) bool {
-	normalized := normalizedTranscriptText(s)
-	if normalized == "" {
-		return false
-	}
-	return len([]rune(strings.ReplaceAll(normalized, " ", ""))) >= 2
-}
-
-// bargeInConfidenceOK reports whether an STT result is confident enough to
-// drive barge-in. Zero means the provider didn't report a confidence —
-// treated as OK because "unknown" must not be conflated with "low".
-func bargeInConfidenceOK(conf float64) bool {
-	return conf == 0 || conf >= bargeInMinConfidence
+	return isBackchannelOnly(strings.Fields(normalizedTranscriptText(s)))
 }
 
 // isStrongBargeInCommand returns true only for the small set of commands
@@ -135,11 +114,7 @@ func bargeInConfidenceOK(conf float64) bool {
 // Anything else — including the bargeInCommandTokens set used elsewhere
 // — is treated as a weak correction when the readback guard is engaged.
 func isStrongBargeInCommand(s string) bool {
-	normalized := normalizedTranscriptText(s)
-	if normalized == "" {
-		return false
-	}
-	tokens := strings.Fields(normalized)
+	tokens := strings.Fields(normalizedTranscriptText(s))
 	for i, tok := range tokens {
 		switch tok {
 		case "stop", "cancel":
@@ -153,13 +128,16 @@ func isStrongBargeInCommand(s string) bool {
 	return false
 }
 
+// ---------------------------------------------------------------------------
+// End-of-utterance predicates (turn merging)
+// ---------------------------------------------------------------------------
+
 // endsTerminal reports whether the utterance ends with sentence-terminal
 // punctuation — the strongest available signal that the speaker finished a
 // complete thought. Used to shrink the merge window for the common case.
 // Trailing quotes/brackets after the terminal mark are tolerated.
 func endsTerminal(s string) bool {
-	trimmed := strings.TrimSpace(s)
-	trimmed = strings.TrimRight(trimmed, "'\")]}")
+	trimmed := strings.TrimRight(strings.TrimSpace(s), "'\")]}")
 	if trimmed == "" {
 		return false
 	}
@@ -170,18 +148,10 @@ func endsTerminal(s string) bool {
 	return false
 }
 
+// endsIncomplete reports whether the utterance trails off mid-thought, e.g. on
+// a conjunction, article, or filler word.
 func endsIncomplete(s string) bool {
-	trimmed := strings.TrimSpace(strings.ToLower(s))
-	if trimmed == "" {
-		return false
-	}
-	trimmed = strings.TrimRight(trimmed, ",.!?;:-—'\"")
-	fields := strings.Fields(trimmed)
-	if len(fields) == 0 {
-		return false
-	}
-	last := strings.TrimRight(fields[len(fields)-1], ",.!?;:-—'\"")
-	return incompleteTailWords[last]
+	return incompleteTailWords[lastWord(s)]
 }
 
 // endsDictation reports whether the pending turn text looks like an
@@ -194,44 +164,50 @@ func endsIncomplete(s string) bool {
 // LLM's "caller trailed off" note (a complete spelled email legitimately
 // ends on a letter).
 func endsDictation(s string) bool {
-	trimmed := strings.TrimSpace(strings.ToLower(s))
-	if trimmed == "" {
+	last := lastWord(s)
+	if last == "" {
 		return false
 	}
-	trimmed = strings.TrimRight(trimmed, ",.!?;:-—'\"")
-	fields := strings.Fields(trimmed)
-	if len(fields) == 0 {
-		return false
-	}
-	last := strings.TrimRight(fields[len(fields)-1], ",.!?;:-—'\"")
 	if dictationTailWords[last] {
 		return true
 	}
 	if len(last) == 1 && last[0] >= 'a' && last[0] <= 'z' {
 		return true
 	}
-	if last != "" {
-		allDigits := true
-		for _, r := range last {
-			if r < '0' || r > '9' {
-				allDigits = false
-				break
-			}
-		}
-		if allDigits {
-			return true
+	for _, r := range last {
+		if r < '0' || r > '9' {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
-// backchannelWordTokens is the per-word vocabulary used to reject COMBINED
-// backchannels ("yep okay", "yeah yeah, right") that the exact-phrase set
-// above misses — a caller stacking acknowledgement words is still just
-// listening, not interrupting. Includes common STT spelling variants
-// ("mmhmm", "yup", "gotcha") so transcription drift doesn't punch through.
-// Rejection requires EVERY token to be in this set, so adding common words
-// like "it"/"i" here is safe — any real content word breaks the match.
+// ---------------------------------------------------------------------------
+// Vocabularies
+// ---------------------------------------------------------------------------
+
+// readbackPhraseMarkers are normalized word sequences that signal the
+// agent's current utterance is a readback / explicit confirmation
+// prompt (the moments when "yeah actually..." style soft corrections
+// destroy context if allowed to barge in). The list is intentionally
+// small and tied to wording the form-readback templates actually emit.
+// Matched on word boundaries against the normalized agent text — a raw
+// substring match would also fire on words that merely CONTAIN a marker.
+var readbackPhraseMarkers = []string{
+	"is that right",
+	"is that correct",
+	"let me read that back",
+	"just to confirm",
+	"could you spell",
+}
+
+// backchannelWordTokens is the per-word acknowledgement vocabulary. A turn is
+// rejected as a backchannel only when EVERY token is in this set, so a caller
+// stacking acknowledgement words ("yep okay", "yeah yeah, right") is still
+// treated as listening rather than interrupting. Includes common STT spelling
+// variants ("mmhmm", "yup", "gotcha") so transcription drift doesn't punch
+// through. Because rejection requires a full match, listing common words like
+// "it"/"i" here is safe — any real content word breaks it.
 var backchannelWordTokens = map[string]bool{
 	"mm": true, "mhm": true, "mmhmm": true, "mhmm": true, "hmm": true, "hm": true,
 	"uh": true, "huh": true, "uhhuh": true, "um": true, "umm": true,
@@ -243,6 +219,8 @@ var backchannelWordTokens = map[string]bool{
 	"thats": true, "that's": true,
 }
 
+// bargeInCommandTokens are words that interrupt the agent on their own, no
+// matter what else the utterance contains.
 var bargeInCommandTokens = map[string]bool{
 	"stop": true, "wait": true, "pause": true, "cancel": true,
 	"actually": true, "no": true, "hang": true, "hold": true,
@@ -250,6 +228,8 @@ var bargeInCommandTokens = map[string]bool{
 	"help": true,
 }
 
+// bargeInWeakTokens carry no content on their own, so they don't count toward
+// the content-word threshold that lets a phrase interrupt the agent.
 var bargeInWeakTokens = map[string]bool{
 	"i": true, "im": true, "i'm": true, "me": true, "my": true,
 	"you": true, "your": true, "we": true, "it": true, "this": true,
@@ -266,8 +246,8 @@ var bargeInWeakTokens = map[string]bool{
 	"right": true, "sure": true,
 }
 
-// Words that, when appearing as the last word of an utterance, strongly
-// suggest the speaker was cut off by their own pause rather than finished.
+// incompleteTailWords, as the last word of an utterance, strongly suggest the
+// speaker was cut off by their own pause rather than finished.
 var incompleteTailWords = map[string]bool{
 	"um": true, "uh": true, "er": true, "hmm": true, "like": true,
 	"and": true, "or": true, "but": true, "so": true, "because": true,

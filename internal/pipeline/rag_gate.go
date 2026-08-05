@@ -75,7 +75,7 @@ var fillerWords = map[string]bool{
 //     A "content-bearing word" is any token of length >= 3 that is
 //     not in fillerWords. Brand names and short product codes
 //     (e.g. "BYD") therefore still trigger retrieval.
-func shouldSkipRAG(p *Pipeline, userText string) (bool, string) {
+func shouldSkipRAG(_ *Pipeline, userText string) (bool, string) {
 	var b strings.Builder
 	for _, r := range userText {
 		if unicode.IsLetter(r) {

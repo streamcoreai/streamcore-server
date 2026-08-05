@@ -2,6 +2,8 @@
 [![Discord](https://img.shields.io/badge/join-us%20on%20discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/xKGFaGWawT)
 [![Follow @jasonshen_](https://img.shields.io/badge/follow-%40jasonshen__-000000?logo=x&logoColor=white)](https://x.com/jasonshen_)
 
+**English** | [简体中文](./README.zh-CN.md)
+
 **Realtime media infrastructure for AI-powered applications.**
 
 StreamCore handles the latency-sensitive media path between users, devices, communication networks, and AI services.

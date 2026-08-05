@@ -1,5 +1,7 @@
 # VibeVoice ASR Server
 
+**English** | [简体中文](./README.zh-CN.md)
+
 Live streaming speech-to-text server using Microsoft VibeVoice-ASR. Accepts raw PCM audio over WebSocket and returns JSON transcript events.
 
 ## Models
