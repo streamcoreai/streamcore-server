@@ -1,17 +1,17 @@
 # VibeVoice TTS Server
 
-**English** | [简体中文](./README.zh-CN.md)
+[English](./README.md) | **简体中文**
 
-HTTP text-to-speech server using Microsoft VibeVoice-Realtime-0.5B. Accepts JSON requests and returns raw PCM audio.
+使用 Microsoft VibeVoice-Realtime-0.5B 的 HTTP 文字转语音服务。接收 JSON 请求，返回原始 PCM 音频。
 
-## Models
+## 模型
 
-| Platform | Model | Backend |
+| 平台 | 模型 | 后端 |
 |----------|-------|---------|
 | Apple Silicon | `mlx-community/VibeVoice-Realtime-0.5B-6bit` | mlx-audio |
 | Linux / CUDA | `microsoft/VibeVoice-Realtime-0.5B` | PyTorch |
 
-## Install
+## 安装
 
 ```bash
 pip install -r requirements.txt
@@ -25,7 +25,7 @@ pip install torch transformers  # PyTorch (basic)
 # pip install -e .[streamingtts]
 ```
 
-## Run
+## 运行
 
 ```bash
 python server.py
@@ -45,22 +45,22 @@ curl -X POST http://localhost:8300/synthesize \
   --output speech.pcm
 ```
 
-**Request body:**
+**请求体：**
 ```json
 {"text": "Hello world", "voice": "en-Emma_woman"}
 ```
 
-**Response:** `audio/pcm` — raw PCM bytes (16 kHz, 16-bit signed LE, mono)
+**响应：** `audio/pcm` —— 原始 PCM 字节（16 kHz、16 位有符号小端、单声道）
 
 ### GET /health
 
-Returns `{"status": "ok"}`.
+返回 `{"status": "ok"}`。
 
-## Options
+## 选项
 
-| Flag | Default | Description |
+| 参数 | 默认值 | 说明 |
 |------|---------|-------------|
-| `--host` | `127.0.0.1` | Bind host |
-| `--port` | `8300` | Bind port |
-| `--model` | auto (MLX 6-bit or PyTorch) | HuggingFace model name |
-| `--log-level` | `INFO` | Logging level |
+| `--host` | `127.0.0.1` | 绑定地址 |
+| `--port` | `8300` | 绑定端口 |
+| `--model` | 自动（MLX 6-bit 或 PyTorch） | HuggingFace 模型名 |
+| `--log-level` | `INFO` | 日志级别 |

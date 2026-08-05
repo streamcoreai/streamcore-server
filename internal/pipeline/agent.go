@@ -359,14 +359,20 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 }
 
 // waitOutboundDrain waits until the outbound PCM channel is empty, meaning
-// runSender has picked up all queued frames. It polls briefly with a timeout
-// to avoid blocking forever, and gives up as soon as generation gen is
-// superseded — the frames it would be waiting on have been discarded, and the
-// new response is already filling the channel behind them.
+// runSender has picked up all queued frames. It gives up as soon as
+// generation gen is superseded — the frames it would be waiting on have been
+// discarded, and the new response is already filling the channel behind them.
 func (p *Pipeline) waitOutboundDrain(gen uint64) {
+	p.waitOutboundEmpty(func() bool { return p.responseGen.Load() != gen })
+}
+
+// waitOutboundEmpty polls the outbound PCM channel until it is empty, meaning
+// runSender has picked up all queued frames. It polls briefly with a timeout
+// to avoid blocking forever, and returns early if superseded reports true.
+func (p *Pipeline) waitOutboundEmpty(superseded func() bool) {
 	deadline := time.After(5 * time.Second)
 	for {
-		if p.responseGen.Load() != gen {
+		if superseded() {
 			return
 		}
 		if len(p.outPCMCh) == 0 {

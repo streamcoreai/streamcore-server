@@ -1,5 +1,7 @@
 # Gmail Plugin
 
+**English** | [简体中文](./README.zh-CN.md)
+
 Read and send emails through Gmail using the Google Gmail API with OAuth2.
 
 ## Features

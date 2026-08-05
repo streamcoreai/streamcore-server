@@ -245,7 +245,8 @@ func (p *Pipeline) runRealtimeOutbound() {
 
 		if chunk.EndOfResponse {
 			p.speaking.Store(false)
-			p.waitOutboundDrain()
+			// Realtime mode has no response generations to supersede.
+			p.waitOutboundEmpty(func() bool { return false })
 			p.sendEvent(stateMsg{Type: "state", State: "listening"})
 		}
 	}

@@ -1,5 +1,7 @@
 # AWS EC2 Deployment (Free Tier)
 
+**English** | [简体中文](./README.zh-CN.md)
+
 Deploy the VoiceAgent server to a single AWS EC2 `t3.micro` instance with HTTPS via Caddy and automatic CI/CD via GitHub Actions.
 
 ## What You Get
