@@ -884,12 +884,12 @@ voice = "en-Emma_woman"
 
 ## Star 历史
 
-<!-- star-history:start -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/star-history/star-history-dark.svg">
-  <img alt="Star history" src="assets/star-history/star-history-light.svg">
-</picture>
-<!-- star-history:end -->
+<a href="https://star-history.com/#streamcoreai/streamcore-server&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=streamcoreai/streamcore-server&type=Date&theme=dark">
+    <img alt="Star history" src="https://api.star-history.com/svg?repos=streamcoreai/streamcore-server&type=Date">
+  </picture>
+</a>
 
 ## 许可证
 
