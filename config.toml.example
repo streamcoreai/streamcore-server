@@ -114,6 +114,14 @@ api_key = ""            # Required if tts.provider = "speechify"
 voice_id = ""           # Optional; defaults to Geffen (geffen_32). Simba 3.2 uses its curated voice set.
 model = ""              # Optional; defaults to simba-3.2
 
+[minimax]
+api_key = ""            # Required if tts.provider = "minimax"
+voice_id = ""           # Optional; defaults to English_Graceful_Lady. Chinese (Mandarin)_News_Anchor and 40+ languages available
+model = ""              # Optional; defaults to speech-2.6-turbo (low latency). A Token Plan key (sk-cp-) covers only
+                        # speech-2.8-hd — any other model routes to pay-as-you-go and fails with 2056 on a zero balance
+# base_url = ""         # Optional; defaults to https://api.minimax.io/v1. Accounts registered on the mainland-China
+                        # platform use https://api.minimaxi.com/v1 — keys are not interchangeable between the two
+
 # VibeVoice — local STT and TTS via external Python services.
 # Start the servers first:
 #   python external/vibeVoice/vibeVoiceAsr/server.py   (default port 8200)

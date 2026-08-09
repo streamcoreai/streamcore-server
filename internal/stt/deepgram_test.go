@@ -17,7 +17,11 @@ func TestNova3LanguageStripsLocale(t *testing.T) {
 		"en-ZA": "en",
 		"es":    "es",
 		"es-ES": "es",
-		"zh-CN": "multi",
+		// Nova-3 transcribes Mandarin directly; routing it to "multi" returns
+		// garbage rather than a worse-but-usable transcript.
+		"zh":    "zh",
+		"zh-CN": "zh",
+		"zh-TW": "zh",
 		"ja-JP": "multi",
 		"ko-KR": "multi",
 		"hi-IN": "multi",
