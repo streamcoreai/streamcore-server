@@ -246,7 +246,7 @@ type MiniMaxConfig struct {
 	VoiceID string `toml:"voice_id"`
 	Model   string `toml:"model"`
 	// BaseURL overrides the API host. Empty uses the global endpoint;
-	// mainland-China accounts need https://api.minimaxi.chat/v1.
+	// mainland-China accounts need https://api.minimaxi.com/v1.
 	BaseURL string `toml:"base_url"`
 }
 

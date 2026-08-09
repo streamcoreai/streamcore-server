@@ -15,7 +15,7 @@ import (
 
 const (
 	// defaultMiniMaxBaseURL is the global endpoint. Deployments in mainland
-	// China use https://api.minimaxi.chat/v1 instead, and api-uw.minimax.io
+	// China use https://api.minimaxi.com/v1 instead, and api-uw.minimax.io
 	// trades region for a lower time-to-first-audio; both are reachable by
 	// setting base_url.
 	defaultMiniMaxBaseURL = "https://api.minimax.io/v1"
@@ -28,6 +28,12 @@ const (
 	// exactly what the pipeline runs at — so unlike the 24 kHz-only
 	// providers there is no resampling stage here.
 	minimaxSampleRate = 16000
+
+	// maxMiniMaxEventBytes caps a single SSE line. The terminal event repeats
+	// the whole utterance as hex, so the ceiling has to cover it: at 16 kHz
+	// s16 mono that is 64 KB of line per second of audio, making this roughly
+	// two minutes — far beyond the sentence-sized chunks the pipeline sends.
+	maxMiniMaxEventBytes = 8 * 1024 * 1024
 )
 
 type minimaxClient struct {
@@ -166,7 +172,9 @@ func (c *minimaxClient) Synthesize(ctx context.Context, text string) ([]byte, er
 	if err != nil {
 		return nil, fmt.Errorf("minimax request: %w", err)
 	}
+	// Registered before the drain so it runs after it (defers are LIFO).
 	defer resp.Body.Close()
+	defer drainForReuse(ctx, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
@@ -179,6 +187,12 @@ func (c *minimaxClient) Synthesize(ctx context.Context, text string) ([]byte, er
 	}
 	if err := parsed.err(); err != nil {
 		return nil, err
+	}
+	// A 200 with base_resp.status_code 0 and no audio should not read as a
+	// successful synthesis; returning empty PCM here would surface as an
+	// unexplained silent utterance rather than a failure the caller can log.
+	if parsed.Data.Audio == "" {
+		return nil, fmt.Errorf("minimax: response contained no audio")
 	}
 
 	pcm, err := hex.DecodeString(parsed.Data.Audio)
@@ -216,8 +230,14 @@ func (c *minimaxClient) SynthesizeStreamWithControls(ctx context.Context, text s
 
 	ch := make(chan StreamChunk, 8)
 	go func() {
-		defer close(ch)
+		// Defers run LIFO, and the order matters on the audio path: close ch
+		// first so the agent moves on to the next sentence immediately, then
+		// tidy the connection behind it. pumpSSE stops at the terminal event
+		// rather than at EOF, so without the drain every sentence would
+		// abandon its connection and pay a fresh TLS handshake on the next.
 		defer resp.Body.Close()
+		defer drainForReuse(ctx, resp.Body)
+		defer close(ch)
 		c.pumpSSE(ctx, resp.Body, ch)
 	}()
 	return ch, nil
@@ -227,19 +247,34 @@ func (c *minimaxClient) SynthesizeStreamWithControls(ctx context.Context, text s
 //
 // Unlike the providers that stream raw PCM straight down the response body,
 // each event here is a JSON envelope whose audio is hex-encoded, so the
-// generic pumpPCMStream cannot be reused.
+// generic pumpPCMStream cannot be reused — but the int16 alignment it does
+// across chunk boundaries still applies, via the shared pcmAligner.
 func (c *minimaxClient) pumpSSE(ctx context.Context, body io.Reader, ch chan<- StreamChunk) {
 	scanner := bufio.NewScanner(body)
 	// A single event carries a whole synthesized segment as hex (two bytes of
 	// line per byte of audio), which overruns the 64 KB default.
-	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxMiniMaxEventBytes)
 
-	emit := func(c StreamChunk) bool {
+	var (
+		align   pcmAligner
+		emitted int
+	)
+
+	emit := func(chunk StreamChunk) bool {
 		select {
-		case ch <- c:
+		case ch <- chunk:
 			return true
 		case <-ctx.Done():
 			return false
+		}
+	}
+
+	// warnIfSilent fires when a stream ends without ever yielding audio. The
+	// caller has no other signal — no error was raised and the channel simply
+	// closes — so the sentence would play as an unexplained gap.
+	warnIfSilent := func() {
+		if emitted == 0 && ctx.Err() == nil {
+			log.Printf("[tts:minimax] stream ended with no audio; sentence will be silent")
 		}
 	}
 
@@ -271,8 +306,10 @@ func (c *minimaxClient) pumpSSE(ctx context.Context, body io.Reader, ch chan<- S
 
 		// Status 2 is the terminal event. It repeats the whole utterance as
 		// one aggregated blob, so emitting its audio would play everything a
-		// second time on top of the chunks already sent.
+		// second time on top of the chunks already sent. Nothing follows it,
+		// so the body is left to drainForReuse rather than read further.
 		if ev.Data.Status == 2 {
+			warnIfSilent()
 			return
 		}
 		if ev.Data.Audio == "" {
@@ -284,17 +321,21 @@ func (c *minimaxClient) pumpSSE(ctx context.Context, body io.Reader, ch chan<- S
 			emit(StreamChunk{Err: fmt.Errorf("minimax decode audio: %w", err)})
 			return
 		}
-		if len(pcm) == 0 {
+		aligned := align.take(pcm)
+		if len(aligned) == 0 {
 			continue
 		}
-		if !emit(StreamChunk{PCM: pcm}) {
+		emitted += len(aligned)
+		if !emit(StreamChunk{PCM: aligned}) {
 			return
 		}
 	}
 
 	if err := scanner.Err(); err != nil && ctx.Err() == nil {
 		emit(StreamChunk{Err: fmt.Errorf("minimax stream read: %w", err)})
+		return
 	}
+	warnIfSilent()
 }
 
 func clampFloat(v, lo, hi float64) float64 {

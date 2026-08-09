@@ -153,7 +153,7 @@ type Client interface {
 |----------------|-----------|
 | 流式 STT | Deepgram、AssemblyAI、OpenAI、VibeVoice（本地） |
 | LLM | OpenAI、Ollama（本地或自托管） |
-| 流式 TTS | Cartesia、Deepgram、ElevenLabs、Speechify、VibeVoice（本地） |
+| 流式 TTS | Cartesia、Deepgram、ElevenLabs、MiniMax、Speechify、VibeVoice（本地） |
 | 语音到语音 | xAI Grok Voice（一个模型取代 STT + LLM + TTS） |
 | 检索 | pgvector、Supabase |
 | 自定义工具 | Python / TypeScript / JavaScript 插件，原生 Go 工具 |
@@ -491,7 +491,7 @@ CLI 会读取服务端的 `config.toml` 获取服务商凭据，所以不用配�
 |------|-----------|----------------------|
 | STT | `deepgram`、`assemblyai`、`openai`、`vibevoice` | Deepgram API key、AssemblyAI API key、OpenAI API key，或本地 VibeVoice ASR 服务 |
 | LLM | `openai`、`ollama` | OpenAI API key，或你自己掌控的 Ollama 实例 |
-| TTS | `cartesia`、`deepgram`、`elevenlabs`、`speechify`、`vibevoice` | 对应服务商的 API key，或本地 VibeVoice TTS 服务 |
+| TTS | `cartesia`、`deepgram`、`elevenlabs`、`minimax`、`speechify`、`vibevoice` | 对应服务商的 API key，或本地 VibeVoice TTS 服务 |
 | 语音到语音 | `grok` | xAI API key —— 一并取代 STT、LLM 和 TTS |
 | RAG（可选） | `pgvector`、`supabase` | Postgres 连接串或 Supabase URL + key，外加用于 embedding 的 OpenAI key |
 
@@ -500,6 +500,7 @@ CLI 会读取服务端的 `config.toml` 获取服务商凭据，所以不用配�
 - `stt.provider = "openai"` 使用 Whisper 风格的最终转写，而不是流式中间结果。
 - `llm.provider = "ollama"` 通过 `base_url` 指向任意 Ollama 兼容端点 —— 本地或你自己的基础设施上。
 - `stt.provider = "vibevoice"` 和 `tts.provider = "vibevoice"` 使用本地模型；请先启动 Python 边车进程。
+- `tts.provider = "minimax"` 覆盖 40+ 种语言，是中文普通话效果最好的一档。区域与套餐相关的坑见 [MiniMax TTS](#minimax-tts)。
 - `realtime.provider = "grok"` 切换到语音到语音模式，并完全忽略 `[stt]`、`[llm]` 和 `[tts]`。
 
 ### 语音到语音（Grok Voice）
@@ -579,6 +580,29 @@ system_prompt = "You are a helpful assistant on a phone call. Keep it short."
 #### 成本
 
 计费按音频的墙钟分钟数而非 token，这改变了它相对于自行拼装流水线的经济性 —— 开着的通话即使空闲也在计费，所以 `idle_timeout_ms` 和及时拆除通话在这里比经典模式更重要。费率见上面的模型表。
+
+### MiniMax TTS
+
+基于 MiniMax T2A v2 API 的 SSE 流式合成，覆盖 40+ 种语言，中文普通话音色尤其出色。它是唯一一个可以按请求指定采样率输出 PCM 的托管服务商，因此服务端直接请求 16 kHz 单声道 —— 正好是流水线的原生采样率，送进编码器之前不需要任何重采样。
+
+```toml
+[tts]
+provider = "minimax"
+
+[minimax]
+api_key = ""
+voice_id = "English_Graceful_Lady"   # 或 "Chinese (Mandarin)_News_Anchor"
+model = "speech-2.6-turbo"
+# base_url = "https://api.minimax.io/v1"
+```
+
+三个需要注意的点：
+
+- **区域。** `base_url` 默认指向全球端点 `https://api.minimax.io/v1`。在中国大陆平台注册的账号必须改为 `https://api.minimaxi.com/v1` —— 两个平台的 key 不通用，用错域名会直接鉴权失败，而不会自动回退。
+- **模型与套餐。** `speech-2.6-turbo` 是低延迟档，也是实时音频链路上的正确默认值；`-hd` 系列音质更好，但会多出几百毫秒。Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型都会走按量计费，余额为零时报错 `2056`。
+- **错误以 HTTP 200 返回。** MiniMax 把鉴权和配额失败放在 200 响应体的 `base_resp.status_code` 字段里。客户端会检查它，所以这类失败会作为真正的错误暴露出来，而不是变成一段静音。
+
+发音标签会映射到 MiniMax 的 emotion 枚举：`[warm]` 和 `[excited]` 映射为 `happy`，`[calm]` 和 `[empathetic]` 映射为 `calm`。`[empathetic]` 特意落在 `calm` 而非 `sad` —— 后者在道歉和坏消息场景下会过头，听起来像自己在难过。没有对应 emotion 的标签仍然通过语速生效，语速会被夹取到 MiniMax 允许的 0.5–2.0 区间。
 
 ### 本地 VibeVoice 配置
 
@@ -738,6 +762,12 @@ api_key = ""
 voice_id = ""
 model = ""
 
+[minimax]
+api_key = ""
+voice_id = ""                        # Defaults to English_Graceful_Lady; 40+ languages available
+model = ""                           # Defaults to speech-2.6-turbo (low latency)
+# base_url = ""                      # Defaults to https://api.minimax.io/v1; mainland-China accounts use https://api.minimaxi.com/v1
+
 [vibevoice]
 asr_url = "ws://127.0.0.1:8200"
 tts_url = "http://127.0.0.1:8300"
@@ -774,6 +804,8 @@ voice = "en-Emma_woman"
 - `deepgram.endpointing` 和 `deepgram.utterance_end_ms` 调节上游何时认为一轮结束；轮次合并去抖运行在它们之上。
 - `deepgram.tts_model` 选择 Aura 音色；STT（`model`）和 TTS（`tts_model`）共用同一个 API key。音色命名为 `[family]-[voice]-[language]` —— 见 [Deepgram 音色列表](https://developers.deepgram.com/docs/tts-models)。
 - `cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致 —— Cartesia 统计的是进行中的生成任务而非通话数，超限会返回 429。
+- `minimax.base_url` 用于选择区域。留空即使用全球端点；中国大陆平台的账号必须指向 `https://api.minimaxi.com/v1`，两个平台的 key 不通用。
+- `minimax.model` 必须与你的套餐匹配：Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型都按量计费，余额为零时报错 `2056`。
 
 ## 架构与实现
 
