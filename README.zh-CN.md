@@ -884,11 +884,20 @@ voice = "en-Emma_woman"
 
 ## Star 历史
 
-<a href="https://star-history.com/#streamcoreai/streamcore-server&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=streamcoreai/streamcore-server&type=Date&theme=dark">
-    <img alt="Star history" src="https://api.star-history.com/svg?repos=streamcoreai/streamcore-server&type=Date">
-  </picture>
+<!--
+  Live chart from star-history.com. GitHub restricted the stargazers API to repo
+  admins/collaborators on 2026-06-30, so the chart renders only when a sealed
+  (encrypted) GitHub token is supplied. If it ever shows "GitHub restricted access
+  to star data", that token has expired or been revoked — regenerate it at
+  https://star-history.com/#streamcoreai/streamcore-server&Date under "Show
+  real-time chart on your README.md" and replace sealed_token in all three URLs.
+-->
+<a href="https://www.star-history.com/?type=date&repos=streamcoreai%2Fstreamcore-server">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=streamcoreai/streamcore-server&type=date&theme=dark&legend=top-left&sealed_token=Fe6rTffC730520Ua9jYN4AQoEmFMNIwEPzp19cmksSRM4GuvuYib6iu6TxRTv0k51n0-B9kO6FI-N9-pJH6WB8XGn4GH-gKnIz-ou7n3ctqiKQ3IO9LuBg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=streamcoreai/streamcore-server&type=date&legend=top-left&sealed_token=Fe6rTffC730520Ua9jYN4AQoEmFMNIwEPzp19cmksSRM4GuvuYib6iu6TxRTv0k51n0-B9kO6FI-N9-pJH6WB8XGn4GH-gKnIz-ou7n3ctqiKQ3IO9LuBg" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=streamcoreai/streamcore-server&type=date&legend=top-left&sealed_token=Fe6rTffC730520Ua9jYN4AQoEmFMNIwEPzp19cmksSRM4GuvuYib6iu6TxRTv0k51n0-B9kO6FI-N9-pJH6WB8XGn4GH-gKnIz-ou7n3ctqiKQ3IO9LuBg" />
+ </picture>
 </a>
 
 ## 许可证
