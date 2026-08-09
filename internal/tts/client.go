@@ -72,10 +72,15 @@ func newProviderClient(cfg *config.Config) (Client, error) {
 			return nil, ErrMissingAPIKey{Provider: "speechify", Field: "[speechify] api_key"}
 		}
 		return NewSpeechifyClient(cfg.Speechify.APIKey, cfg.Speechify.VoiceID, cfg.Speechify.Model), nil
+	case "minimax":
+		if cfg.MiniMax.APIKey == "" {
+			return nil, ErrMissingAPIKey{Provider: "minimax", Field: "[minimax] api_key"}
+		}
+		return NewMiniMaxClient(cfg.MiniMax.APIKey, cfg.MiniMax.VoiceID, cfg.MiniMax.Model, cfg.MiniMax.BaseURL), nil
 	case "vibevoice":
 		return NewVibeVoiceClient(cfg.VibeVoice.TTSURL, cfg.VibeVoice.Voice), nil
 	default:
-		return nil, fmt.Errorf("unknown tts provider %q (supported: cartesia, deepgram, elevenlabs, speechify, vibevoice)", cfg.TTS.Provider)
+		return nil, fmt.Errorf("unknown tts provider %q (supported: cartesia, deepgram, elevenlabs, minimax, speechify, vibevoice)", cfg.TTS.Provider)
 	}
 }
 

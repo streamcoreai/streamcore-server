@@ -32,6 +32,7 @@ type Config struct {
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
 	Speechify  SpeechifyConfig  `toml:"speechify"`
+	MiniMax    MiniMaxConfig    `toml:"minimax"`
 	Pgvector   PgvectorConfig   `toml:"pgvector"`
 	Supabase   SupabaseConfig   `toml:"supabase"`
 }
@@ -238,6 +239,15 @@ type SpeechifyConfig struct {
 	APIKey  string `toml:"api_key"`
 	VoiceID string `toml:"voice_id"`
 	Model   string `toml:"model"`
+}
+
+type MiniMaxConfig struct {
+	APIKey  string `toml:"api_key"`
+	VoiceID string `toml:"voice_id"`
+	Model   string `toml:"model"`
+	// BaseURL overrides the API host. Empty uses the global endpoint;
+	// mainland-China accounts need https://api.minimaxi.chat/v1.
+	BaseURL string `toml:"base_url"`
 }
 
 type RAGConfig struct {

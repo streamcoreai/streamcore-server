@@ -228,8 +228,15 @@ func NewDeepgramClient(ctx context.Context, cfg config.DeepgramConfig, onResult 
 }
 
 // nova3Language maps a BCP-47 locale to the language code Nova-3 accepts.
-// English and Spanish have dedicated models; everything else routes to the
-// multilingual model rather than failing.
+// Languages Nova-3 recognises on their own are passed through; anything else
+// routes to the multilingual model rather than failing.
+//
+// Routing a directly-supported language to "multi" is not a graceful
+// degradation, it is a broken transcript: Mandarin audio that "zh" returns
+// verbatim at confidence 1.00 comes back from "multi" as
+// "你好、徐死意gue ю因ceder shi" at 0.25. Only add a case here after checking
+// the language against real audio — an untested code silently produces that
+// same soup.
 func nova3Language(locale string) string {
 	base := strings.ToLower(strings.TrimSpace(locale))
 	if idx := strings.Index(base, "-"); idx > 0 {
@@ -240,6 +247,8 @@ func nova3Language(locale string) string {
 		return "en"
 	case "es":
 		return "es"
+	case "zh":
+		return "zh"
 	default:
 		return "multi"
 	}
