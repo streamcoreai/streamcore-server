@@ -153,7 +153,7 @@ A generic HTTP / OpenAI-compatible agent endpoint that requires no Go code is on
 |----------------|-----------|
 | Streaming STT | Deepgram, AssemblyAI, OpenAI, VibeVoice (local) |
 | LLM | OpenAI, Ollama (local or self-hosted) |
-| Streaming TTS | Cartesia, Deepgram, ElevenLabs, Speechify, VibeVoice (local) |
+| Streaming TTS | Cartesia, Deepgram, ElevenLabs, MiniMax, Speechify, VibeVoice (local) |
 | Speech-to-speech | xAI Grok Voice (replaces STT + LLM + TTS in one model) |
 | Retrieval | pgvector, Supabase |
 | Custom tools | Python / TypeScript / JavaScript plugins, native Go tools |
@@ -491,7 +491,7 @@ The CLI reads your server's `config.toml` for provider credentials, so nothing i
 |------|-----------|----------------------|
 | STT | `deepgram`, `assemblyai`, `openai`, `vibevoice` | Deepgram API key, AssemblyAI API key, OpenAI API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama` | OpenAI API key, or an Ollama instance you control |
-| TTS | `cartesia`, `deepgram`, `elevenlabs`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
+| TTS | `cartesia`, `deepgram`, `elevenlabs`, `minimax`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | Speech-to-speech | `grok` | xAI API key — replaces STT, LLM, and TTS together |
 | RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
 
@@ -500,6 +500,7 @@ Notes:
 - `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
 - `llm.provider = "ollama"` targets any Ollama-compatible endpoint via `base_url` — local or on your own infrastructure.
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.
+- `tts.provider = "minimax"` covers 40+ languages and is the strongest option for Mandarin. See [MiniMax TTS](#minimax-tts) for the region and model-plan caveats.
 - `realtime.provider = "grok"` switches to speech-to-speech and ignores `[stt]`, `[llm]`, and `[tts]` entirely.
 
 ### Speech-to-speech (Grok Voice)
@@ -579,6 +580,29 @@ These transcripts are cumulative and arrive in fragments: an update may revise w
 #### Cost
 
 Billing is per minute of wall-clock audio rather than per token, which changes the economics against a self-assembled pipeline — idle time on an open call still bills, so `idle_timeout_ms` and prompt call teardown matter more here than in classic mode. See the model table above for rates.
+
+### MiniMax TTS
+
+MiniMax's T2A v2 API over SSE, covering 40+ languages with a strong Mandarin voice set. It is the one hosted provider that emits PCM at whatever sample rate you ask for, so the server requests 16 kHz mono — the pipeline's native rate — and nothing is resampled on the way to the encoder.
+
+```toml
+[tts]
+provider = "minimax"
+
+[minimax]
+api_key = ""
+voice_id = "English_Graceful_Lady"   # or "Chinese (Mandarin)_News_Anchor"
+model = "speech-2.6-turbo"
+# base_url = "https://api.minimax.io/v1"
+```
+
+Three things to get right:
+
+- **Region.** `base_url` defaults to the global endpoint `https://api.minimax.io/v1`. Accounts registered on the mainland-China platform must set `https://api.minimaxi.com/v1` instead — keys are not interchangeable between the two, and using the wrong host fails auth rather than falling back.
+- **Model vs. plan.** `speech-2.6-turbo` is the low-latency tier and the right default on a live audio path; the `-hd` models sound better but add hundreds of milliseconds. A Token Plan key (`sk-cp-`) covers only `speech-2.8-hd` — any other model routes to pay-as-you-go and fails with error `2056` on a zero balance.
+- **Errors arrive as HTTP 200.** MiniMax reports auth and quota failures in a `base_resp.status_code` field inside a 200 response. The client checks it, so these surface as real errors instead of silent empty audio.
+
+Delivery tags map onto MiniMax's emotion enum: `[warm]` and `[excited]` become `happy`, `[calm]` and `[empathetic]` become `calm`. `[empathetic]` deliberately lands on `calm` rather than `sad`, which overshoots into sounding upset on apologies and bad news. Tags with no emotion mapping still take effect through speed, which is clamped to MiniMax's 0.5–2.0 range.
 
 ### Local VibeVoice setup
 
@@ -738,6 +762,12 @@ api_key = ""
 voice_id = ""
 model = ""
 
+[minimax]
+api_key = ""
+voice_id = ""                        # Defaults to English_Graceful_Lady; 40+ languages available
+model = ""                           # Defaults to speech-2.6-turbo (low latency)
+# base_url = ""                      # Defaults to https://api.minimax.io/v1; mainland-China accounts use https://api.minimaxi.com/v1
+
 [vibevoice]
 asr_url = "ws://127.0.0.1:8200"
 tts_url = "http://127.0.0.1:8300"
@@ -774,6 +804,8 @@ Notes:
 - `deepgram.endpointing` and `deepgram.utterance_end_ms` tune when a turn is considered finished upstream; the turn-merge debounce runs on top of them.
 - `deepgram.tts_model` picks the Aura voice; STT (`model`) and TTS (`tts_model`) share the one API key. Voices are named `[family]-[voice]-[language]` — see [Deepgram's voice list](https://developers.deepgram.com/docs/tts-models).
 - `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.
+- `minimax.base_url` selects the region. Leave it unset for the global endpoint; mainland-China accounts must point it at `https://api.minimaxi.com/v1`, since keys do not work across the two platforms.
+- `minimax.model` must match your plan: a Token Plan key (`sk-cp-`) only covers `speech-2.8-hd`, while any other model bills pay-as-you-go and errors with `2056` on a zero balance.
 
 ## Architecture and implementation
 
