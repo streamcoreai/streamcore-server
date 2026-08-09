@@ -1,0 +1,60 @@
+# CI — build, vet and test on every pull request and every push to main.
+#
+# Deliberately has no `paths:` filters, so every PR produces a status check that
+# branch protection can require and the README badge always reflects the real
+# state of main.
+#
+# The Go toolchain comes from `go-version-file: go.mod` rather than a hardcoded
+# pin, so bumping the `go` directive is all that is needed to move CI with it.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the older in-flight run. `github.ref`
+# is unique per PR and per branch, so unrelated runs never cancel each other.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, vet & test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Check formatting
+        # gofmt -l lists files needing formatting; it exits 0 either way, so the
+        # file count is what decides the step.
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
