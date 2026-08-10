@@ -114,6 +114,12 @@ api_key = ""            # Required if tts.provider = "speechify"
 voice_id = ""           # Optional; defaults to Geffen (geffen_32). Simba 3.2 uses its curated voice set.
 model = ""              # Optional; defaults to simba-3.2
 
+[mimo]
+api_key = ""            # Required if tts.provider = "mimo"
+voice = ""              # Optional; defaults to mimo_default. Chinese: 茉莉 冰糖 苏打 白桦; English: Mia Chloe Milo Dean
+model = ""              # Optional; defaults to mimo-v2.5-tts. Also mimo-v2.5-tts-voiceclone / -voicedesign (paid)
+# base_url = ""         # Optional; defaults to https://api.xiaomimimo.com/v1
+
 [minimax]
 api_key = ""            # Required if tts.provider = "minimax"
 voice_id = ""           # Optional; defaults to English_Graceful_Lady. Chinese (Mandarin)_News_Anchor and 40+ languages available
