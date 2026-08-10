@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 func TestAssemblyAILanguageCode(t *testing.T) {

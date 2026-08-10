@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // Client is the interface for RAG providers. Implementations retrieve

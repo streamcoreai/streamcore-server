@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/streamcoreai/server/internal/audio"
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 func baseConfig() config.GrokConfig {

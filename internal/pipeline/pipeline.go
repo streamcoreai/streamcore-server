@@ -11,15 +11,15 @@ import (
 	"sync/atomic"
 
 	"github.com/pion/webrtc/v4"
-	"github.com/streamcoreai/server/internal/audio"
-	"github.com/streamcoreai/server/internal/config"
-	"github.com/streamcoreai/server/internal/llm"
-	"github.com/streamcoreai/server/internal/plugin"
-	"github.com/streamcoreai/server/internal/rag"
-	"github.com/streamcoreai/server/internal/realtime"
-	"github.com/streamcoreai/server/internal/tools"
-	"github.com/streamcoreai/server/internal/tts"
-	"github.com/streamcoreai/server/internal/vad"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/llm"
+	"github.com/streamcoreai/streamcore-server/internal/plugin"
+	"github.com/streamcoreai/streamcore-server/internal/rag"
+	"github.com/streamcoreai/streamcore-server/internal/realtime"
+	"github.com/streamcoreai/streamcore-server/internal/tools"
+	"github.com/streamcoreai/streamcore-server/internal/tts"
+	"github.com/streamcoreai/streamcore-server/internal/vad"
 )
 
 const (

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/streamcoreai/server/internal/session"
+	"github.com/streamcoreai/streamcore-server/internal/session"
 )
 
 // NewWHIPHandler returns an HTTP handler implementing WHIP signaling per

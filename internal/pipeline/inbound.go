@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/pion/rtp"
-	"github.com/streamcoreai/server/internal/audio"
-	"github.com/streamcoreai/server/internal/stt"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/stt"
 )
 
 // runReader reads RTP packets from the remote WebRTC track, decodes Opus

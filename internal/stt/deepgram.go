@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 
 	clientinterfaces "github.com/deepgram/deepgram-go-sdk/v3/pkg/client/interfaces"
 	websocketv1 "github.com/deepgram/deepgram-go-sdk/v3/pkg/client/listen/v1/websocket"

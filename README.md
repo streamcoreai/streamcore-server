@@ -179,11 +179,11 @@ Thank you! Interested in sponsoring? Reach out for logo placement on GitHub + de
 
 ### Prerequisites
 
-For Docker: Docker and Docker Compose.
+For Docker: Docker. There is no Compose file for local development — Compose is used only by the EC2 deployment in [`infrastructure/aws/ec2`](./infrastructure/aws/ec2/).
 
 For local development:
 
-- Go 1.22+
+- Go 1.25+ — matches the `go` directive in [`go.mod`](./go.mod); CI and the Docker build use the same toolchain
 - Node.js 20+ and npm
 - Python 3.10+ for Python plugins or examples
 - Rust 1.87+ for Rust SDKs or examples
@@ -205,6 +205,19 @@ docker run --rm -p 8080:8080 -v "$(pwd)/config.toml:/config.toml:ro" streamcore-
 ```
 
 The server listens on `:8080`. Clients connect to `http://localhost:8080/whip`.
+
+That publishes the signalling port only, which is all a local browser client needs. If you set `server.public_ip` and `server.turn_secret`, the built-in STUN/TURN server ([`internal/turn`](./internal/turn/)) also listens on UDP **and** TCP 3478 and relays media on UDP 50001–60000, so those have to be reachable as well:
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -p 3478:3478/udp -p 3478:3478/tcp \
+  -p 50001-60000:50001-60000/udp \
+  -v "$(pwd)/config.toml:/config.toml:ro" \
+  streamcore-server
+```
+
+On Linux, prefer `--network host` over publishing that range: Docker starts a userland proxy per published port, so a 10,000-port UDP range makes container startup slow and adds a hop to every relayed packet. That is why the EC2 deployment uses `network_mode: host`.
 
 ### Connect a client
 
@@ -465,7 +478,9 @@ table = "documents"
 
 **Ingesting documents**
 
-The server handles query-time retrieval only. Populate your vector store with [`streamcore-cli`](https://github.com/streamcoreai/streamcore-cli):
+The server handles query-time retrieval only. Populate your vector store with `streamcore-cli`, a separate Go binary that reads this server's `config.toml`.
+
+> **`streamcore-cli` is not public yet.** `github.com/streamcoreai/streamcore-cli` currently returns 404, so the clone below will fail. The flags and behaviour documented here are accurate for when it ships — until then, ask in [Discord](https://discord.gg/xKGFaGWawT) if you need document ingestion.
 
 ```bash
 git clone https://github.com/streamcoreai/streamcore-cli
@@ -854,13 +869,13 @@ Notes:
 
 Client SDKs:
 
-- TypeScript: `@streamcore/js-sdk`
-- React Native / Expo: `@streamcore/react-native-sdk` (not yet published to npm)
-- Python: `streamcore`
-- Go: `github.com/streamcoreai/go-sdk`
-- [Rust](https://github.com/streamcoreai/rust-sdk)
+- TypeScript — npm `@streamcore/js-sdk` ([repo](https://github.com/streamcoreai/js-sdk))
+- React Native / Expo — `@streamcore/react-native-sdk` (not yet published to npm)
+- Python — PyPI `streamcore` ([repo](https://github.com/streamcoreai/python-sdk))
+- Go — `github.com/streamcoreai/go-sdk` ([repo](https://github.com/streamcoreai/go-sdk))
+- Rust — crates.io `streamcore-rust-sdk` ([repo](https://github.com/streamcoreai/rust-sdk))
 
-Plugin SDKs: `@streamcore/plugin` (TypeScript), `streamcore-plugin` (Python).
+Plugin SDKs: npm `@streamcore/plugin` (TypeScript) and PyPI `streamcore-plugin` (Python), both in [`plugin-sdk`](https://github.com/streamcoreai/plugin-sdk).
 
 Examples:
 

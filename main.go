@@ -13,13 +13,13 @@ import (
 	"encoding/json"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/streamcoreai/server/internal/config"
-	"github.com/streamcoreai/server/internal/plugin"
-	"github.com/streamcoreai/server/internal/rag"
-	"github.com/streamcoreai/server/internal/session"
-	"github.com/streamcoreai/server/internal/signaling"
-	"github.com/streamcoreai/server/internal/tools"
-	turnserver "github.com/streamcoreai/server/internal/turn"
+	"github.com/streamcoreai/streamcore-server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/plugin"
+	"github.com/streamcoreai/streamcore-server/internal/rag"
+	"github.com/streamcoreai/streamcore-server/internal/session"
+	"github.com/streamcoreai/streamcore-server/internal/signaling"
+	"github.com/streamcoreai/streamcore-server/internal/tools"
+	turnserver "github.com/streamcoreai/streamcore-server/internal/turn"
 )
 
 func main() {

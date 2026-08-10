@@ -11,7 +11,7 @@ Do not guess at config keys, provider names, or SDK method names. Check first.
 
 ## What this repo is
 
-The Go media runtime: WebRTC audio over WHIP, Opus/RTP, VAD, turn-taking, barge-in, session state, and streaming STT/LLM/TTS orchestration. Module path is `github.com/streamcoreai/server`.
+The Go media runtime: WebRTC audio over WHIP, Opus/RTP, VAD, turn-taking, barge-in, session state, and streaming STT/LLM/TTS orchestration. Module path is `github.com/streamcoreai/streamcore-server`.
 
 It is **not** an agent framework. Prompts, tools, and business logic belong in the user's application, reached through plugins or a custom `llm.Client`.
 

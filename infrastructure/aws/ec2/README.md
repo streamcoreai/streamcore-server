@@ -155,7 +155,7 @@ The workflow at `.github/workflows/deploy-ec2.yml` triggers automatically on pus
 What the workflow does:
 
 1. **Build** — builds the Docker image from `server/Dockerfile`
-2. **Push** — pushes to GitHub Container Registry (`ghcr.io/<owner>/voiceagent-server`)
+2. **Push** — pushes to GitHub Container Registry (`ghcr.io/<owner>/streamcore-server`)
 3. **Deploy** — SSHs into EC2, pulls the new image, copies compose files
 4. **Start** — runs `docker compose up -d` (Caddy + VoiceAgent server with built-in STUN/TURN)
 5. **Health check** — hits `http://localhost:8080/health` to verify the server started

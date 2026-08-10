@@ -1,6 +1,6 @@
 services:
-  voiceagent-server:
-    image: ${DOCKER_IMAGE:-ghcr.io/streamcoreai/voiceagent-server}:${IMAGE_TAG:-latest}
+  streamcore-server:
+    image: ${DOCKER_IMAGE:-ghcr.io/streamcoreai/streamcore-server}:${IMAGE_TAG:-latest}
     restart: unless-stopped
     network_mode: host
     volumes:

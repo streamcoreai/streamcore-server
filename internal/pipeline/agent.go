@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/streamcoreai/server/internal/audio"
-	"github.com/streamcoreai/server/internal/procstat"
-	"github.com/streamcoreai/server/internal/rag"
-	"github.com/streamcoreai/server/internal/tts"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/procstat"
+	"github.com/streamcoreai/streamcore-server/internal/rag"
+	"github.com/streamcoreai/streamcore-server/internal/tts"
 )
 
 // runAgent is the central orchestrator goroutine. It receives transcript

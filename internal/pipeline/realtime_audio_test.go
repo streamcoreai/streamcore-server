@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/streamcoreai/server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
 )
 
 func TestRealtimeAudioQueueRecutsChunksIntoFrames(t *testing.T) {
@@ -200,11 +200,22 @@ func TestRealtimeAudioQueueCloseUnblocksWaiter(t *testing.T) {
 func TestRealtimeAudioQueueConcurrentAccess(t *testing.T) {
 	q := newRealtimeAudioQueue()
 
-	var wg sync.WaitGroup
-	wg.Add(3)
+	// Writers are waited on separately from the consumer, and close() is what
+	// bounds the test.
+	//
+	// The consumer asks for a fixed number of frames, but the queue never
+	// promises that many will materialise: discard() clears the buffer *and*
+	// any pending endResponse (see
+	// TestRealtimeAudioQueueDiscardClearsPendingEndResponse). If a discard()
+	// lands after the last push, the consumer sits in next() with an empty
+	// buffer, flush cleared and the queue still open — blocked until close().
+	// Waiting on the consumer in the same group as the writers therefore hangs
+	// until the test binary's timeout, roughly one run in fifty.
+	var writers sync.WaitGroup
+	writers.Add(3)
 
 	go func() {
-		defer wg.Done()
+		defer writers.Done()
 		for i := 0; i < 200; i++ {
 			q.push(make([]int16, 64))
 		}
@@ -212,14 +223,22 @@ func TestRealtimeAudioQueueConcurrentAccess(t *testing.T) {
 	}()
 
 	go func() {
-		defer wg.Done()
+		defer writers.Done()
 		for i := 0; i < 50; i++ {
 			q.discard()
 		}
 	}()
 
 	go func() {
-		defer wg.Done()
+		defer writers.Done()
+		for i := 0; i < 400; i++ {
+			q.push(make([]int16, audio.FrameSize))
+		}
+	}()
+
+	consumerDone := make(chan struct{})
+	go func() {
+		defer close(consumerDone)
 		for i := 0; i < 100; i++ {
 			if _, ok := q.next(); !ok {
 				return
@@ -227,14 +246,7 @@ func TestRealtimeAudioQueueConcurrentAccess(t *testing.T) {
 		}
 	}()
 
-	// Guarantee the consumer cannot block forever if discard() races ahead
-	// of every push.
-	go func() {
-		for i := 0; i < 400; i++ {
-			q.push(make([]int16, audio.FrameSize))
-		}
-	}()
-
-	wg.Wait()
+	writers.Wait()
 	q.close()
+	<-consumerDone
 }

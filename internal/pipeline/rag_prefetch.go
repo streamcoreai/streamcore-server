@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/streamcoreai/server/internal/rag"
+	"github.com/streamcoreai/streamcore-server/internal/rag"
 )
 
 // ragPrefetchTimeout bounds a speculative retrieval so an abandoned prefetch

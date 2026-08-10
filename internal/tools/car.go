@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/streamcoreai/server/internal/plugin"
+	"github.com/streamcoreai/streamcore-server/internal/plugin"
 )
 
 // CarCommandTopic is the data-channel topic the firmware listens on for

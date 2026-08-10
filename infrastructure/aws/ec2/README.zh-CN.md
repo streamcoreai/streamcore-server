@@ -155,7 +155,7 @@ turn_secret = "changeme"    # Shared secret for the built-in STUN/TURN server
 工作流做了什么：
 
 1. **构建** —— 用 `server/Dockerfile` 构建 Docker 镜像
-2. **推送** —— 推送到 GitHub Container Registry（`ghcr.io/<owner>/voiceagent-server`）
+2. **推送** —— 推送到 GitHub Container Registry（`ghcr.io/<owner>/streamcore-server`）
 3. **部署** —— SSH 登录 EC2，拉取新镜像，复制 compose 文件
 4. **启动** —— 执行 `docker compose up -d`（Caddy + 带内置 STUN/TURN 的 VoiceAgent 服务端）
 5. **健康检查** —— 请求 `http://localhost:8080/health` 确认服务已启动
