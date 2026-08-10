@@ -33,6 +33,7 @@ type Config struct {
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
 	Speechify  SpeechifyConfig  `toml:"speechify"`
 	MiniMax    MiniMaxConfig    `toml:"minimax"`
+	MiMo       MiMoConfig       `toml:"mimo"`
 	Pgvector   PgvectorConfig   `toml:"pgvector"`
 	Supabase   SupabaseConfig   `toml:"supabase"`
 }
@@ -239,6 +240,16 @@ type SpeechifyConfig struct {
 	APIKey  string `toml:"api_key"`
 	VoiceID string `toml:"voice_id"`
 	Model   string `toml:"model"`
+}
+
+type MiMoConfig struct {
+	APIKey string `toml:"api_key"`
+	// Voice is a built-in voice name, passed through verbatim — the Chinese
+	// set (茉莉, 冰糖, 苏打, 白桦 …) and the English one (Mia, Chloe, Milo,
+	// Dean …) share this field.
+	Voice   string `toml:"voice"`
+	Model   string `toml:"model"`
+	BaseURL string `toml:"base_url"`
 }
 
 type MiniMaxConfig struct {
