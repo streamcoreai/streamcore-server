@@ -1,3 +1,5 @@
+**English** | [简体中文](./providers.zh-CN.md)
+
 # Provider integrations
 
 | Role | Providers | Required credentials |

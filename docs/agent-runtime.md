@@ -1,3 +1,5 @@
+**English** | [简体中文](./agent-runtime.zh-CN.md)
+
 # Optional agent runtime
 
 Everything here is opt-in. Skip this page entirely if your agent lives in your own stack — see [Bring your own agent](./bring-your-own-agent.md).

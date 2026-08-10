@@ -1,3 +1,5 @@
+**English** | [简体中文](./quickstart.zh-CN.md)
+
 # Quick start
 
 Everything needed to get a realtime voice session running locally, plus the

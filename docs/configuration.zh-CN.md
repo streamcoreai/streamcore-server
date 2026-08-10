@@ -1,8 +1,8 @@
-**English** | [简体中文](./configuration.zh-CN.md)
+[English](./configuration.md) | **简体中文**
 
-# Configuration reference
+# 配置参考
 
-Start from [`config.toml.example`](../config.toml.example):
+从 [`config.toml.example`](../config.toml.example) 开始（下面代码块中的注释与该文件保持一致，故保留英文）：
 
 ```toml
 [server]
@@ -120,21 +120,21 @@ voice = "en-Emma_woman"
 # table = "documents"
 ```
 
-Notes:
+说明：
 
-- `server.public_ip` plus `server.turn_secret` enables the built-in Pion STUN/TURN server, replacing an external coturn container. TURN listens on UDP and TCP 3478 and relays media on UDP 50001–60000.
-- `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
-- `pipeline.barge_in` lets users interrupt the agent while it is speaking. Agent audio ducks as soon as the caller starts talking over it and recovers if the interruption turns out to be a backchannel.
-- `pipeline.greeting` plays when a session connects. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
-- `pipeline.debug = true` emits timing events over the DataChannel and logs a per-turn latency breakdown.
-- `pipeline.turn_merge_ms` is how long a final transcript is held so a continuation can merge into the same turn. Raise it if the agent answers callers halfway through a sentence; lower it if replies feel sluggish. The wait extends automatically when the text ends mid-dictation or on a dangling word.
-- `pipeline.user_speech_quiet_ms` is how long the caller must be quiet before the agent starts speaking.
-- `pipeline.rag_prefetch` overlaps retrieval with the turn-merge window. Off by default; it issues a speculative embedding + search that is discarded if the turn text changes.
-- `pipeline.readback_bargein_guard_enabled` keeps weak corrections and backchannels from cutting off a confirmation readback. Only explicit commands (stop, cancel, hang up) interrupt. Off by default.
-- `deepgram.endpointing` and `deepgram.utterance_end_ms` tune when a turn is considered finished upstream; the turn-merge debounce runs on top of them.
-- `deepgram.tts_model` picks the Aura voice; STT (`model`) and TTS (`tts_model`) share the one API key. Voices are named `[family]-[voice]-[language]` — see [Deepgram's voice list](https://developers.deepgram.com/docs/tts-models).
-- `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.
-- `minimax.base_url` selects the region. Leave it unset for the global endpoint; mainland-China accounts must point it at `https://api.minimaxi.com/v1`, since keys do not work across the two platforms.
-- `minimax.model` must match your plan: a Token Plan key (`sk-cp-`) only covers `speech-2.8-hd`, while any other model bills pay-as-you-go and errors with `2056` on a zero balance.
+- `server.public_ip` 加上 `server.turn_secret` 会启用内置的 Pion STUN/TURN 服务，取代外部 coturn 容器。TURN 监听 UDP 与 TCP 3478，并在 UDP 50001–60000 上中转媒体。
+- `plugins.directory` 是插件与技能加载的必要条件；不设置则跳过发现流程。
+- `pipeline.barge_in` 允许用户在智能体说话时打断。用户一开口抢话，智能体音量立即压低；若判定只是回应词则恢复。
+- `pipeline.greeting` 在会话连接时播放。存在 `pipeline.greeting_outgoing` 时，它用于 SIP 外呼。
+- `pipeline.debug = true` 会通过 DataChannel 发出时延事件，并在日志中记录每轮的时延分解。
+- `pipeline.turn_merge_ms` 是一条 final 转写被暂留多久，以便后续内容合并进同一轮。如果智能体总在用户话说到一半时抢答，就调高；如果回复显得迟钝，就调低。当文本结束在半句话或悬空词上时，等待会自动延长。
+- `pipeline.user_speech_quiet_ms` 是用户需要安静多久，智能体才开始说话。
+- `pipeline.rag_prefetch` 让检索与轮次合并窗口重叠。默认关闭；它会发出一次推测性的 embedding + 检索，若该轮文本发生变化则丢弃。
+- `pipeline.readback_bargein_guard_enabled` 可避免弱纠正与回应词打断智能体的确认复述。只有明确的命令（stop、cancel、hang up）才会打断。默认关闭。
+- `deepgram.endpointing` 与 `deepgram.utterance_end_ms` 调节上游认定一轮结束的时机；轮次合并去抖运行在它们之上。
+- `deepgram.tts_model` 选择 Aura 音色；STT（`model`）与 TTS（`tts_model`）共用同一个 API key。音色命名规则为 `[family]-[voice]-[language]` —— 见 [Deepgram 音色列表](https://developers.deepgram.com/docs/tts-models)。
+- `cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致 —— Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。
+- `minimax.base_url` 用于选择区域。留空即使用全球端点；中国大陆账号必须指向 `https://api.minimaxi.com/v1`，因为两个平台的 key 不通用。
+- `minimax.model` 必须与你的套餐匹配：Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型走按量计费，余额为零时报错 `2056`。
 
-Provider-specific behaviour and caveats: [Providers](./providers.md).
+各服务商的具体行为与注意事项见[服务商](./providers.zh-CN.md)。

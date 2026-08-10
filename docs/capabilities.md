@@ -1,3 +1,5 @@
+**English** | [简体中文](./capabilities.zh-CN.md)
+
 # Capabilities
 
 What the media runtime does today. Anything not here is in [Roadmap](./roadmap.md), not in the product yet.

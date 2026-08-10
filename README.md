@@ -17,7 +17,7 @@ One Go binary. Bring your own agent.
 [![Discord](https://img.shields.io/badge/join%20us%20on-discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/xKGFaGWawT)
 [![Follow @jasonshen_](https://img.shields.io/badge/follow-%40jasonshen__-000000?logo=x&logoColor=white)](https://x.com/jasonshen_)
 
-[**Quick start**](#quick-start) · [**Docs**](./docs/) · [**Demo**](#demo) · [**SDKs**](#sdks-and-examples) · [**Discord**](https://discord.gg/xKGFaGWawT) · [简体中文](./README.zh-CN.md)
+[**Quick start**](#quick-start) · [**Docs**](./docs/) · [**Demo**](#demo) · [**SDKs**](#sdks-and-examples) · [**Roadmap**](./docs/roadmap.md) · [**Discord**](https://discord.gg/xKGFaGWawT) · [简体中文](./README.zh-CN.md)
 
 </div>
 
@@ -71,7 +71,19 @@ Docker, TURN ports, and production notes: [Quick start guide](./docs/quickstart.
 | **Sessions & events** | Server-generated session IDs, multi-peer sessions, DataChannel events for transcript, response, state, and per-turn latency |
 | **Reach** | Browser, mobile, backend, CLI, [SIP telephony](https://github.com/streamcoreai/sip-server), and [ESP32](https://github.com/streamcoreai/esp32) endpoints |
 
-Full capability list and what is *not* built yet: [Capabilities](./docs/capabilities.md) · [Roadmap](./docs/roadmap.md).
+Full capability list: [Capabilities](./docs/capabilities.md).
+
+## Not built yet
+
+Listed so the table above stays honest — these are real gaps today, not soon-shipping promises:
+
+- [ ] **Horizontal scaling** — session state is in-memory and single-process
+- [ ] **Session reconnection** — no ICE restart; a dropped connection means a new session
+- [ ] **Metrics export** — `/health` and timing events exist, no Prometheus/OpenTelemetry
+- [ ] **HTTP agent endpoint** — bring-your-own-agent needs a small Go file today, not config
+- [ ] **Persistent memory** across sessions
+
+Full TODO list, including ecosystem items: [Roadmap / TODO](./docs/roadmap.md). Want one of these? Say so in [Discord](https://discord.gg/xKGFaGWawT) — demand reorders the list.
 
 ## Bring your own agent
 
