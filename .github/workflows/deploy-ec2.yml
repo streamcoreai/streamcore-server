@@ -103,8 +103,12 @@ jobs:
             export DOMAIN=${{ secrets.DOMAIN }}
             export PUBLIC_IP=${{ secrets.EC2_HOST }}
 
-            # Stop running containers first to free CPU/memory for the pull
-            docker compose down --timeout 10 || true
+            # Stop running containers first to free CPU/memory for the pull.
+            # --remove-orphans is required: `down` only removes containers for
+            # services still named in the compose file, so renaming a service
+            # leaves the old container running. With network_mode: host both
+            # copies then fight over :8080 and the new one crash-loops.
+            docker compose down --remove-orphans --timeout 10 || true
 
             # Pull new image (with containers stopped so t3.micro isn't overloaded)
             docker pull ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
