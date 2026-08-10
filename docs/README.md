@@ -1,3 +1,5 @@
+**English** | [简体中文](./README.zh-CN.md)
+
 # StreamCore documentation
 
 | Page | What's in it |
@@ -10,6 +12,6 @@
 | [Configuration](./configuration.md) | Full annotated `config.toml` reference |
 | [Protocol](./protocol.md) | WHIP signaling, DataChannel events, auth |
 | [Architecture](./architecture.md) | Media flow, why Go, package layout |
-| [Roadmap](./roadmap.md) | What is deliberately not built yet |
+| [Roadmap / TODO](./roadmap.md) | Checklist of what is **not** built yet, grouped by area |
 
 Deploying on AWS EC2: [`infrastructure/aws/ec2`](../infrastructure/aws/ec2/). Contributing: [CONTRIBUTING.md](../CONTRIBUTING.md). Security: [SECURITY.md](../SECURITY.md).

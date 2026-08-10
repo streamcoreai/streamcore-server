@@ -17,7 +17,7 @@
 [![Discord](https://img.shields.io/badge/join%20us%20on-discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/xKGFaGWawT)
 [![Follow @jasonshen_](https://img.shields.io/badge/follow-%40jasonshen__-000000?logo=x&logoColor=white)](https://x.com/jasonshen_)
 
-[**快速开始**](#快速开始) · [**文档**](./docs/) · [**演示**](#演示) · [**SDK**](#sdk-与示例) · [**Discord**](https://discord.gg/xKGFaGWawT) · [English](./README.md)
+[**快速开始**](#快速开始) · [**文档**](./docs/README.zh-CN.md) · [**演示**](#演示) · [**SDK**](#sdk-与示例) · [**路线图**](./docs/roadmap.zh-CN.md) · [**Discord**](https://discord.gg/xKGFaGWawT) · [English](./README.md)
 
 </div>
 
@@ -39,7 +39,7 @@ StreamCore 正是处理这一切的那一层。它掌管用户与你的 AI 之�
 
 ## 快速开始
 
-**两个终端、五分钟，你就能跟它说上话。** 需要 Go 1.25+（或 Docker），以及 STT、LLM、TTS 服务商的 API key。没有 key？可以用 Ollama + VibeVoice [完全本地运行](./docs/quickstart.md#fully-local-no-api-keys)。
+**两个终端、五分钟，你就能跟它说上话。** 需要 Go 1.25+（或 Docker），以及 STT、LLM、TTS 服务商的 API key。没有 key？可以用 Ollama + VibeVoice [完全本地运行](./docs/quickstart.zh-CN.md#完全本地运行无需-api-key)。
 
 ```bash
 cp config.toml.example config.toml   # 填入你的服务商凭据
@@ -57,7 +57,7 @@ cd examples/typescript && npm install && npm run dev
 
 打开 [http://localhost:3000](http://localhost:3000) 开始说话。
 
-Docker、TURN 端口与生产部署注意事项见[快速开始指南](./docs/quickstart.md)（英文）。
+Docker、TURN 端口与生产部署注意事项见[快速开始指南](./docs/quickstart.zh-CN.md)。
 
 ## 你会得到什么
 
@@ -71,7 +71,19 @@ Docker、TURN 端口与生产部署注意事项见[快速开始指南](./docs/qu
 | **会话与事件** | 服务端生成会话 ID、多 peer 会话，DataChannel 推送转写、回复、状态与每轮延迟 |
 | **接入范围** | 浏览器、移动端、后端服务、CLI、[SIP 电话](https://github.com/streamcoreai/sip-server) 与 [ESP32](https://github.com/streamcoreai/esp32) 设备 |
 
-完整能力清单与尚未实现的部分：[Capabilities](./docs/capabilities.md) · [Roadmap](./docs/roadmap.md)。
+完整能力清单：[能力清单](./docs/capabilities.zh-CN.md)。
+
+## 尚未实现
+
+列在这里是为了让上面的表格保持诚实 —— 这些是当前真实存在的空缺，而不是即将交付的承诺：
+
+- [ ] **水平扩展** —— 会话状态在内存中，单进程
+- [ ] **会话重连** —— 没有 ICE restart，连接断开即意味着新会话
+- [ ] **指标导出** —— 有 `/health` 与时延事件，但没有 Prometheus/OpenTelemetry
+- [ ] **HTTP 智能体端点** —— 目前接入自有智能体需要写一个很小的 Go 文件，而不是改配置
+- [ ] **跨会话的持久记忆**
+
+完整 TODO 清单（含生态相关项）：[路线图 / TODO](./docs/roadmap.zh-CN.md)。想要其中某一项？在 [Discord](https://discord.gg/xKGFaGWawT) 说一声 —— 需求会改变优先级。
 
 ## 接入你自己的智能体
 
@@ -82,24 +94,25 @@ StreamCore 位于「提示词 + 工具」类框架的下一层：媒体链路。
 3. **你的代码** —— 实现一个很小的 Go 接口，整条媒体链路无需改动
 4. **内置运行时** —— 或直接使用 StreamCore 可选的智能体运行时（工具、技能、RAG、对话历史）
 
-详情与代码：[Bring your own agent](./docs/bring-your-own-agent.md) · [Agent runtime](./docs/agent-runtime.md)。
+详情与代码：[接入你自己的智能体](./docs/bring-your-own-agent.zh-CN.md) · [智能体运行时](./docs/agent-runtime.zh-CN.md)。
 
-服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Ollama、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见 [Providers](./docs/providers.md)。
+服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Ollama、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见[服务商](./docs/providers.zh-CN.md)。
 
 ## 文档
 
-文档目前仅提供英文版。
-
 | 页面 | 内容 |
 |------|--------------|
-| [Quick start](./docs/quickstart.md) | Docker、TURN 端口、接入客户端、接入自有后端、完全本地运行 |
-| [Capabilities](./docs/capabilities.md) | 当前具备的能力、支持的端点、AI 集成 |
-| [Bring your own agent](./docs/bring-your-own-agent.md) | 掌控智能体的四种方式，含 `llm.Client` 接口 |
-| [Agent runtime](./docs/agent-runtime.md) | 插件、技能、RAG、文档入库 |
-| [Providers](./docs/providers.md) | Grok 语音到语音、MiniMax、本地 VibeVoice 及各服务商注意事项 |
-| [Configuration](./docs/configuration.md) | 完整带注释的 `config.toml` 参考 |
-| [Protocol](./docs/protocol.md) | WHIP 信令、DataChannel 事件、鉴权 |
-| [Architecture](./docs/architecture.md) | 媒体流转、为什么用 Go、包结构 |
+| [快速开始](./docs/quickstart.zh-CN.md) | Docker、TURN 端口、接入客户端、接入自有后端、完全本地运行 |
+| [能力清单](./docs/capabilities.zh-CN.md) | 当前具备的能力、支持的端点、AI 集成 |
+| [接入你自己的智能体](./docs/bring-your-own-agent.zh-CN.md) | 掌控智能体的四种方式，含 `llm.Client` 接口 |
+| [智能体运行时](./docs/agent-runtime.zh-CN.md) | 插件、技能、RAG、文档入库 |
+| [服务商](./docs/providers.zh-CN.md) | Grok 语音到语音、MiniMax、本地 VibeVoice 及各服务商注意事项 |
+| [配置](./docs/configuration.zh-CN.md) | 完整带注释的 `config.toml` 参考 |
+| [协议](./docs/protocol.zh-CN.md) | WHIP 信令、DataChannel 事件、鉴权 |
+| [架构](./docs/architecture.zh-CN.md) | 媒体流转、为什么用 Go、包结构 |
+| [路线图 / TODO](./docs/roadmap.zh-CN.md) | **尚未实现**部分的清单 |
+
+英文版文档见 [docs/](./docs/)。
 
 ## SDK 与示例
 

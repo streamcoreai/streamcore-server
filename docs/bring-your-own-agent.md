@@ -1,3 +1,5 @@
+**English** | [简体中文](./bring-your-own-agent.zh-CN.md)
+
 # Bring your own agent
 
 Most agent frameworks start with prompts, tools, and model orchestration. StreamCore starts one layer lower: the realtime media path — transport, codecs, speech streaming, turn-taking, interruption, network traversal, session state, and communication with AI services.
