@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // StreamChunk represents a chunk of synthesized PCM audio streamed from the

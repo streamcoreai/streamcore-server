@@ -52,7 +52,14 @@ RUN for dir in /plugins/plugins/*/; do \
       fi; \
     done
 
+# Signalling (WHIP + DataChannel)
 EXPOSE 8080
+
+# Built-in STUN/TURN (internal/turn), active when server.public_ip and
+# server.turn_secret are set. It binds UDP and TCP 3478 and relays media on
+# UDP 50001-60000 — publish these too, or run with --network host.
 EXPOSE 3478/udp
+EXPOSE 3478/tcp
+EXPOSE 50001-60000/udp
 
 ENTRYPOINT ["/server"]

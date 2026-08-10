@@ -7,9 +7,9 @@ import (
 	"log"
 	"strings"
 
-	"github.com/streamcoreai/server/internal/audio"
-	"github.com/streamcoreai/server/internal/llm"
-	"github.com/streamcoreai/server/internal/realtime"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/llm"
+	"github.com/streamcoreai/streamcore-server/internal/realtime"
 )
 
 // ragToolName is the function the model calls to search the knowledge base.

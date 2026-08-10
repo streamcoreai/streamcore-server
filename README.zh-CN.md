@@ -179,11 +179,11 @@ type Client interface {
 
 ### 前置条件
 
-使用 Docker：Docker 和 Docker Compose。
+使用 Docker：只需 Docker。本地开发没有 Compose 文件——Compose 仅用于 [`infrastructure/aws/ec2`](./infrastructure/aws/ec2/) 中的 EC2 部署。
 
 本地开发：
 
-- Go 1.22+
+- Go 1.25+ —— 与 [`go.mod`](./go.mod) 中的 `go` 指令一致；CI 和 Docker 构建使用同一套工具链
 - Node.js 20+ 和 npm
 - Python 3.10+（用于 Python 插件或示例）
 - Rust 1.87+（用于 Rust SDK 或示例）
@@ -205,6 +205,19 @@ docker run --rm -p 8080:8080 -v "$(pwd)/config.toml:/config.toml:ro" streamcore-
 ```
 
 服务监听 `:8080`。客户端连接 `http://localhost:8080/whip`。
+
+上面只发布了信令端口，本地浏览器客户端用这些就够了。如果你设置了 `server.public_ip` 和 `server.turn_secret`，内置的 STUN/TURN 服务（[`internal/turn`](./internal/turn/)）还会监听 UDP **和** TCP 3478，并在 UDP 50001–60000 上中转媒体，这些端口同样需要可达：
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -p 3478:3478/udp -p 3478:3478/tcp \
+  -p 50001-60000:50001-60000/udp \
+  -v "$(pwd)/config.toml:/config.toml:ro" \
+  streamcore-server
+```
+
+在 Linux 上更推荐用 `--network host` 而不是发布这一整段端口：Docker 会为每个发布的端口启动一个用户态代理，一万个 UDP 端口会让容器启动变慢，并给每个中转包多加一跳。EC2 部署用 `network_mode: host` 正是这个原因。
 
 ### 接入一个客户端
 
@@ -465,7 +478,9 @@ table = "documents"
 
 **导入文档**
 
-服务端只负责查询期的检索。用 [`streamcore-cli`](https://github.com/streamcoreai/streamcore-cli) 往向量库里灌数据：
+服务端只负责查询期的检索。用 `streamcore-cli` 往向量库里灌数据——它是一个独立的 Go 二进制，直接读取本服务端的 `config.toml`。
+
+> **`streamcore-cli` 尚未公开。** `github.com/streamcoreai/streamcore-cli` 目前返回 404，下面的 clone 会失败。这里记录的参数和行为在它发布后依然适用；在此之前如果需要文档导入，请到 [Discord](https://discord.gg/xKGFaGWawT) 里问。
 
 ```bash
 git clone https://github.com/streamcoreai/streamcore-cli
@@ -854,13 +869,13 @@ voice = "en-Emma_woman"
 
 客户端 SDK：
 
-- TypeScript：`@streamcore/js-sdk`
-- React Native / Expo：`@streamcore/react-native-sdk`（尚未发布到 npm）
-- Python：`streamcore`
-- Go：`github.com/streamcoreai/go-sdk`
-- [Rust](https://github.com/streamcoreai/rust-sdk)
+- TypeScript —— npm `@streamcore/js-sdk`（[仓库](https://github.com/streamcoreai/js-sdk)）
+- React Native / Expo —— `@streamcore/react-native-sdk`（尚未发布到 npm）
+- Python —— PyPI `streamcore`（[仓库](https://github.com/streamcoreai/python-sdk)）
+- Go —— `github.com/streamcoreai/go-sdk`（[仓库](https://github.com/streamcoreai/go-sdk)）
+- Rust —— crates.io `streamcore-rust-sdk`（[仓库](https://github.com/streamcoreai/rust-sdk)）
 
-插件 SDK：`@streamcore/plugin`（TypeScript）、`streamcore-plugin`（Python）。
+插件 SDK：npm `@streamcore/plugin`（TypeScript）和 PyPI `streamcore-plugin`（Python），都在 [`plugin-sdk`](https://github.com/streamcoreai/plugin-sdk) 里。
 
 示例：
 

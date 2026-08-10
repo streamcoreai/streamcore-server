@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/streamcoreai/server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
 )
 
 // Thinking-sound parameters.

@@ -5,11 +5,11 @@ import (
 	"log"
 	"sync"
 
-	"github.com/streamcoreai/server/internal/config"
-	"github.com/streamcoreai/server/internal/peer"
-	"github.com/streamcoreai/server/internal/pipeline"
-	"github.com/streamcoreai/server/internal/plugin"
-	"github.com/streamcoreai/server/internal/rag"
+	"github.com/streamcoreai/streamcore-server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/peer"
+	"github.com/streamcoreai/streamcore-server/internal/pipeline"
+	"github.com/streamcoreai/streamcore-server/internal/plugin"
+	"github.com/streamcoreai/streamcore-server/internal/rag"
 )
 
 type Session struct {

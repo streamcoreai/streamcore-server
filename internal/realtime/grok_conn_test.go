@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // fakeGrok is a stand-in for the xAI Realtime endpoint. It records every

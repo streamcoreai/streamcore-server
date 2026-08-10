@@ -3,7 +3,7 @@ package pipeline
 import (
 	"sync"
 
-	"github.com/streamcoreai/server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
 )
 
 // realtimeChunk is one unit of work for the outbound pump: a frame of agent

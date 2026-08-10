@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // pgvectorClient implements Client using PostgreSQL with the pgvector extension.

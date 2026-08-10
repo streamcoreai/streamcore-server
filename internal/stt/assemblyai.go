@@ -15,7 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // AssemblyAI Universal-Streaming v3 protocol notes

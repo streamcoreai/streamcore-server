@@ -1,4 +1,4 @@
-module github.com/streamcoreai/server
+module github.com/streamcoreai/streamcore-server
 
 go 1.25.0
 

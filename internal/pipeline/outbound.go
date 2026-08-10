@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/pion/rtp"
-	"github.com/streamcoreai/server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
 )
 
 // runSender reads PCM frames from outPCMCh, encodes them to Opus, and writes

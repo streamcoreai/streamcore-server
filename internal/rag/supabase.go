@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // supabaseClient implements Client using Supabase's pgvector support via

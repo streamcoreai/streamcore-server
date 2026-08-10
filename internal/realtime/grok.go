@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/streamcoreai/server/internal/audio"
-	"github.com/streamcoreai/server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // grokDialURL is the Realtime endpoint. It is a variable so tests can point
