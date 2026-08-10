@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +17,60 @@ func writeConfig(t *testing.T, body string) string {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var output bytes.Buffer
+	originalOutput := log.Writer()
+	originalFlags := log.Flags()
+	originalPrefix := log.Prefix()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(originalOutput)
+		log.SetFlags(originalFlags)
+		log.SetPrefix(originalPrefix)
+	})
+	return &output
+}
+
+func TestLoadWarnsAboutUnknownKeys(t *testing.T) {
+	logs := captureLogs(t)
+	path := writeConfig(t, `
+[pipeline]
+unknown_option = true
+
+[cartesia]
+api_ke = "test-key"
+`)
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("config with unknown keys rejected: %v", err)
+	}
+	const want = "Warning: unknown config key(s): cartesia.api_ke, pipeline.unknown_option — check for a typo"
+	if got := strings.TrimSpace(logs.String()); got != want {
+		t.Fatalf("warning = %q, want %q", got, want)
+	}
+}
+
+func TestLoadDoesNotWarnAboutKnownKeys(t *testing.T) {
+	logs := captureLogs(t)
+	path := writeConfig(t, `
+[pipeline]
+barge_in = true
+
+[cartesia]
+api_key = "test-key"
+`)
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+	if got := logs.String(); got != "" {
+		t.Fatalf("valid config logged an unexpected warning: %q", got)
+	}
 }
 
 // Defaults must be applied before validation runs, or a config that simply

@@ -2,7 +2,10 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -294,8 +297,17 @@ func Load(path string) (*Config, error) {
 
 	cfg := &Config{}
 	if _, err := os.Stat(path); err == nil {
-		if _, err := toml.DecodeFile(path, cfg); err != nil {
+		metadata, err := toml.DecodeFile(path, cfg)
+		if err != nil {
 			return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+		}
+		if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
+			keys := make([]string, len(undecoded))
+			for i, key := range undecoded {
+				keys[i] = key.String()
+			}
+			sort.Strings(keys)
+			log.Printf("Warning: unknown config key(s): %s — check for a typo", strings.Join(keys, ", "))
 		}
 	}
 
