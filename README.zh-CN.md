@@ -898,6 +898,27 @@ voice = "en-Emma_woman"
 - **更多示例** 以印证定位：实时翻译器、AI 主持的语音房间、浏览器副驾、嵌入式设备、SIP 应用，以及一个完全不含 LLM 的纯音频处理应用。
 - **嵌入式客户端加固。** [`esp32`](https://github.com/streamcoreai/esp32) 中的 ESP32-S3 固件能通过 WHIP 连接，但尚未达到生产可用。
 
+## 参与贡献
+
+欢迎贡献代码 —— 请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。其中说明了如何在本地
+运行服务、推送前需要跑的四项 CI 检查、每个 `internal/` 包各自的职责，以及对时序敏感的
+媒体路径需要额外注意的事项。
+
+推荐的入手位置：[`good first issue`](https://github.com/streamcoreai/streamcore-server/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+和 [`help wanted`](https://github.com/streamcoreai/streamcore-server/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)。
+Issue 都带有 `area:` 与 `effort:` 标签，动手之前就能判断一个任务是半天的工作量，还是需要
+先讨论设计。
+
+客户端 SDK、SIP 网桥、示例和 ESP32 固件都在 [`streamcoreai`](https://github.com/streamcoreai)
+组织下各自的仓库中 —— 相关改动请提交到那里。
+
+## 安全
+
+发现安全漏洞？请不要提交公开 issue，而是通过
+[Security 页面](https://github.com/streamcoreai/streamcore-server/security/advisories/new)
+私下报告。[SECURITY.md](./SECURITY.md) 说明了漏洞受理范围、响应时间目标，以及把
+StreamCore 部署在公网地址时最关键的配置 —— 其中最重要的是为 `/whip` 启用 JWT 鉴权。
+
 ## Star 历史
 
 <!--

@@ -31,6 +31,9 @@ Include:
 Test against your own instance. Please don't scan hosted demo deployments, and
 don't access, modify, or exfiltrate other people's session data.
 
+Not a security issue? Ordinary bugs belong in a public issue —
+[CONTRIBUTING.md](CONTRIBUTING.md) covers what to include.
+
 ## What to expect
 
 | Stage | Target |

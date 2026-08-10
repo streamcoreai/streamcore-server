@@ -898,6 +898,30 @@ Not built yet — listed here so the capability tables above stay honest:
 - **Broader examples** proving the positioning: realtime translator, AI-hosted voice room, browser copilot, embedded device, SIP application, and a raw audio-processing app with no LLM at all.
 - **Embedded client hardening.** The ESP32-S3 firmware in [`esp32`](https://github.com/streamcoreai/esp32) connects over WHIP but is not production-ready.
 
+## Contributing
+
+Contributions are welcome — read [CONTRIBUTING.md](./CONTRIBUTING.md) first. It
+covers running the server locally, the four checks CI runs before you push, what
+lives in each `internal/` package, and the extra care the timing-sensitive media
+path needs.
+
+Good places to start: [`good first issue`](https://github.com/streamcoreai/streamcore-server/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+and [`help wanted`](https://github.com/streamcoreai/streamcore-server/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
+Issues carry `area:` and `effort:` labels so you can tell an afternoon's work
+from a design discussion before you start.
+
+Client SDKs, the SIP bridge, examples, and the ESP32 firmware live in their own
+repos under [`streamcoreai`](https://github.com/streamcoreai) — send those
+changes there.
+
+## Security
+
+Found a vulnerability? Don't open a public issue. Report it privately through
+the [Security tab](https://github.com/streamcoreai/streamcore-server/security/advisories/new).
+[SECURITY.md](./SECURITY.md) sets out what's in scope, the response targets, and
+the settings that matter when deploying StreamCore on a public address — JWT
+auth on `/whip` above all.
+
 ## Star history
 
 <!--
