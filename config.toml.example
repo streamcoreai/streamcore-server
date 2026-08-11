@@ -6,6 +6,7 @@ public_ip = ""          # Public IP for ICE candidates when behind NAT (e.g., EC
 turn_secret = ""        # Shared secret for the built-in STUN/TURN server. Required when public_ip is set.
 jwt_secret = ""         # Shared secret for JWT auth on /whip. Leave empty to disable auth.
 api_key = ""            # API key required to call POST /token. Leave empty to allow unauthenticated token generation.
+session_grace_ms = 30000 # How long a session with no connected peers is kept before it is reaped. The window lets a client recover a dropped connection (ICE restart or redial) without losing the conversation.
 
 [plugins]
 directory = "./plugins"     # Required if you want plugins and skills loaded

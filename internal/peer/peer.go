@@ -50,8 +50,16 @@ type Peer struct {
 	// Start) so no messages are missed.
 	OnDataChannelMessage func(msg string)
 
+	// restartMu serialises ICE restarts so two concurrent PATCHes can't
+	// interleave SetRemoteDescription / CreateAnswer on the same connection.
+	restartMu sync.Mutex
+
 	closed bool
-	mu     sync.Mutex
+	// disconnected tracks whether the transport is currently in the transient
+	// disconnected state, so a return to connected can be reported as a
+	// recovery rather than as a fresh connect.
+	disconnected bool
+	mu           sync.Mutex
 }
 
 // Global UDPMux shared by all peers — created once on first use.
@@ -214,14 +222,64 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		log.Printf("[peer:%s] connection state: %s", id, state.String())
-		if state == webrtc.PeerConnectionStateFailed ||
-			state == webrtc.PeerConnectionStateDisconnected ||
-			state == webrtc.PeerConnectionStateClosed {
-			go p.Close() // must not call pc.Close() from within a Pion callback
+
+		switch state {
+		case webrtc.PeerConnectionStateDisconnected:
+			// Transient — connectivity checks are failing right now, but the
+			// connection heals on its own for the events voice agents actually
+			// see: a phone moving between Wi-Fi and cellular, a laptop changing
+			// network, a NAT rebinding after an idle gap. Pion enters this
+			// state after ~5s of silence and only escalates to Failed at ~25s.
+			// Tearing down here throws away a call that was about to recover.
+			p.markDisconnected()
+			go p.SendEvent(connectionMsg{Type: "connection", State: "reconnecting"})
+		case webrtc.PeerConnectionStateConnected:
+			// Only announce a recovery — the first connect is not news.
+			if p.clearDisconnected() {
+				log.Printf("[peer:%s] recovered from disconnected", id)
+				go p.SendEvent(connectionMsg{Type: "connection", State: "connected"})
+			}
+		default:
+			if isTerminalState(state) {
+				go p.Close() // must not call pc.Close() from within a Pion callback
+			}
 		}
 	})
 
 	return p, nil
+}
+
+// connectionMsg is the DataChannel event that tells a client the transport
+// dropped and is being re-established, so it can surface "reconnecting…"
+// instead of a silent gap.
+type connectionMsg struct {
+	Type  string `json:"type"`
+	State string `json:"state"`
+}
+
+// isTerminalState reports whether a connection state means the peer is gone
+// for good. Disconnected is deliberately absent: it is recoverable, and
+// closing on it is what turns a 10-second network blip into a lost
+// conversation.
+func isTerminalState(state webrtc.PeerConnectionState) bool {
+	return state == webrtc.PeerConnectionStateFailed ||
+		state == webrtc.PeerConnectionStateClosed
+}
+
+func (p *Peer) markDisconnected() {
+	p.mu.Lock()
+	p.disconnected = true
+	p.mu.Unlock()
+}
+
+// clearDisconnected reports whether the peer was in the disconnected state and
+// resets the flag, so a recovery is announced exactly once.
+func (p *Peer) clearDisconnected() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	was := p.disconnected
+	p.disconnected = false
+	return was
 }
 
 // LocalTrack returns the outbound audio track for the pipeline to write to.

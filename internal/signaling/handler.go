@@ -1,6 +1,7 @@
 package signaling
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/streamcoreai/streamcore-server/internal/peer"
 	"github.com/streamcoreai/streamcore-server/internal/session"
 )
 
@@ -16,6 +18,7 @@ import (
 // RFC 9725. It handles two URL patterns:
 //
 //	POST   /whip                   – Session setup (SDP offer/answer), returns sessionId
+//	PATCH  /whip/{sessionId}       – ICE restart (application/trickle-ice-sdpfrag)
 //	DELETE /whip/{sessionId}       – Session teardown
 //	OPTIONS (any)                  – CORS preflight
 //
@@ -27,8 +30,19 @@ import (
 // abusive burst.
 const defaultWhipRateLimit = 30
 
+// defaultRestartRateLimit caps ICE restarts per client IP per minute, on its
+// own bucket so a client recovering from a flapping network never eats into
+// its budget for opening new sessions. A restart re-gathers candidates, so it
+// is not free, but a device hopping networks legitimately fires several.
+const defaultRestartRateLimit = 60
+
+// maxICEFragmentBytes bounds a PATCH body. An sdpfrag is credentials plus a
+// handful of candidate lines; anything near this is not one.
+const maxICEFragmentBytes = 64 * 1024
+
 func NewWHIPHandler(sm *session.Manager) http.HandlerFunc {
 	limiter := newWidgetRateLimiter(defaultWhipRateLimit, time.Minute)
+	restartLimiter := newWidgetRateLimiter(defaultRestartRateLimit, time.Minute)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Parse path segment: /whip or /whip/{sessionId}
@@ -39,6 +53,8 @@ func NewWHIPHandler(sm *session.Manager) http.HandlerFunc {
 		case http.MethodOptions:
 			// RFC 9725 §4.2: MUST support OPTIONS for CORS.
 			w.Header().Set("Accept-Post", "application/sdp")
+			// RFC 9725 §4.4: advertises that ICE restart is available here.
+			w.Header().Set("Accept-Patch", peer.ICEFragmentContentType)
 			w.WriteHeader(http.StatusNoContent)
 
 		case http.MethodPost:
@@ -49,6 +65,19 @@ func NewWHIPHandler(sm *session.Manager) http.HandlerFunc {
 				return
 			}
 			handleWHIPPost(w, r, sm)
+
+		case http.MethodPatch:
+			if trimmed == "" {
+				http.Error(w, "session URL required: /whip/{sessionId}", http.StatusBadRequest)
+				return
+			}
+			if ok, retryAfter := restartLimiter.Allow(clientIP(r)); !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				log.Printf("[whip] rate limited ICE restart from %s", clientIP(r))
+				http.Error(w, "too many ICE restart requests", http.StatusTooManyRequests)
+				return
+			}
+			handleWHIPPatch(w, r, sm, trimmed)
 
 		case http.MethodDelete:
 			if trimmed == "" {
@@ -115,9 +144,81 @@ func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager)
 	// RFC 9725 §4.3.1: ETag identifying the ICE session.
 	w.Header().Set("Content-Type", "application/sdp")
 	w.Header().Set("Location", sessionURL)
-	w.Header().Set("ETag", `"`+sessionID+`"`)
+	w.Header().Set("ETag", ses.ETag())
+	// RFC 9725 §4.4: tells the client it can recover a dropped connection with
+	// an ICE restart instead of redialling and losing the conversation.
+	w.Header().Set("Accept-Patch", peer.ICEFragmentContentType)
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(answerSDP))
+}
+
+// handleWHIPPatch implements RFC 9725 §4.4.2 ICE restart.
+//
+// The client sends its new ICE credentials and candidates as an sdpfrag; the
+// server applies them to the *existing* PeerConnection and replies with its
+// own. Nothing above the transport is disturbed — same session, same pipeline,
+// same conversation — which is the entire reason to recover this way rather
+// than let the client POST a fresh offer and start over.
+func handleWHIPPatch(w http.ResponseWriter, r *http.Request, sm *session.Manager, sessionID string) {
+	ct := r.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, peer.ICEFragmentContentType) {
+		w.Header().Set("Accept-Patch", peer.ICEFragmentContentType)
+		http.Error(w, "Content-Type must be "+peer.ICEFragmentContentType, http.StatusUnsupportedMediaType)
+		return
+	}
+
+	ses := sm.Get(sessionID)
+	if ses == nil {
+		http.Error(w, "unknown session", http.StatusNotFound)
+		return
+	}
+
+	// RFC 9725 §4.4.2: If-Match carries the ETag of the ICE session being
+	// restarted. A stale tag means another restart landed first and this one is
+	// patching a generation that no longer exists.
+	if match := r.Header.Get("If-Match"); match != "" && match != "*" && match != ses.ETag() {
+		w.Header().Set("ETag", ses.ETag())
+		http.Error(w, "ETag does not match the current ICE session", http.StatusPreconditionFailed)
+		return
+	}
+
+	// The peer is registered under the session ID — see handleWHIPPost.
+	p := ses.GetPeer(sessionID)
+	if p == nil {
+		http.Error(w, "session has no peer", http.StatusNotFound)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxICEFragmentBytes))
+	if err != nil {
+		http.Error(w, "failed to read ICE fragment", http.StatusBadRequest)
+		return
+	}
+
+	answerFragment, err := p.RestartICE(string(body))
+	switch {
+	case errors.Is(err, peer.ErrNoICECredentials):
+		// Trickle-only PATCH. RFC 9725 §4.4.1 makes trickle ICE optional and
+		// 405 is the prescribed way to decline it; the client falls back to
+		// gathering fully before it patches.
+		w.Header().Set("Accept-Patch", peer.ICEFragmentContentType)
+		http.Error(w, "trickle ICE is not supported; send an ICE restart fragment", http.StatusMethodNotAllowed)
+		return
+	case errors.Is(err, peer.ErrPeerClosed), errors.Is(err, peer.ErrNoRemoteDescription):
+		http.Error(w, "session is not restartable", http.StatusConflict)
+		return
+	case err != nil:
+		log.Printf("[whip] ICE restart error for %s: %v", sessionID, err)
+		http.Error(w, "failed to restart ICE", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[whip] ICE restart for session %s", sessionID)
+
+	w.Header().Set("Content-Type", peer.ICEFragmentContentType)
+	w.Header().Set("ETag", ses.RotateETag())
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(answerFragment))
 }
 
 // handleWHIPDelete implements RFC 9725 §4.2 session teardown.

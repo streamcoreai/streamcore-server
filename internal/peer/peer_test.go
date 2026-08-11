@@ -1,6 +1,51 @@
 package peer
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/pion/webrtc/v4"
+)
+
+// The connection-state policy is the difference between a network blip and a
+// lost conversation, so pin every state rather than only the interesting ones.
+func TestIsTerminalState(t *testing.T) {
+	tests := []struct {
+		state webrtc.PeerConnectionState
+		want  bool
+	}{
+		{webrtc.PeerConnectionStateNew, false},
+		{webrtc.PeerConnectionStateConnecting, false},
+		{webrtc.PeerConnectionStateConnected, false},
+		// Transient: ICE recovers from this on its own after a Wi-Fi/cellular
+		// handover or a NAT rebind, and Pion escalates to Failed if it does not.
+		{webrtc.PeerConnectionStateDisconnected, false},
+		{webrtc.PeerConnectionStateFailed, true},
+		{webrtc.PeerConnectionStateClosed, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.state.String(), func(t *testing.T) {
+			if got := isTerminalState(tc.state); got != tc.want {
+				t.Fatalf("isTerminalState(%s) = %v, want %v", tc.state, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDisconnectedFlagReportsRecoveryOnce(t *testing.T) {
+	p := &Peer{ID: "test"}
+
+	if p.clearDisconnected() {
+		t.Fatal("a peer that never disconnected reported a recovery")
+	}
+
+	p.markDisconnected()
+	if !p.clearDisconnected() {
+		t.Fatal("recovery after a disconnect was not reported")
+	}
+	if p.clearDisconnected() {
+		t.Fatal("recovery reported twice for one disconnect")
+	}
+}
 
 func TestDetectOpusChannels(t *testing.T) {
 	tests := []struct {
