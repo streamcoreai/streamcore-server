@@ -64,6 +64,20 @@ a=end-of-candidates
 
 `disconnected` 连接状态是暂时的，本身绝不会拆毁 peer —— ICE 可以自行恢复；若无法恢复，Pion 会在约 25 秒后升级为 `failed`（该状态才会拆毁）。处于 disconnected 期间，服务端会在 DataChannel 上发出 `connection` 事件，客户端可据此提示“正在重连…”，恢复后再发一次。
 
+### 恢复阶梯
+
+上面两种机制并非二选一，而是有先后顺序的；除 Python 外的每个 SDK 都会依次执行：
+
+| 时机 | 机制 | 保留下来的东西 |
+|------|------|----------------|
+| 连接处于 `disconnected` | **ICE 重启**（`PATCH`） | 全部。同一个 `PeerConnection`、同一个 DTLS、同样的媒体轨道 —— 传输层之上毫无察觉。 |
+| 连接已 `failed` | **会话恢复**（`POST ?resume=`） | 对话本身。传输被彻底重建，但历史、滚动摘要与智能体的记忆都会延续。 |
+| 令牌过期或会话已被回收 | 无 | 通话可用，但对话是空白的。服务端会通过 `X-Resume-Status: expired` 告知客户端。 |
+
+两个阶段共用同一个截止时间。`disconnected` 大约 25 秒后升级为 `failed`，此后服务端还会把这段被遗弃的对话保留 `server.session_grace_ms`（默认 30 秒）才回收。花在重启上的时间就是不能用于重拨的时间，因此把 `reconnectAttempts` 设得很大，留给 `resumeAttempts` 的预算就更少。
+
+为什么两者都要，而不是只用会话恢复？因为 ICE 重启是无感的：没有新的 DTLS 握手，没有轨道更替，除了 ICE 重新探测之外也没有空档。而恢复式重拨要付出一次完整的重新协商与短暂静音。只要 ICE 重启可用，它总是更好的选择；而在它不可用时，会话恢复是唯一还能奏效的手段。
+
 ### 会话恢复（Session resume）
 
 **这是 StreamCore 的扩展，并非 RFC 9725 的一部分。**

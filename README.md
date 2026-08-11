@@ -79,8 +79,8 @@ Listed so the table above stays honest — unticked items are real gaps today, n
 
 - [ ] **Horizontal scaling** — session state is in-memory and single-process
 - [x] **Session reconnection (server)** — a dropped connection recovers on the same session via ICE restart, so the conversation and the running pipeline survive it
-- [x] **Client-driven reconnection** — the TypeScript, React Native, Go and Rust SDKs drive that restart automatically after a network change
-- [x] **Session resume** — a drop past the point ICE restart can help is recovered by redialling with a single-use token, reattaching to the running conversation; this is how the Python SDK reconnects, since aiortc has no ICE restart primitive
+- [x] **Client-driven reconnection** — the TypeScript, React Native, Go and Rust SDKs recover a network change automatically: ICE restart first, then a resume redial if the connection failed
+- [x] **Session resume** — a drop past the point ICE restart can help is recovered by redialling with a single-use token, reattaching to the running conversation. Every SDK runs restart-then-resume as one ladder, so a backgrounded phone rejoins the same conversation
 - [ ] **Metrics export** — `/health` and timing events exist, no Prometheus/OpenTelemetry
 - [ ] **HTTP agent endpoint** — bring-your-own-agent needs a small Go file today, not config
 - [ ] **Persistent memory** across sessions

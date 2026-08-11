@@ -12,8 +12,8 @@
 
 - [ ] **水平扩展。** 会话状态保存在内存中且为单进程。目前多实例部署需要粘性路由或外部会话协调。
 - [x] **会话重连（服务端）。** 断开的连接现在可以通过 ICE restart（`PATCH /whip/{sessionId}`）在同一会话上恢复，而不再意味着通话结束。`PeerConnection`、DTLS 关联、正在运行的流水线与 LLM 客户端全部保留，因此对话历史与滚动摘要也得以保留，开场白不会重播。客户端凭空消失后残留的会话，会在 `server.session_grace_ms` 之后被回收。见[协议参考 → ICE 重启](./protocol.zh-CN.md#ice-重启)。
-- [x] **客户端侧重连。** TypeScript、React Native、Go 与 Rust SDK 会自行发现断开、重新收集 ICE 并发送该 PATCH，在连接被判定为 failed 之前的约 25 秒窗口内以退避方式重试三次。除了按需响应新的 `reconnecting` 状态之外，宿主应用无需做任何事。交互过程见[协议参考 → ICE 重启](./protocol.zh-CN.md#ice-重启)，可调参数见各 SDK 的 README。
-- [x] **会话恢复。** 一旦连接进入 `failed`，ICE 重启就无能为力了 —— peer 已被关闭，没有什么可重启的。此时携带一次性令牌重拨即可重新挂接到进行中的对话，保留 LLM 历史、转写记录与滚动摘要，并跳过开场白。Python SDK 也正是靠它重连，因为 aiortc 没有 ICE restart 原语（`createOffer()` 不接受参数，aioice 的凭据在构造时即固定），也没有可供触发的 `disconnected` 状态。见[协议参考 → 会话恢复](./protocol.zh-CN.md#会话恢复session-resume)。
+- [x] **客户端侧重连。** TypeScript、React Native、Go 与 Rust SDK 会自行发现断开并完成恢复，宿主应用无需介入：先在约 25 秒窗口内以退避方式做三次 ICE 重启，若连接仍然失败，再做两次恢复式重拨。应用真正需要处理的只有 `recovered-without-history` 这一种结果 —— 通话可用，但智能体已经忘记了之前的对话。见[协议参考 → 恢复阶梯](./protocol.zh-CN.md#恢复阶梯)，可调参数见各 SDK 的 README。
+- [x] **会话恢复。** 一旦连接进入 `failed`，ICE 重启就无能为力了 —— peer 已被关闭，没有什么可重启的。此时携带一次性令牌重拨即可重新挂接到进行中的对话，保留 LLM 历史、转写记录与滚动摘要，并跳过开场白。各 SDK 会把「先重启、后恢复」作为同一个阶梯执行；Python 只有恢复这一半，因为 aiortc 没有 ICE restart 原语（`createOffer()` 不接受参数，aioice 的凭据在构造时即固定），也没有可供触发的 `disconnected` 状态。见[协议参考 → 恢复阶梯](./protocol.zh-CN.md#恢复阶梯)。
 - [ ] **指标与可观测性。** 已有 `/health` 与 DataChannel 时延事件，但没有 Prometheus/OpenTelemetry 导出。
 
 ## 接入自有智能体

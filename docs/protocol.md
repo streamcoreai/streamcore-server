@@ -64,6 +64,28 @@ a=end-of-candidates
 
 The `disconnected` connection state is transient and never tears a peer down on its own — ICE recovers from it unaided, and Pion escalates to `failed` (which does tear down) after roughly 25 seconds if it does not. While disconnected the server emits a `connection` event on the DataChannel so the client can surface "reconnecting…", and another when it recovers.
 
+### The recovery ladder
+
+The two mechanisms above are not alternatives — they are ordered, and every SDK
+except Python runs both in sequence:
+
+| When | Mechanism | What survives |
+|------|-----------|---------------|
+| Connection is `disconnected` | **ICE restart** (`PATCH`) | Everything. Same `PeerConnection`, same DTLS, same tracks — nothing above the transport notices. |
+| Connection has `failed` | **Session resume** (`POST ?resume=`) | The conversation. The transport is rebuilt from scratch; history, rolling summary and agent memory carry over. |
+| Resume token expired or session reaped | Nothing | A working call with a blank conversation. The client is told via `X-Resume-Status: expired`. |
+
+The two phases share one deadline. `disconnected` escalates to `failed` after
+roughly 25 seconds, and the server then holds the abandoned conversation for
+`server.session_grace_ms` (30 seconds by default) before reaping it. Time spent
+on restarts is time not available for redials, so an SDK that is generous with
+`reconnectAttempts` has less budget left for `resumeAttempts`.
+
+Why both, rather than only resume? Because an ICE restart is invisible: no new
+DTLS handshake, no track churn, no gap beyond the ICE recheck. A resume redial
+costs a full renegotiation and a moment of silence. Restart is strictly better
+when it is available, and resume is the only thing that works when it is not.
+
 ### Session resume
 
 **A StreamCore extension, not part of RFC 9725.**
