@@ -81,6 +81,13 @@ type ServerConfig struct {
 	TurnSecret string `toml:"turn_secret"` // Shared secret for the built-in TURN server. Required when public_ip is set.
 	JWTSecret  string `toml:"jwt_secret"`  // Shared secret for HMAC-SHA256 JWT validation on /whip. Leave empty to disable auth.
 	APIKey     string `toml:"api_key"`     // API key required to call /token. Leave empty to allow unauthenticated token generation.
+
+	// SessionGraceMs is how long a session with no connected peers is kept
+	// before the reaper closes it. The window is what lets a client recover a
+	// dropped connection — via ICE restart or a redial — without losing the
+	// conversation. Too short and a network handover costs the call; too long
+	// and abandoned sessions pile up. Defaults to 30000.
+	SessionGraceMs int `toml:"session_grace_ms"`
 }
 
 // RealtimeConfig selects a speech-to-speech provider. When Provider is set,
@@ -313,6 +320,9 @@ func Load(path string) (*Config, error) {
 
 	// Apply defaults
 	setDefault(&cfg.Server.Port, "8080")
+	if cfg.Server.SessionGraceMs == 0 {
+		cfg.Server.SessionGraceMs = 30000
+	}
 	setDefault(&cfg.STT.Provider, "deepgram")
 	setDefault(&cfg.Deepgram.Model, "nova-3")
 	// 300ms keeps the historical snappy endpointing. utterance_end_ms has no

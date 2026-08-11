@@ -66,6 +66,8 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 - Bidirectional Opus audio over WebRTC (`sendrecv`)
 - WHIP signaling ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) — one HTTP `POST` for SDP exchange, no persistent signaling socket
 - Full ICE gathering on both sides, no trickle ICE
+- ICE restart over `PATCH /whip/{sessionId}` — a network handover or NAT rebind is recovered on the same connection, so the conversation, the pipeline, and the LLM client all survive it
+- Idle sessions reaped after a configurable grace period, so a client that vanishes mid-call is collected without cutting short one that is reconnecting
 - Built-in STUN/TURN server using Pion (UDP **and TCP** 3478, relay range 50001–60000) — TCP so callers behind UDP-blocking firewalls still connect
 - Optional JWT auth on `/whip`, with `POST /token` issuing 1-hour tokens
 - `/health` endpoint and graceful shutdown with a forced-exit safety net

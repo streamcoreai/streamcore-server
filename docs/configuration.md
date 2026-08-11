@@ -11,6 +11,7 @@ port = "8080"
 # turn_secret = ""     # Shared secret for the built-in STUN/TURN server (required when public_ip is set)
 # jwt_secret = ""      # Enables JWT auth on /whip and the POST /token endpoint
 # api_key = ""         # Required to call POST /token when set
+# session_grace_ms = 30000  # Grace period before a session with no peers is reaped (allows ICE restart / redial)
 
 [plugins]
 directory = "./plugins"
