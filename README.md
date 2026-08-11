@@ -75,10 +75,12 @@ Full capability list: [Capabilities](./docs/capabilities.md).
 
 ## Not built yet
 
-Listed so the table above stays honest — these are real gaps today, not soon-shipping promises:
+Listed so the table above stays honest — unticked items are real gaps today, not soon-shipping promises. Ticked ones shipped recently and stay listed for a release or two so you can see what moved:
 
 - [ ] **Horizontal scaling** — session state is in-memory and single-process
-- [ ] **Client-driven reconnection** — the server recovers a dropped connection via ICE restart, but no SDK drives it yet, so a client whose network changes still redials
+- [x] **Session reconnection (server)** — a dropped connection recovers on the same session via ICE restart, so the conversation and the running pipeline survive it
+- [x] **Client-driven reconnection** — the TypeScript, React Native, Go and Rust SDKs drive that restart automatically after a network change
+- [ ] **Reconnection in the Python SDK** — aiortc has no ICE restart primitive, so a Python client whose network changes still redials into a new session
 - [ ] **Metrics export** — `/health` and timing events exist, no Prometheus/OpenTelemetry
 - [ ] **HTTP agent endpoint** — bring-your-own-agent needs a small Go file today, not config
 - [ ] **Persistent memory** across sessions
