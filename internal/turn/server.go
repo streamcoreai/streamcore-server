@@ -5,7 +5,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/pion/turn/v4"
+	"github.com/pion/turn/v5"
 )
 
 // Server wraps a Pion TURN server that also handles STUN binding requests.
@@ -40,11 +40,11 @@ func Start(publicIP, secret string) (*Server, error) {
 
 	s, err := turn.NewServer(turn.ServerConfig{
 		Realm: realm,
-		AuthHandler: func(username, realm string, srcAddr net.Addr) ([]byte, bool) {
-			if username == "voiceagent" {
-				return turn.GenerateAuthKey(username, realm, secret), true
+		AuthHandler: func(ra *turn.RequestAttributes) (string, []byte, bool) {
+			if ra.Username == "voiceagent" {
+				return ra.Username, turn.GenerateAuthKey(ra.Username, ra.Realm, secret), true
 			}
-			return nil, false
+			return "", nil, false
 		},
 		PacketConnConfigs: []turn.PacketConnConfig{
 			{

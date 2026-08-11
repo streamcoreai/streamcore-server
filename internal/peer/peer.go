@@ -131,7 +131,14 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 		// the public IP as srflx. The host candidate lets the TURN relay
 		// (on the same machine) reach the server via the private IP,
 		// bypassing EC2 Elastic IP hairpin issues.
-		se.SetNAT1To1IPs([]string{publicIP}, webrtc.ICECandidateTypeSrflx)
+		// (SetNAT1To1IPs is deprecated in favour of address rewrite rules; the
+		// default Mode for a srflx rule is Append, matching the old behavior.)
+		if err := se.SetICEAddressRewriteRules(webrtc.ICEAddressRewriteRule{
+			External:        []string{publicIP},
+			AsCandidateType: webrtc.ICECandidateTypeSrflx,
+		}); err != nil {
+			return nil, fmt.Errorf("set ICE address rewrite rules: %w", err)
+		}
 		// Only use the primary network interface and loopback. Skip Docker
 		// bridge interfaces (docker0, br-*) to avoid leaking 172.17.x/172.18.x.
 		// Supports both Linux (eth0/ens5/lo) and macOS (en0/lo0).
