@@ -80,12 +80,13 @@ Docker、TURN 端口与生产部署注意事项见[快速开始指南](./docs/qu
 - [x] **会话重连（服务端）** —— 断开的连接可通过 ICE restart 在同一会话上恢复，对话与正在运行的流水线都得以保留
 - [x] **客户端侧重连** —— TypeScript、React Native、Go 与 Rust SDK 会在网络变化后自动恢复：先做 ICE 重启，若连接已失败则改用恢复式重拨
 - [x] **会话恢复** —— 对于 ICE 重启已无能为力的断线，可携带一次性令牌重拨并重新挂接到进行中的对话。各 SDK 会把「先重启、后恢复」作为同一个阶梯执行，因此被切到后台的手机也能重新回到同一段对话
-- [ ] **Panic 恢复** —— 目前任何一个会话的 goroutine 发生 panic 都会拖垮所有进行中的通话
-- [ ] **会话上限** —— 限流按 IP 进行，没有全局 `max_sessions` 来约束 CPU 与服务商费用
-- [ ] **环境变量注入密钥** —— API key 只能写在 `config.toml` 里；容器部署希望从环境变量注入
+- [x] **Panic 恢复** —— 一个通话的 goroutine 发生 panic 现在只影响该通话：recover、记录调用栈，会话像正常结束的通话一样被回收
+- [x] **会话上限** —— `server.max_sessions` 全局限制活跃会话数；超过后 `POST /whip` 返回 503 并带 `Retry-After`。会话恢复不受限制
+- [x] **环境变量注入密钥** —— 所有 API key 与密钥都可以从环境变量注入（`OPENAI_API_KEY`、`STREAMCORE_JWT_SECRET` 等），不必写进 `config.toml`。见[配置参考](./docs/configuration.zh-CN.md#用环境变量注入密钥)
 - [ ] **指标导出** —— 有 `/health` 与时延事件，但没有 Prometheus/OpenTelemetry
 - [ ] **结构化日志** —— 现在是 `log.Printf` 文本，没有携带 `session_id` 的 JSON 日志
-- [ ] **版本化发布** —— 没有发布的 Docker 镜像或带 tag 的二进制；每个用户都得从源码构建
+- [ ] **版本化发布** —— GitHub release 发布时会推送 Docker 镜像到 GHCR，但二进制中还没有版本号，也没有带 tag 的独立二进制
+- [ ] **水平扩展** —— 会话存于进程内存，服务是单节点的；重连与会话恢复要在负载均衡器后工作，需要粘性路由或外部存储
 - [x] **HTTP 智能体端点** —— `llm.provider = "agent"` 把每一轮对话 POST 到你用任意语言托管的智能体，回复以语音流式播报
 - [ ] **持久记忆** —— 内置运行时在会话之间不记得来电者；自有智能体已经可以自行持久化记忆
 

@@ -80,12 +80,13 @@ Listed so the table above stays honest — unticked items are real gaps today, n
 - [x] **Session reconnection (server)** — a dropped connection recovers on the same session via ICE restart, so the conversation and the running pipeline survive it
 - [x] **Client-driven reconnection** — the TypeScript, React Native, Go and Rust SDKs recover a network change automatically: ICE restart first, then a resume redial if the connection failed
 - [x] **Session resume** — a drop past the point ICE restart can help is recovered by redialling with a single-use token, reattaching to the running conversation. Every SDK runs restart-then-resume as one ladder, so a backgrounded phone rejoins the same conversation
-- [ ] **Panic recovery** — a panic in one session's goroutine currently takes down every live call
-- [ ] **Session cap** — rate limiting is per-IP; no global `max_sessions` to bound CPU and provider spend
-- [ ] **Env-var secrets** — API keys live only in `config.toml`; containers want them from the environment
+- [x] **Panic recovery** — a panic in one call's goroutines now ends that call alone: it recovers, logs the stack, and the session is reaped like any other ended call
+- [x] **Session cap** — `server.max_sessions` bounds live sessions globally; past it, `POST /whip` returns 503 with `Retry-After`. Resumes are exempt
+- [x] **Env-var secrets** — every API key and secret can come from the environment (`OPENAI_API_KEY`, `STREAMCORE_JWT_SECRET`, …) instead of `config.toml`. See [Configuration](./docs/configuration.md#secrets-from-environment-variables)
 - [ ] **Metrics export** — `/health` and timing events exist, no Prometheus/OpenTelemetry
 - [ ] **Structured logging** — `log.Printf` text today, no JSON logs carrying `session_id`
-- [ ] **Versioned releases** — no published Docker image or tagged binaries; every user builds from source
+- [ ] **Versioned releases** — a Docker image ships to GHCR on each GitHub release, but no version in the binary and no tagged standalone binaries yet
+- [ ] **Horizontal scaling** — sessions live in process memory, so the server is single-node; reconnection and resume need sticky routing or an external store to work behind a load balancer
 - [x] **HTTP agent endpoint** — `llm.provider = "agent"` POSTs each turn to an agent you host in any language; replies stream back as speech
 - [ ] **Persistent memory** — the built-in runtime forgets callers between sessions; BYO agents can already persist their own
 
