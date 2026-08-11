@@ -39,13 +39,45 @@ Each request is JSON:
 
 `session_id` is stable for the conversation and rotates on reset. `type` is `"chat"` for a user turn, or `"oneshot"` for stateless background transforms such as the rolling summary (then `system` and `text` carry the transform's prompt pair).
 
-Reply in whichever shape suits your stack — StreamCore dispatches on `Content-Type`:
+### What your agent sends back
 
-- `text/event-stream` — `data:` lines, each raw text or `{"delta": "…"}`; an optional `[DONE]` line ends the stream
-- `text/plain` — chunked text, spoken as it arrives
-- `application/json` — `{"text": "…"}`, buffered
+Any 2xx response carrying text, in one of three shapes — StreamCore dispatches on the reply's `Content-Type`. A non-2xx status fails the turn (the caller hears nothing) and the error body is logged.
 
-A complete agent is ~10 lines of Flask or Express: read `text`, look up `session_id`, return words.
+**`application/json` — simplest, buffered.** Return the whole reply at once; nothing is spoken until it is complete:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"text": "It's 22 degrees and sunny."}
+```
+
+`{"response": "…"}` is accepted as an alias for `text`.
+
+**`text/plain` — streamed, lowest effort.** Write and flush as you generate; StreamCore speaks each complete sentence while the rest is still arriving:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+It's 22 degrees and sunny. Want tomorrow's forecast as well?
+```
+
+**`text/event-stream` — streamed, SSE.** The natural fit if your agent already relays an LLM SDK's stream. Each `data:` line is either a JSON object `{"delta": "…"}` or raw text; an optional `data: [DONE]` line ends the stream:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+
+data: {"delta": "It's 22 degrees "}
+
+data: {"delta": "and sunny."}
+
+data: [DONE]
+```
+
+Whichever shape you pick, the concatenated text is exactly what the caller hears — reply with plain conversational words, not markdown. `"oneshot"` requests are answered the same way (buffered JSON is fine there; the result is used internally, never spoken). A complete agent is ~10 lines of Flask or Express: read `text`, look up `session_id`, return words.
 
 ## 3. Point the model layer at your own infrastructure
 
