@@ -112,7 +112,7 @@ StreamCore 可以跑通一条完整的「语音 → 智能体 → 语音」链�
 | AI 集成 | 服务商 |
 |----------------|-----------|
 | 流式 STT | Deepgram、AssemblyAI、OpenAI、VibeVoice（本地） |
-| LLM | OpenAI、Ollama（本地或自托管） |
+| LLM | OpenAI、Ollama（本地或自托管），或你自己的 HTTP 智能体端点（`agent`） |
 | 流式 TTS | Cartesia、Deepgram、ElevenLabs、MiniMax、Speechify、VibeVoice（本地） |
 | 语音到语音 | xAI Grok Voice（用一个模型取代 STT + LLM + TTS） |
 | 检索 | pgvector、Supabase |

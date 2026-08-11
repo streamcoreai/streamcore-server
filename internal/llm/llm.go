@@ -50,7 +50,12 @@ func NewClient(cfg *config.Config) (Client, error) {
 		return NewOpenAIClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.SystemPrompt), nil
 	case "ollama":
 		return NewOllamaClient(cfg.Ollama.BaseURL, cfg.Ollama.Model, cfg.Ollama.SystemPrompt)
+	case "agent":
+		if cfg.Agent.URL == "" {
+			return nil, fmt.Errorf("llm provider %q requires [agent] url to be set", cfg.LLM.Provider)
+		}
+		return NewAgentClient(cfg.Agent.URL, cfg.Agent.APIKey, cfg.Agent.TimeoutMs), nil
 	default:
-		return nil, fmt.Errorf("unknown llm provider %q (supported: openai, ollama)", cfg.LLM.Provider)
+		return nil, fmt.Errorf("unknown llm provider %q (supported: openai, ollama, agent)", cfg.LLM.Provider)
 	}
 }

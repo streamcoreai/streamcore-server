@@ -31,6 +31,7 @@ type Config struct {
 	AssemblyAI AssemblyAIConfig `toml:"assemblyai"`
 	OpenAI     OpenAIConfig     `toml:"openai"`
 	Ollama     OllamaConfig     `toml:"ollama"`
+	Agent      AgentConfig      `toml:"agent"`
 	VibeVoice  VibeVoiceConfig  `toml:"vibevoice"`
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
@@ -224,6 +225,18 @@ type OllamaConfig struct {
 	BaseURL      string `toml:"base_url"`
 	Model        string `toml:"model"`
 	SystemPrompt string `toml:"system_prompt"`
+}
+
+// AgentConfig points the pipeline at an external bring-your-own-agent HTTP
+// endpoint. Used when llm.provider = "agent". The endpoint owns the
+// conversation (memory, prompting, tool use) keyed by the session_id the
+// server sends with every turn.
+type AgentConfig struct {
+	URL    string `toml:"url"`
+	APIKey string `toml:"api_key"` // Sent as Authorization: Bearer. Empty disables auth.
+	// TimeoutMs bounds a whole turn round-trip, including streaming the
+	// reply. Zero means 60000.
+	TimeoutMs int `toml:"timeout_ms"`
 }
 
 type CartesiaConfig struct {

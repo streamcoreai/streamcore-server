@@ -77,24 +77,29 @@ Full capability list: [Capabilities](./docs/capabilities.md).
 
 Listed so the table above stays honest — unticked items are real gaps today, not soon-shipping promises. Ticked ones shipped recently and stay listed for a release or two so you can see what moved:
 
-- [ ] **Horizontal scaling** — session state is in-memory and single-process
 - [x] **Session reconnection (server)** — a dropped connection recovers on the same session via ICE restart, so the conversation and the running pipeline survive it
 - [x] **Client-driven reconnection** — the TypeScript, React Native, Go and Rust SDKs recover a network change automatically: ICE restart first, then a resume redial if the connection failed
 - [x] **Session resume** — a drop past the point ICE restart can help is recovered by redialling with a single-use token, reattaching to the running conversation. Every SDK runs restart-then-resume as one ladder, so a backgrounded phone rejoins the same conversation
+- [ ] **Panic recovery** — a panic in one session's goroutine currently takes down every live call
+- [ ] **Session cap** — rate limiting is per-IP; no global `max_sessions` to bound CPU and provider spend
+- [ ] **Env-var secrets** — API keys live only in `config.toml`; containers want them from the environment
 - [ ] **Metrics export** — `/health` and timing events exist, no Prometheus/OpenTelemetry
-- [ ] **HTTP agent endpoint** — bring-your-own-agent needs a small Go file today, not config
-- [ ] **Persistent memory** across sessions
+- [ ] **Structured logging** — `log.Printf` text today, no JSON logs carrying `session_id`
+- [ ] **Versioned releases** — no published Docker image or tagged binaries; every user builds from source
+- [x] **HTTP agent endpoint** — `llm.provider = "agent"` POSTs each turn to an agent you host in any language; replies stream back as speech
+- [ ] **Persistent memory** — the built-in runtime forgets callers between sessions; BYO agents can already persist their own
 
 Full TODO list, including ecosystem items: [Roadmap / TODO](./docs/roadmap.md). Want one of these? Say so in [Discord](https://discord.gg/xKGFaGWawT) — demand reorders the list.
 
 ## Bring your own agent
 
-StreamCore starts one layer below prompt-and-tool frameworks: the media path. Your intelligence stays yours, four ways —
+StreamCore starts one layer below prompt-and-tool frameworks: the media path. Your intelligence stays yours, five ways —
 
 1. **Tool call** — plugins (Python/TS/JS) or native Go tools call into your existing backend
-2. **Your endpoint** — point `llm.provider = "ollama"` at any Ollama-compatible URL you run
-3. **Your code** — implement one small Go interface; the whole media path works unchanged
-4. **Built in** — or use StreamCore's optional agent runtime with tools, skills, RAG, and history
+2. **Your agent** — set `llm.provider = "agent"` and each turn is POSTed to an HTTP endpoint you host, in any language
+3. **Your models** — point `llm.provider = "ollama"` at any Ollama-compatible URL you run
+4. **Your code** — implement one small Go interface; the whole media path works unchanged
+5. **Built in** — or use StreamCore's optional agent runtime with tools, skills, RAG, and history
 
 Details and code: [Bring your own agent](./docs/bring-your-own-agent.md) · [Agent runtime](./docs/agent-runtime.md).
 
@@ -106,7 +111,7 @@ Providers: Deepgram, AssemblyAI, OpenAI, Cartesia, ElevenLabs, MiniMax, Speechif
 |------|--------------|
 | [Quick start](./docs/quickstart.md) | Docker, TURN ports, connecting a client, wiring your backend, fully-local setup |
 | [Capabilities](./docs/capabilities.md) | What the runtime does today, endpoints, AI integrations |
-| [Bring your own agent](./docs/bring-your-own-agent.md) | Four ways to own the intelligence, including the `llm.Client` interface |
+| [Bring your own agent](./docs/bring-your-own-agent.md) | Five ways to own the intelligence, including the HTTP agent endpoint and the `llm.Client` interface |
 | [Agent runtime](./docs/agent-runtime.md) | Plugins, skills, RAG, document ingestion |
 | [Providers](./docs/providers.md) | Grok speech-to-speech, MiniMax, local VibeVoice, per-provider caveats |
 | [Configuration](./docs/configuration.md) | Full annotated `config.toml` reference |

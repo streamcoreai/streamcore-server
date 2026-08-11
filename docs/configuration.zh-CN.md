@@ -77,6 +77,11 @@ base_url = "http://localhost:11434"
 model = "gpt-oss:20b"
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
+[agent]                              # 接入自有智能体：当 llm.provider = "agent" 时使用
+url = ""                             # 你的端点，如 http://localhost:9000/agent。每一轮对话以 JSON POST 过去
+api_key = ""                         # 以 Authorization: Bearer 发送。留空则不鉴权
+timeout_ms = 60000                   # 单轮总预算，含流式返回回复的时间
+
 [cartesia]
 api_key = ""
 voice_id = ""

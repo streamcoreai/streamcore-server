@@ -77,6 +77,11 @@ base_url = "http://localhost:11434"
 model = "gpt-oss:20b"
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
+[agent]                              # Bring your own agent: used when llm.provider = "agent"
+url = ""                             # Your endpoint, e.g. http://localhost:9000/agent. Each turn is POSTed as JSON
+api_key = ""                         # Sent as Authorization: Bearer. Empty disables auth
+timeout_ms = 60000                   # Whole-turn budget, including streaming the reply
+
 [cartesia]
 api_key = ""
 voice_id = ""
