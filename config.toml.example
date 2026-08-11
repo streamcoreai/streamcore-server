@@ -35,7 +35,7 @@ provider = ""           # Supported: grok (empty = classic pipeline)
 provider = "deepgram"   # Supported: deepgram, openai, assemblyai, vibevoice
 
 [llm]
-provider = "openai"     # Supported: openai, ollama
+provider = "openai"     # Supported: openai, ollama, agent
 
 [tts]
 provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, speechify, vibevoice
@@ -97,6 +97,17 @@ system_prompt = "You are a helpful AI voice assistant. Keep your responses conci
 base_url = "http://localhost:11434"  # Ollama server URL
 model = "gemma4:e4b"                   # Model name (e.g., gemma4:e4b, mistral, qwen2.5)
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+
+# Bring your own agent — used when llm.provider = "agent". Each user turn is
+# POSTed as JSON {session_id, type, text, system} to this URL; the endpoint
+# owns the conversation (memory, prompting, tools) and replies with text as
+# SSE ("data:" lines, raw or {"delta": "..."}), chunked text/plain, or a
+# buffered application/json {"text": "..."}. Streaming replies are spoken
+# sentence-by-sentence as they arrive.
+[agent]
+url = ""                # e.g. http://localhost:9000/agent
+api_key = ""            # Sent as Authorization: Bearer. Empty disables auth.
+timeout_ms = 60000      # Whole-turn budget, including streaming the reply
 
 [cartesia]
 api_key = ""            # Required if tts.provider = "cartesia"

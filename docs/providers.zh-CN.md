@@ -5,7 +5,7 @@
 | 角色 | 服务商 | 所需凭据 |
 |------|-----------|----------------------|
 | STT | `deepgram`、`assemblyai`、`openai`、`vibevoice` | Deepgram API key、AssemblyAI API key、OpenAI API key，或一个本地 VibeVoice ASR 服务 |
-| LLM | `openai`、`ollama` | OpenAI API key，或你自己掌控的 Ollama 实例 |
+| LLM | `openai`、`ollama`、`agent` | OpenAI API key、你自己掌控的 Ollama 实例，或你自己的 HTTP 智能体端点 |
 | TTS | `cartesia`、`deepgram`、`elevenlabs`、`minimax`、`speechify`、`vibevoice` | 对应服务商的 API key，或一个本地 VibeVoice TTS 服务 |
 | 语音到语音 | `grok` | xAI API key —— 一并取代 STT、LLM 与 TTS |
 | RAG（可选） | `pgvector`、`supabase` | Postgres 连接串或 Supabase URL + key，另需 OpenAI key 用于 embedding |
@@ -14,6 +14,7 @@
 
 - `stt.provider = "openai"` 使用 Whisper 式的最终转写，而不是流式中间结果。
 - `llm.provider = "ollama"` 通过 `base_url` 指向任何兼容 Ollama 的端点 —— 本地或你自己的基础设施均可。
+- `llm.provider = "agent"` 把每一轮对话 POST 到你托管的 HTTP 端点；记忆、提示词与工具都由你的智能体掌控，回复以 SSE、分块文本或 JSON 流式返回。见[接入你自己的智能体](./bring-your-own-agent.zh-CN.md)。
 - `stt.provider = "vibevoice"` 与 `tts.provider = "vibevoice"` 使用本地模型；请先启动 Python 边车进程。
 - `tts.provider = "minimax"` 覆盖 40+ 语言，是中文场景下最强的选项。区域与套餐相关的坑见 [MiniMax TTS](#minimax-tts)。
 - `realtime.provider = "grok"` 切换到语音到语音模式，并完全忽略 `[stt]`、`[llm]` 与 `[tts]`。
