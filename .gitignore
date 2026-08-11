@@ -5,6 +5,13 @@ node_modules/
 .env
 .env.*
 !.env.example
+# Terraform state and variable files carry IPs, key names, and sometimes
+# secrets in cleartext; keep only *.tfvars.example tracked
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform/
 plugins/plugins/*/.env
 plugins/plugins/*/.env.*
 plugins/plugins/*/.venv

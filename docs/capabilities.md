@@ -33,6 +33,8 @@ Once a prototype has to become a product, the hard parts are not prompts:
 | Client integration | SDKs for TypeScript, React Native, Python, Go, and Rust |
 | Telephony | SIP bridge component that transcodes PCMU ↔ Opus and connects over WHIP |
 | Auth | Optional JWT auth on `/whip` with a short-lived token endpoint |
+| Overload and fault isolation | Per-IP rate limiting plus a global `max_sessions` cap (503 with `Retry-After`), and per-call panic isolation — one broken call can no longer take down the process |
+| Secrets | Every API key and secret injectable as an environment variable, so keys stay out of images and config files |
 | Latency visibility | DataChannel timing events, plus a per-turn latency breakdown (endpointing, merge, embedding, vector search, LLM, TTS) in the logs |
 
 ## How it fits

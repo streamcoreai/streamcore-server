@@ -55,7 +55,7 @@ func (p *Pipeline) runRealtime() {
 	defer client.Close()
 
 	defer p.realtimeAudio.close()
-	go p.runRealtimeOutbound()
+	go func() { defer p.recoverPanic("runRealtimeOutbound"); p.runRealtimeOutbound() }()
 
 	p.realtimeMu.Lock()
 	p.realtimeClient = client

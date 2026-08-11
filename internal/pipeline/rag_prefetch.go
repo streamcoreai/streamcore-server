@@ -46,6 +46,7 @@ func (p *Pipeline) startRAGPrefetch(pendingText string) {
 	p.ragPrefetchMu.Unlock()
 
 	go func() {
+		defer p.recoverKeepAlive("ragPrefetch")
 		defer close(st.done)
 		// Call-scoped context, not turn-scoped: the prefetch outlives the
 		// merge window by design and is awaited (or discarded) later.

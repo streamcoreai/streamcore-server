@@ -12,6 +12,7 @@ port = "8080"
 # jwt_secret = ""      # Enables JWT auth on /whip and the POST /token endpoint
 # api_key = ""         # Required to call POST /token when set
 # session_grace_ms = 30000  # Grace period before a session with no peers is reaped (allows ICE restart / redial)
+# max_sessions = 0     # Global cap on live sessions; past it POST /whip returns 503 + Retry-After. 0 = unlimited
 
 [plugins]
 directory = "./plugins"
@@ -129,6 +130,7 @@ voice = "en-Emma_woman"
 Notes:
 
 - `server.public_ip` plus `server.turn_secret` enables the built-in Pion STUN/TURN server, replacing an external coturn container. TURN listens on UDP and TCP 3478 and relays media on UDP 50001–60000.
+- `server.max_sessions` bounds the blast radius of distributed clients: the per-IP rate limit cannot, and every session burns CPU and provider spend. Past the cap, `POST /whip` returns 503 with `Retry-After`; session resumes are exempt, since they reattach to a session that is already counted. Size it to what one instance can actually serve.
 - `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
 - `pipeline.barge_in` lets users interrupt the agent while it is speaking. Agent audio ducks as soon as the caller starts talking over it and recovers if the interruption turns out to be a backchannel.
 - `pipeline.greeting` plays when a session connects. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
@@ -142,5 +144,31 @@ Notes:
 - `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.
 - `minimax.base_url` selects the region. Leave it unset for the global endpoint; mainland-China accounts must point it at `https://api.minimaxi.com/v1`, since keys do not work across the two platforms.
 - `minimax.model` must match your plan: a Token Plan key (`sk-cp-`) only covers `speech-2.8-hd`, while any other model bills pay-as-you-go and errors with `2056` on a zero balance.
+
+## Secrets from environment variables
+
+Every secret can be injected as an environment variable instead of written into `config.toml`, which is what container and cloud deployments need to keep keys out of images and files. A set variable **overrides** the file value — the deployment environment is more authoritative than a baked-in config — and each override is logged by name (never by value) at startup. An empty variable is treated as unset.
+
+Provider keys use each provider's conventional variable name; secrets owned by this server use a `STREAMCORE_` prefix:
+
+| Environment variable | Overrides |
+|---|---|
+| `STREAMCORE_TURN_SECRET` | `server.turn_secret` |
+| `STREAMCORE_JWT_SECRET` | `server.jwt_secret` |
+| `STREAMCORE_API_KEY` | `server.api_key` |
+| `STREAMCORE_AGENT_API_KEY` | `agent.api_key` |
+| `DEEPGRAM_API_KEY` | `deepgram.api_key` |
+| `ASSEMBLYAI_API_KEY` | `assemblyai.api_key` |
+| `OPENAI_API_KEY` | `openai.api_key` |
+| `XAI_API_KEY` | `grok.api_key` |
+| `CARTESIA_API_KEY` | `cartesia.api_key` |
+| `ELEVENLABS_API_KEY` | `elevenlabs.api_key` |
+| `SPEECHIFY_API_KEY` | `speechify.api_key` |
+| `MINIMAX_API_KEY` | `minimax.api_key` |
+| `MIMO_API_KEY` | `mimo.api_key` |
+| `SUPABASE_API_KEY` | `supabase.api_key` |
+| `PGVECTOR_CONNECTION_STRING` | `pgvector.connection_string` |
+
+Non-secret settings (models, voices, tunables) stay in `config.toml` only.
 
 Provider-specific behaviour and caveats: [Providers](./providers.md).

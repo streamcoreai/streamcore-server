@@ -126,6 +126,7 @@ func (p *Pipeline) maybeRefreshRollingSummary() {
 	// Use the call-scoped context (p.ctx), not the per-turn respCtx, so a
 	// barge-in cancelling the current turn doesn't abort the summary.
 	go func(atEntries int32) {
+		defer p.recoverKeepAlive("generateRollingSummary")
 		defer p.summaryGenerating.Store(false)
 		genCtx, cancel := context.WithTimeout(p.ctx, summaryGenerateTimeout)
 		defer cancel()

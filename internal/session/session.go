@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -113,6 +114,18 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 
 	// Wait for the remote track to arrive, then start the pipeline.
 	go func() {
+		// A panic anywhere in this session's call path must cost this call,
+		// not the process and every other live call. The pipeline's own
+		// goroutines recover themselves and cancel the pipeline; this guard
+		// covers the setup below, and the peer teardown after it runs in every
+		// exit path so a panicked call is reaped like any other ended one.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[session:%s] panic in peer goroutine: %v\n%s", s.ID, r, debug.Stack())
+			}
+			p.Close()
+		}()
+
 		var pl *pipeline.Pipeline
 
 		select {

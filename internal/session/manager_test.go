@@ -14,6 +14,38 @@ func testManager(graceMs int) *Manager {
 	return NewManager(cfg, nil, nil)
 }
 
+func TestGetOrCreateRefusesPastTheSessionCap(t *testing.T) {
+	m := testManager(30000)
+	m.cfg.Server.MaxSessions = 1
+
+	first := m.GetOrCreate("first")
+	if first == nil {
+		t.Fatal("first session refused below the cap")
+	}
+	if m.GetOrCreate("second") != nil {
+		t.Fatal("a session was created past max_sessions")
+	}
+	// An existing session holds no new capacity, so fetching it must still
+	// work at the cap — this is what keeps resume exempt.
+	if m.GetOrCreate("first") != first {
+		t.Fatal("an existing session was refused at the cap")
+	}
+
+	m.Remove("first")
+	if m.GetOrCreate("second") == nil {
+		t.Fatal("removing a session did not free its slot")
+	}
+}
+
+func TestGetOrCreateUnlimitedWhenCapUnset(t *testing.T) {
+	m := testManager(30000)
+	for i := 0; i < 50; i++ {
+		if m.GetOrCreate(string(rune('a'+i))) == nil {
+			t.Fatal("a session was refused with max_sessions unset")
+		}
+	}
+}
+
 func TestReapCollectsSessionsIdlePastTheGrace(t *testing.T) {
 	m := testManager(1000)
 	s := m.GetOrCreate("gone")

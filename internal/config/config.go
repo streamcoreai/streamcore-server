@@ -83,6 +83,12 @@ type ServerConfig struct {
 	JWTSecret  string `toml:"jwt_secret"`  // Shared secret for HMAC-SHA256 JWT validation on /whip. Leave empty to disable auth.
 	APIKey     string `toml:"api_key"`     // API key required to call /token. Leave empty to allow unauthenticated token generation.
 
+	// MaxSessions caps live sessions across all clients. The per-IP rate limit
+	// cannot bound distributed clients, and every session burns CPU and
+	// provider spend, so this is the global backstop: past the cap, POST /whip
+	// returns 503 with a Retry-After. Zero (the default) means unlimited.
+	MaxSessions int `toml:"max_sessions"`
+
 	// SessionGraceMs is how long a session with no connected peers is kept
 	// before the reaper closes it. The window is what lets a client recover a
 	// dropped connection — via ICE restart or a redial — without losing the
@@ -331,6 +337,8 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	cfg.applyEnvOverrides()
+
 	// Apply defaults
 	setDefault(&cfg.Server.Port, "8080")
 	if cfg.Server.SessionGraceMs == 0 {
@@ -437,6 +445,45 @@ func (c *Config) validateRealtime() error {
 	}
 
 	return nil
+}
+
+// applyEnvOverrides lets every secret be injected as an environment variable
+// instead of written into config.toml, which is what container and cloud
+// deployments need to keep keys out of images and files. A set variable wins
+// over the file value — the deployment environment is more authoritative than
+// a baked-in config — and each override is logged by name (never by value) so
+// a surprising key source is visible in the startup log.
+//
+// Provider keys use each provider's conventional variable name; secrets owned
+// by this server use a STREAMCORE_ prefix.
+var envOverrides = []struct {
+	env   string
+	field func(c *Config) *string
+}{
+	{"STREAMCORE_TURN_SECRET", func(c *Config) *string { return &c.Server.TurnSecret }},
+	{"STREAMCORE_JWT_SECRET", func(c *Config) *string { return &c.Server.JWTSecret }},
+	{"STREAMCORE_API_KEY", func(c *Config) *string { return &c.Server.APIKey }},
+	{"STREAMCORE_AGENT_API_KEY", func(c *Config) *string { return &c.Agent.APIKey }},
+	{"DEEPGRAM_API_KEY", func(c *Config) *string { return &c.Deepgram.APIKey }},
+	{"ASSEMBLYAI_API_KEY", func(c *Config) *string { return &c.AssemblyAI.APIKey }},
+	{"OPENAI_API_KEY", func(c *Config) *string { return &c.OpenAI.APIKey }},
+	{"XAI_API_KEY", func(c *Config) *string { return &c.Grok.APIKey }},
+	{"CARTESIA_API_KEY", func(c *Config) *string { return &c.Cartesia.APIKey }},
+	{"ELEVENLABS_API_KEY", func(c *Config) *string { return &c.ElevenLabs.APIKey }},
+	{"SPEECHIFY_API_KEY", func(c *Config) *string { return &c.Speechify.APIKey }},
+	{"MINIMAX_API_KEY", func(c *Config) *string { return &c.MiniMax.APIKey }},
+	{"MIMO_API_KEY", func(c *Config) *string { return &c.MiMo.APIKey }},
+	{"SUPABASE_API_KEY", func(c *Config) *string { return &c.Supabase.APIKey }},
+	{"PGVECTOR_CONNECTION_STRING", func(c *Config) *string { return &c.Pgvector.ConnectionString }},
+}
+
+func (c *Config) applyEnvOverrides() {
+	for _, o := range envOverrides {
+		if v := os.Getenv(o.env); v != "" {
+			*o.field(c) = v
+			log.Printf("config: %s set from environment", o.env)
+		}
+	}
 }
 
 func setDefault(field *string, fallback string) {

@@ -44,7 +44,7 @@ func (p *Pipeline) runAgent() {
 			log.Printf("[agent] user: %s", ev.Text)
 			gen := p.supersedeResponse()
 			p.sendEvent(stateMsg{Type: "state", State: "thinking"})
-			go p.respond(gen, ev.Text, ev.TurnStart)
+			go func() { defer p.recoverPanic("respond"); p.respond(gen, ev.Text, ev.TurnStart) }()
 
 		case <-p.interruptCh:
 			// Capture what agent was saying for interruption context
@@ -194,6 +194,7 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer p.recoverPanic("synthesizeSentences")
 		p.synthesizeSentences(respCtx, sentences, turnStart)
 	}()
 

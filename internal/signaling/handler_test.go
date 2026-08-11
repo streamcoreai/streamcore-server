@@ -19,9 +19,58 @@ const restartFragment = "a=ice-ufrag:newU\r\n" +
 
 func testHandler(t *testing.T) (http.HandlerFunc, *session.Manager) {
 	t.Helper()
-	sm := session.NewManager(&config.Config{}, nil, nil)
+	return testHandlerWithConfig(t, &config.Config{})
+}
+
+func testHandlerWithConfig(t *testing.T, cfg *config.Config) (http.HandlerFunc, *session.Manager) {
+	t.Helper()
+	sm := session.NewManager(cfg, nil, nil)
 	t.Cleanup(sm.CloseAll)
 	return NewWHIPHandler(sm), sm
+}
+
+func TestPostAtSessionCapacityReturns503(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.MaxSessions = 1
+	h, _ := testHandlerWithConfig(t, cfg)
+
+	if first := postOffer(t, h, ""); first.Code != http.StatusCreated {
+		t.Fatalf("first POST = %d, want 201", first.Code)
+	}
+
+	second := postOffer(t, h, "")
+	if second.Code != http.StatusServiceUnavailable {
+		t.Fatalf("POST past the cap = %d, want 503", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Fatal("503 at capacity carries no Retry-After")
+	}
+}
+
+func TestResumeIsExemptFromTheSessionCap(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.MaxSessions = 1
+	h, _ := testHandlerWithConfig(t, cfg)
+
+	first := postOffer(t, h, "")
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first POST = %d, want 201", first.Code)
+	}
+	token := first.Header().Get("X-Resume-Token")
+	if token == "" {
+		t.Fatal("no resume token issued")
+	}
+
+	// The server is full, but this client is reattaching to a session that is
+	// already counted — refusing it would turn every recovery at capacity
+	// into a lost conversation.
+	resumed := postOffer(t, h, "?resume="+token)
+	if resumed.Code != http.StatusCreated {
+		t.Fatalf("resume at capacity = %d, want 201", resumed.Code)
+	}
+	if got := resumed.Header().Get("X-Resume-Status"); got != "resumed" {
+		t.Fatalf("X-Resume-Status = %q, want \"resumed\"", got)
+	}
 }
 
 func patch(t *testing.T, h http.HandlerFunc, path, contentType, ifMatch, body string) *httptest.ResponseRecorder {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -295,7 +296,7 @@ func New(
 				// Play a soft thinking tone while the tool runs (opt-in via plugin.yaml).
 				if tool.ThinkingSound() {
 					done := make(chan struct{})
-					go p.playThinkingSound(done)
+					go func() { defer p.recoverKeepAlive("playThinkingSound"); p.playThinkingSound(done) }()
 					result, err := tool.Execute(call.Arguments)
 					close(done)
 					if err == nil {
@@ -335,6 +336,26 @@ func New(
 	return p, nil
 }
 
+// recoverPanic is deferred directly by every goroutine that is part of the
+// pipeline's machinery. It turns a panic into a logged stack and a cancelled
+// pipeline, so one broken call winds down cleanly instead of taking the whole
+// process — and every other live call — with it.
+func (p *Pipeline) recoverPanic(name string) {
+	if r := recover(); r != nil {
+		log.Printf("[pipeline] panic in %s: %v\n%s", name, r, debug.Stack())
+		p.cancel()
+	}
+}
+
+// recoverKeepAlive guards best-effort goroutines (greeting, thinking sound,
+// background summarisation, RAG prefetch) whose death should cost only their
+// own work, never the call.
+func (p *Pipeline) recoverKeepAlive(name string) {
+	if r := recover(); r != nil {
+		log.Printf("[pipeline] panic in %s (call continues): %v\n%s", name, r, debug.Stack())
+	}
+}
+
 // Start launches all pipeline goroutines and blocks until the context is cancelled.
 //
 // runReader and runSender are codec/transport work and run in both modes.
@@ -346,16 +367,16 @@ func (p *Pipeline) Start() {
 
 	if p.cfg.RealtimeEnabled() {
 		wg.Add(3)
-		go func() { defer wg.Done(); p.runReader() }()
-		go func() { defer wg.Done(); p.runRealtime() }()
-		go func() { defer wg.Done(); p.runSender() }()
+		go func() { defer wg.Done(); defer p.recoverPanic("runReader"); p.runReader() }()
+		go func() { defer wg.Done(); defer p.recoverPanic("runRealtime"); p.runRealtime() }()
+		go func() { defer wg.Done(); defer p.recoverPanic("runSender"); p.runSender() }()
 		log.Printf("[pipeline] started in realtime mode (%s) — reader, realtime, sender", p.cfg.Realtime.Provider)
 	} else {
 		wg.Add(4)
-		go func() { defer wg.Done(); p.runReader() }()
-		go func() { defer wg.Done(); p.runInbound() }()
-		go func() { defer wg.Done(); p.runAgent() }()
-		go func() { defer wg.Done(); p.runSender() }()
+		go func() { defer wg.Done(); defer p.recoverPanic("runReader"); p.runReader() }()
+		go func() { defer wg.Done(); defer p.recoverPanic("runInbound"); p.runInbound() }()
+		go func() { defer wg.Done(); defer p.recoverPanic("runAgent"); p.runAgent() }()
+		go func() { defer wg.Done(); defer p.recoverPanic("runSender"); p.runSender() }()
 		log.Println("[pipeline] started — reader, inbound, agent, sender")
 	}
 
@@ -366,9 +387,9 @@ func (p *Pipeline) Start() {
 		if p.cfg.RealtimeEnabled() {
 			// The provider connection is established inside runRealtime, so
 			// wait for the client before asking it to speak.
-			go p.greetRealtimeWhenReady(g)
+			go func() { defer p.recoverKeepAlive("greetRealtimeWhenReady"); p.greetRealtimeWhenReady(g) }()
 		} else {
-			go p.greet(g)
+			go func() { defer p.recoverKeepAlive("greet"); p.greet(g) }()
 		}
 	}
 

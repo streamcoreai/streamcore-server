@@ -12,6 +12,7 @@ port = "8080"
 # jwt_secret = ""      # Enables JWT auth on /whip and the POST /token endpoint
 # api_key = ""         # Required to call POST /token when set
 # session_grace_ms = 30000  # Grace period before a session with no peers is reaped (allows ICE restart / redial)
+# max_sessions = 0     # Global cap on live sessions; past it POST /whip returns 503 + Retry-After. 0 = unlimited
 
 [plugins]
 directory = "./plugins"
@@ -129,6 +130,7 @@ voice = "en-Emma_woman"
 说明：
 
 - `server.public_ip` 加上 `server.turn_secret` 会启用内置的 Pion STUN/TURN 服务，取代外部 coturn 容器。TURN 监听 UDP 与 TCP 3478，并在 UDP 50001–60000 上中转媒体。
+- `server.max_sessions` 用于限制分布式客户端的破坏半径：按 IP 的限流做不到这一点，而每个会话都在消耗 CPU 和服务商费用。超过上限后 `POST /whip` 返回 503 并带 `Retry-After`；会话恢复（resume）不受限制，因为它重新接入的会话已被计数。请按单实例实际能承载的量来设置。
 - `plugins.directory` 是插件与技能加载的必要条件；不设置则跳过发现流程。
 - `pipeline.barge_in` 允许用户在智能体说话时打断。用户一开口抢话，智能体音量立即压低；若判定只是回应词则恢复。
 - `pipeline.greeting` 在会话连接时播放。存在 `pipeline.greeting_outgoing` 时，它用于 SIP 外呼。
@@ -142,5 +144,31 @@ voice = "en-Emma_woman"
 - `cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致 —— Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。
 - `minimax.base_url` 用于选择区域。留空即使用全球端点；中国大陆账号必须指向 `https://api.minimaxi.com/v1`，因为两个平台的 key 不通用。
 - `minimax.model` 必须与你的套餐匹配：Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型走按量计费，余额为零时报错 `2056`。
+
+## 用环境变量注入密钥
+
+所有密钥都可以通过环境变量注入，而不必写进 `config.toml` —— 这正是容器和云部署所需要的：让密钥不进入镜像和文件。已设置的环境变量会**覆盖**文件中的值（部署环境比打包进去的配置更权威），每次覆盖都会在启动日志中按变量名记录（绝不记录值）。空的环境变量视为未设置。
+
+服务商密钥沿用各服务商的惯例变量名；本服务自有的密钥使用 `STREAMCORE_` 前缀：
+
+| 环境变量 | 覆盖的配置项 |
+|---|---|
+| `STREAMCORE_TURN_SECRET` | `server.turn_secret` |
+| `STREAMCORE_JWT_SECRET` | `server.jwt_secret` |
+| `STREAMCORE_API_KEY` | `server.api_key` |
+| `STREAMCORE_AGENT_API_KEY` | `agent.api_key` |
+| `DEEPGRAM_API_KEY` | `deepgram.api_key` |
+| `ASSEMBLYAI_API_KEY` | `assemblyai.api_key` |
+| `OPENAI_API_KEY` | `openai.api_key` |
+| `XAI_API_KEY` | `grok.api_key` |
+| `CARTESIA_API_KEY` | `cartesia.api_key` |
+| `ELEVENLABS_API_KEY` | `elevenlabs.api_key` |
+| `SPEECHIFY_API_KEY` | `speechify.api_key` |
+| `MINIMAX_API_KEY` | `minimax.api_key` |
+| `MIMO_API_KEY` | `mimo.api_key` |
+| `SUPABASE_API_KEY` | `supabase.api_key` |
+| `PGVECTOR_CONNECTION_STRING` | `pgvector.connection_string` |
+
+非密钥类设置（模型、音色、调优参数）仍然只放在 `config.toml` 中。
 
 各服务商的具体行为与注意事项见[服务商](./providers.zh-CN.md)。
