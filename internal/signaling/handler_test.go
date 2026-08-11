@@ -186,3 +186,135 @@ func TestUnsupportedMethodStillReturns405(t *testing.T) {
 		t.Fatalf("status = %d, want 405", rec.Code)
 	}
 }
+
+// postOffer drives the POST path with a minimal offer. The offer is not
+// negotiable, so these assert on the resume protocol around it, not on media.
+func postOffer(t *testing.T, h http.HandlerFunc, query string) *httptest.ResponseRecorder {
+	t.Helper()
+	offer := "v=0\r\n" +
+		"o=- 1 2 IN IP4 127.0.0.1\r\n" +
+		"s=-\r\n" +
+		"t=0 0\r\n" +
+		"a=group:BUNDLE 0\r\n" +
+		"m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n" +
+		"c=IN IP4 0.0.0.0\r\n" +
+		"a=mid:0\r\n" +
+		"a=ice-ufrag:testUfrag\r\n" +
+		"a=ice-pwd:testPasswordAtLeast22Chars\r\n" +
+		"a=fingerprint:sha-256 " +
+		"11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:" +
+		"11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00\r\n" +
+		"a=setup:actpass\r\n" +
+		"a=rtpmap:111 opus/48000/2\r\n" +
+		"a=sendrecv\r\n"
+	req := httptest.NewRequest(http.MethodPost, "/whip"+query, strings.NewReader(offer))
+	req.Header.Set("Content-Type", "application/sdp")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	return rec
+}
+
+func TestPostIssuesAResumeToken(t *testing.T) {
+	h, _ := testHandler(t)
+	rec := postOffer(t, h, "")
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("X-Resume-Status"); got != "new" {
+		t.Fatalf("X-Resume-Status = %q, want \"new\"", got)
+	}
+	token := rec.Header().Get("X-Resume-Token")
+	if token == "" {
+		t.Fatal("no X-Resume-Token on a fresh session")
+	}
+	// The token must not be derivable from the session URL, which is public.
+	sessionID := strings.TrimPrefix(rec.Header().Get("Location"), "/whip/")
+	if token == sessionID {
+		t.Fatal("resume token equals the session ID")
+	}
+}
+
+func TestResumeReattachesToTheSameSession(t *testing.T) {
+	h, sm := testHandler(t)
+
+	first := postOffer(t, h, "")
+	token := first.Header().Get("X-Resume-Token")
+	original := strings.TrimPrefix(first.Header().Get("Location"), "/whip/")
+
+	second := postOffer(t, h, "?resume="+token)
+	if second.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", second.Code)
+	}
+	if got := second.Header().Get("X-Resume-Status"); got != "resumed" {
+		t.Fatalf("X-Resume-Status = %q, want \"resumed\"", got)
+	}
+	// Same session URL — the conversation, not just the transport, continues.
+	if got := strings.TrimPrefix(second.Header().Get("Location"), "/whip/"); got != original {
+		t.Fatalf("resumed into session %q, want the original %q", got, original)
+	}
+	if sm.Get(original) == nil {
+		t.Fatal("the original session is gone after a resume")
+	}
+	// A fresh token is issued so the spent one cannot be replayed.
+	if next := second.Header().Get("X-Resume-Token"); next == "" || next == token {
+		t.Fatalf("expected a rotated resume token, got %q", next)
+	}
+}
+
+func TestExpiredResumeTokenStartsANewSessionAndSaysSo(t *testing.T) {
+	h, _ := testHandler(t)
+
+	first := postOffer(t, h, "")
+	original := strings.TrimPrefix(first.Header().Get("Location"), "/whip/")
+
+	// A redial with a token the server no longer knows must still produce a
+	// working call — but must never pretend the conversation survived.
+	rec := postOffer(t, h, "?resume=stale-token-that-was-never-issued")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", rec.Code)
+	}
+	if got := rec.Header().Get("X-Resume-Status"); got != "expired" {
+		t.Fatalf("X-Resume-Status = %q, want \"expired\"", got)
+	}
+	if got := strings.TrimPrefix(rec.Header().Get("Location"), "/whip/"); got == original {
+		t.Fatal("an unknown token reattached to an existing session")
+	}
+}
+
+func TestSpentResumeTokenCannotBeReplayed(t *testing.T) {
+	h, _ := testHandler(t)
+
+	first := postOffer(t, h, "")
+	token := first.Header().Get("X-Resume-Token")
+
+	if got := postOffer(t, h, "?resume="+token).Header().Get("X-Resume-Status"); got != "resumed" {
+		t.Fatalf("first resume: X-Resume-Status = %q, want \"resumed\"", got)
+	}
+	// Replaying it must not grant a second attachment to a live conversation.
+	if got := postOffer(t, h, "?resume="+token).Header().Get("X-Resume-Status"); got != "expired" {
+		t.Fatalf("replayed token: X-Resume-Status = %q, want \"expired\"", got)
+	}
+}
+
+func TestResumeRetiresThePreDropETag(t *testing.T) {
+	h, _ := testHandler(t)
+
+	first := postOffer(t, h, "")
+	oldETag := first.Header().Get("ETag")
+	token := first.Header().Get("X-Resume-Token")
+
+	second := postOffer(t, h, "?resume="+token)
+	newETag := second.Header().Get("ETag")
+
+	// The conversation carried over; the ICE session did not. A PATCH still
+	// carrying the pre-drop tag is aimed at a peer that no longer exists.
+	if newETag == oldETag {
+		t.Fatalf("ETag %q survived the resume", newETag)
+	}
+
+	rec := patch(t, h, second.Header().Get("Location"), peer.ICEFragmentContentType, oldETag, restartFragment)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale ETag after a resume: status = %d, want 412", rec.Code)
+	}
+}

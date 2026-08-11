@@ -137,7 +137,10 @@ func corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, If-Match")
-		w.Header().Set("Access-Control-Expose-Headers", "Location, ETag, Accept-Patch")
+		// A browser can only read response headers named here. Without the
+		// resume pair a JS client cannot see its own resume token, which
+		// silently reduces every drop to a fresh conversation.
+		w.Header().Set("Access-Control-Expose-Headers", "Location, ETag, Accept-Patch, X-Resume-Token, X-Resume-Status")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

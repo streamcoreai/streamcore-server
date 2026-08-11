@@ -11,6 +11,7 @@ Signaling follows [RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html).
 | 1 | `POST` | `/whip` | SDP offer (`application/sdp`) | `201 Created` with SDP answer, `Location: /whip/{sessionId}`, `ETag`, and `Accept-Patch` |
 | 2 | `PATCH` | `/whip/{sessionId}` | ICE restart fragment (`application/trickle-ice-sdpfrag`) | `200 OK` with the server's fragment and a new `ETag` |
 | 3 | `DELETE` | `/whip/{sessionId}` | none | `200 OK` |
+| — | `POST` | `/whip?resume={token}` | SDP offer (`application/sdp`) | `201 Created`, reattached to the token's session — a StreamCore extension, see [Session resume](#session-resume) |
 | — | `OPTIONS` | `/whip` or `/whip/{sessionId}` | none | `204 No Content` with `Accept-Post: application/sdp` and `Accept-Patch: application/trickle-ice-sdpfrag` |
 
 `POST /whip` is rate limited per client IP (30 sessions per minute); `PATCH` has its own bucket (60 restarts per minute) so a client recovering from a flapping network never eats into its budget for opening new sessions. Over either limit the server returns `429 Too Many Requests` with a `Retry-After` header. Each request builds or re-gathers ICE, so both are throttled even when auth is disabled.
@@ -62,6 +63,47 @@ a=end-of-candidates
 | `415 Unsupported Media Type` | `Content-Type` was not `application/trickle-ice-sdpfrag`. |
 
 The `disconnected` connection state is transient and never tears a peer down on its own — ICE recovers from it unaided, and Pion escalates to `failed` (which does tear down) after roughly 25 seconds if it does not. While disconnected the server emits a `connection` event on the DataChannel so the client can surface "reconnecting…", and another when it recovers.
+
+### Session resume
+
+**A StreamCore extension, not part of RFC 9725.**
+
+ICE restart recovers a transport that is broken. It cannot recover one that is *gone*: past roughly 25 seconds the connection is `failed`, the server has closed the peer, and there is nothing left to restart. A client that was backgrounded, suspended, or offline for a minute lands here, as does any client whose WebRTC stack cannot perform an ICE restart at all — the Python SDK among them.
+
+Resume covers that case by letting a fresh `POST` reattach to the conversation the dead connection was having. The transport is new; the session, the LLM client with its message history, the transcript log, and the rolling summary are not, and the greeting does not replay.
+
+Every `POST` response carries a token and a status:
+
+```http
+HTTP/1.1 201 Created
+Location: /whip/{sessionId}
+X-Resume-Status: new
+X-Resume-Token: qcH8tnK-zT8...
+```
+
+To resume, redial with the token as a query parameter:
+
+```http
+POST /whip?resume=qcH8tnK-zT8... HTTP/1.1
+Content-Type: application/sdp
+```
+
+| `X-Resume-Status` | Meaning |
+|-------------------|---------|
+| `new` | No token was sent. A fresh conversation. |
+| `resumed` | Reattached. `Location` is the original session URL and the agent remembers the call. |
+| `expired` | The token was unknown, already spent, or its session was reaped. **A working call, but a blank conversation** — the agent has no memory of what came before. |
+
+A redial with a stale token is never rejected outright, because failing the call outright is worse than losing the history. The status header is how the client tells the difference; silently starting over is the exact amnesia the token exists to prevent.
+
+Two properties worth relying on:
+
+- **Tokens are single-use.** Every response issues a fresh one and invalidates its predecessor, so a token captured from a log or a proxy is worthless the moment the legitimate client redials.
+- **The token is not the session ID.** The ID appears in the resource URL and in logs; a credential that grants access to a live conversation should be neither, so it is 32 bytes from `crypto/rand`.
+
+The window is `server.session_grace_ms` (30 seconds by default) measured from when the last peer left. Raise it to give flaky clients longer, at the cost of holding abandoned conversations in memory.
+
+Resume is not offered for realtime (speech-to-speech) sessions: their history lives inside the provider and a new provider connection cannot inherit it, so no token is issued rather than promising continuity the server cannot deliver.
 
 ### Session lifetime
 

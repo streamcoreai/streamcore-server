@@ -98,16 +98,26 @@ type Pipeline struct {
 
 	// --- Turn quality state (rolling summary, misunderstanding, RAG prefetch) ---
 
+	// conv is the durable half of the call — LLM history, transcript log,
+	// rolling summary — owned by the Session rather than by this Pipeline, so
+	// it survives a dropped connection and a resume onto new tracks.
+	conv *ConversationState
+
+	// suppressGreeting is set when this Pipeline took over a conversation
+	// already in progress.
+	suppressGreeting bool
+
 	// transcriptLog is the running record of the conversation. The rolling
 	// summary and the low-confidence heuristics read it; it is not the
-	// LLM's own history.
+	// LLM's own history. Shared with conv.
 	transcriptLog *TranscriptLog
 
 	// rollingSummary holds the most recent background-generated digest of
 	// older turns, so long calls keep their early context after the LLM
-	// history window has dropped it.
-	rollingSummary       atomic.Value // string
-	lastSummaryAtEntries atomic.Int32
+	// history window has dropped it. Held by pointer because it belongs to
+	// the ConversationState, which outlives this Pipeline across a resume.
+	rollingSummary       *atomic.Value // string
+	lastSummaryAtEntries *atomic.Int32
 	summaryGenerating    atomic.Bool
 
 	// misunderstandingStreak counts consecutive low-confidence caller turns,
@@ -170,6 +180,8 @@ func New(
 	pluginMgr *plugin.Manager,
 	ragClient rag.Client,
 	direction string,
+	conv *ConversationState,
+	resumed bool,
 ) (*Pipeline, error) {
 	dec, err := audio.NewOpusDecoder()
 	if err != nil {
@@ -179,16 +191,22 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	// In realtime mode the speech-to-speech provider replaces STT, LLM, and
-	// TTS, so those clients are never built — constructing them would demand
-	// API keys for providers this deployment does not use.
-	var llmClient llm.Client
-	var ttsClient tts.Client
-	if !cfg.RealtimeEnabled() {
-		llmClient, err = llm.NewClient(cfg)
-		if err != nil {
+	if conv == nil {
+		if conv, err = NewConversationState(cfg); err != nil {
 			return nil, err
 		}
+	}
+	// The LLM client comes from the conversation, not from here: on a resumed
+	// session it is the same instance with the same message history, which is
+	// what makes the agent pick up mid-conversation rather than start over.
+	//
+	// TTS holds no conversation state and owns a provider connection that did
+	// not survive the drop, so it is always rebuilt. In realtime mode neither
+	// is built — the speech-to-speech provider replaces STT, LLM, and TTS at
+	// once, and constructing them would demand keys this deployment lacks.
+	llmClient := conv.LLM
+	var ttsClient tts.Client
+	if !cfg.RealtimeEnabled() {
 		ttsClient, err = tts.NewClient(cfg)
 		if err != nil {
 			return nil, err
@@ -222,11 +240,19 @@ func New(
 		duckChangeCh:  make(chan bool, 1),
 		realtimeReady: make(chan struct{}),
 		realtimeAudio: newRealtimeAudioQueue(),
-		transcriptLog: &TranscriptLog{},
-		sendEvent:     sendEvent,
-		direction:     direction,
-		ssrc:          12345678,
-		markerNext:    true,
+		conv:          conv,
+		transcriptLog: conv.Log,
+		// Shared with the conversation, so a resumed call keeps the summary
+		// of everything said before the drop.
+		rollingSummary:       conv.rollingSummary,
+		lastSummaryAtEntries: conv.lastSummaryAtEntries,
+		// A resumed caller is mid-conversation; greeting them again is the
+		// most audible way to tell them the agent forgot.
+		suppressGreeting: resumed,
+		sendEvent:        sendEvent,
+		direction:        direction,
+		ssrc:             12345678,
+		markerNext:       true,
 	}
 
 	// Realtime mode wires its own tools and instructions when the
@@ -333,8 +359,10 @@ func (p *Pipeline) Start() {
 		log.Println("[pipeline] started — reader, inbound, agent, sender")
 	}
 
-	// Send initial greeting if configured.
-	if g := p.greetingText(); g != "" {
+	// Send initial greeting if configured. A resumed call skips it: the caller
+	// is mid-conversation and being greeted again is exactly how a dropped
+	// connection announces itself as a lost one.
+	if g := p.greetingText(); g != "" && !p.suppressGreeting {
 		if p.cfg.RealtimeEnabled() {
 			// The provider connection is established inside runRealtime, so
 			// wait for the client before asking it to speak.

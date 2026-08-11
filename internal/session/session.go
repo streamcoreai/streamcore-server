@@ -2,6 +2,9 @@ package session
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -34,6 +37,30 @@ type Session struct {
 	// every successful ICE restart so a client racing two restarts can tell
 	// which generation it is patching.
 	etag string
+
+	// conv is the durable half of the call — LLM history, transcript log,
+	// rolling summary. It is built on the first peer and handed to every
+	// Pipeline afterwards, so a caller who drops and resumes keeps talking to
+	// an agent that remembers them.
+	conv *pipeline.ConversationState
+
+	// resumeToken authorises reattaching to this session after the transport
+	// is gone for good. It is deliberately not the session ID: the ID appears
+	// in the resource URL and in logs, and a credential that grants access to
+	// a live conversation should be neither. Single-use — every resume issues
+	// a fresh one.
+	resumeToken string
+}
+
+// newResumeToken returns a high-entropy single-use token. crypto/rand rather
+// than a UUID because this is a bearer credential for an in-progress
+// conversation, not an identifier.
+func newResumeToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate resume token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
 func NewSession(id string, cfg *config.Config, pluginMgr *plugin.Manager, ragClient rag.Client) *Session {
@@ -69,6 +96,14 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 		return nil, err
 	}
 
+	// A second peer on this session means a resume after a dropped
+	// connection: the conversation already exists and this peer inherits it,
+	// which is what carries the history and the rolling summary across the
+	// gap. Building it is deferred to the track goroutine so a provider
+	// misconfiguration still surfaces where it always has — when audio
+	// arrives — rather than turning every POST into a 500.
+	resumed := s.conv != nil
+
 	p.OnClose = func() {
 		s.removePeer(peerID)
 	}
@@ -82,10 +117,16 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 
 		select {
 		case remoteTrack := <-p.RemoteTrackCh:
-			log.Printf("[session:%s] remote track ready, starting pipeline", s.ID)
+			log.Printf("[session:%s] remote track ready, starting pipeline (resumed=%v)", s.ID, resumed)
 
-			var err error
-			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, s.ragClient, direction)
+			conv, err := s.conversation()
+			if err != nil {
+				log.Printf("[session:%s] conversation state error: %v", s.ID, err)
+				p.Close()
+				return
+			}
+
+			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, s.ragClient, direction, conv, resumed)
 			if err != nil {
 				log.Printf("[session:%s] pipeline create error: %v", s.ID, err)
 				p.Close()
@@ -105,6 +146,22 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 	}()
 
 	return p, nil
+}
+
+// conversation returns the session's durable state, building it on first use.
+// Every Pipeline this session ever starts shares the one instance — that
+// sharing is what a resume preserves.
+func (s *Session) conversation() (*pipeline.ConversationState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conv == nil {
+		conv, err := pipeline.NewConversationState(s.cfg)
+		if err != nil {
+			return nil, err
+		}
+		s.conv = conv
+	}
+	return s.conv, nil
 }
 
 func (s *Session) GetPeer(peerID string) *peer.Peer {
@@ -153,6 +210,56 @@ func (s *Session) RotateETag() string {
 	defer s.mu.Unlock()
 	s.etag = `"` + uuid.NewString() + `"`
 	return s.etag
+}
+
+// ResumeToken returns the token that currently authorises reattaching to this
+// session, or "" if the session holds nothing worth resuming onto.
+func (s *Session) ResumeToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resumeToken
+}
+
+// Resumable reports whether reattaching would actually preserve a
+// conversation. A realtime (speech-to-speech) session is not: its history
+// lives inside the provider, and a new provider connection cannot inherit it,
+// so offering a resume token would promise continuity the server cannot keep.
+//
+// Decided from configuration rather than from the built state, so the answer
+// is available at POST time — before any audio has arrived to build it.
+func (s *Session) Resumable() bool {
+	return s.cfg != nil && !s.cfg.RealtimeEnabled()
+}
+
+// rotateResumeToken issues a fresh token and returns the previous one so the
+// Manager can drop it from its index. Callers must hold no Session lock.
+func (s *Session) rotateResumeToken() (old, current string, err error) {
+	token, err := newResumeToken()
+	if err != nil {
+		return "", "", err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, s.resumeToken = s.resumeToken, token
+	return old, token, nil
+}
+
+// evictPeers closes every peer currently attached, so a resuming client does
+// not end up sharing the session with the corpse of the connection it lost.
+func (s *Session) evictPeers() {
+	// p.Close() calls OnClose → removePeer, which takes s.mu, so the map is
+	// drained before anything is closed.
+	s.mu.Lock()
+	peers := make([]*peer.Peer, 0, len(s.peers))
+	for _, p := range s.peers {
+		peers = append(peers, p)
+	}
+	s.peers = make(map[string]*peer.Peer)
+	s.mu.Unlock()
+
+	for _, p := range peers {
+		p.Close()
+	}
 }
 
 func (s *Session) Close() {

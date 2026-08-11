@@ -40,6 +40,28 @@ const defaultRestartRateLimit = 60
 // handful of candidate lines; anything near this is not one.
 const maxICEFragmentBytes = 64 * 1024
 
+// Session resume — a StreamCore extension to RFC 9725, not part of the RFC.
+//
+// ICE restart covers a transport that is merely broken. It cannot cover one
+// that is gone: past roughly 25 seconds the peer has been closed and there is
+// nothing left to restart. Resume covers that case, and every client that
+// cannot perform an ICE restart at all, by letting a fresh POST reattach to
+// the conversation the previous connection was having.
+const (
+	// resumeTokenHeader carries the credential for the *next* resume. It is
+	// re-issued on every response, so possession of an old one is worthless.
+	resumeTokenHeader = "X-Resume-Token"
+
+	// resumeStatusHeader tells the client which of these it got, because a
+	// silent fallback to a blank conversation is the exact failure the token
+	// exists to prevent.
+	resumeStatusHeader = "X-Resume-Status"
+
+	resumeStatusNew     = "new"     // no token was sent; a fresh conversation
+	resumeStatusResumed = "resumed" // reattached, history intact
+	resumeStatusExpired = "expired" // token unknown, spent, or reaped
+)
+
 func NewWHIPHandler(sm *session.Manager) http.HandlerFunc {
 	limiter := newWidgetRateLimiter(defaultWhipRateLimit, time.Minute)
 	restartLimiter := newWidgetRateLimiter(defaultRestartRateLimit, time.Minute)
@@ -113,14 +135,43 @@ func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager)
 		return
 	}
 
-	sessionID := uuid.New().String()
-	peerID := sessionID
-	log.Printf("[whip] creating session %s", sessionID)
-
 	// Read optional metadata from query parameters.
 	direction := r.URL.Query().Get("direction")
 
-	ses := sm.GetOrCreate(sessionID)
+	// A resume token reattaches this offer to a conversation whose transport
+	// died — the case ICE restart cannot cover, because by the time the client
+	// notices, the old peer is already closed. The conversation history, the
+	// rolling summary and the LLM client are all preserved; only the transport
+	// is new.
+	var ses *session.Session
+	resumeStatus := resumeStatusNew
+	if token := r.URL.Query().Get("resume"); token != "" {
+		if resumed := sm.Resume(token); resumed != nil {
+			ses = resumed
+			resumeStatus = resumeStatusResumed
+			// The conversation carries over but the PeerConnection does not,
+			// so this is a genuinely new ICE session. Rotating retires the
+			// pre-drop ETag, which would otherwise satisfy If-Match on a
+			// PATCH aimed at an ICE session that no longer exists.
+			ses.RotateETag()
+			log.Printf("[whip] resuming session %s", ses.ID)
+		} else {
+			// Unknown, already-used, or reaped. A fresh session still gives
+			// the caller a working call, so this is not an error — but the
+			// response says so, because silently starting over is exactly the
+			// amnesia the token exists to prevent.
+			resumeStatus = resumeStatusExpired
+			log.Printf("[whip] resume token rejected, starting a new session")
+		}
+	}
+
+	if ses == nil {
+		ses = sm.GetOrCreate(uuid.New().String())
+		log.Printf("[whip] creating session %s", ses.ID)
+	}
+
+	sessionID := ses.ID
+	peerID := sessionID
 	p, err := ses.AddPeer(peerID, direction)
 	if err != nil {
 		log.Printf("[whip] add peer error: %v", err)
@@ -148,6 +199,13 @@ func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager)
 	// RFC 9725 §4.4: tells the client it can recover a dropped connection with
 	// an ICE restart instead of redialling and losing the conversation.
 	w.Header().Set("Accept-Patch", peer.ICEFragmentContentType)
+	// And when the transport is past restarting, this is how the client keeps
+	// the conversation anyway. Empty for a realtime session, whose history
+	// lives inside the speech-to-speech provider and cannot be carried over.
+	w.Header().Set(resumeStatusHeader, resumeStatus)
+	if token := sm.IssueResumeToken(ses); token != "" {
+		w.Header().Set(resumeTokenHeader, token)
+	}
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(answerSDP))
 }

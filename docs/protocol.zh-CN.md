@@ -11,6 +11,7 @@
 | 1 | `POST` | `/whip` | SDP offer（`application/sdp`） | `201 Created`，返回 SDP answer、`Location: /whip/{sessionId}`、`ETag` 与 `Accept-Patch` |
 | 2 | `PATCH` | `/whip/{sessionId}` | ICE 重启片段（`application/trickle-ice-sdpfrag`） | `200 OK`，返回服务端片段与新的 `ETag` |
 | 3 | `DELETE` | `/whip/{sessionId}` | 无 | `200 OK` |
+| — | `POST` | `/whip?resume={token}` | SDP offer（`application/sdp`） | `201 Created`，重新挂接到该令牌对应的会话 —— StreamCore 扩展，见[会话恢复](#会话恢复session-resume) |
 | — | `OPTIONS` | `/whip` 或 `/whip/{sessionId}` | 无 | `204 No Content`，带 `Accept-Post: application/sdp` 与 `Accept-Patch: application/trickle-ice-sdpfrag` |
 
 `POST /whip` 按客户端 IP 限流（每分钟 30 个会话）；`PATCH` 使用独立计数（每分钟 60 次重启），因此网络频繁抖动的客户端不会消耗掉自己新建会话的额度。超出任一限制后服务返回 `429 Too Many Requests` 并带上 `Retry-After` 头。两者都会建立或重新收集 ICE，因此即使未开启鉴权也会被限流。
@@ -62,6 +63,47 @@ a=end-of-candidates
 | `415 Unsupported Media Type` | `Content-Type` 不是 `application/trickle-ice-sdpfrag`。 |
 
 `disconnected` 连接状态是暂时的，本身绝不会拆毁 peer —— ICE 可以自行恢复；若无法恢复，Pion 会在约 25 秒后升级为 `failed`（该状态才会拆毁）。处于 disconnected 期间，服务端会在 DataChannel 上发出 `connection` 事件，客户端可据此提示“正在重连…”，恢复后再发一次。
+
+### 会话恢复（Session resume）
+
+**这是 StreamCore 的扩展，并非 RFC 9725 的一部分。**
+
+ICE 重启能恢复「坏掉」的传输，但无法恢复「已经消失」的传输：超过约 25 秒后连接进入 `failed`，服务端已关闭该 peer，也就没有什么可重启的了。被切到后台、被挂起或断网一分钟的客户端正属于这种情况；任何 WebRTC 栈本身就无法执行 ICE 重启的客户端也是如此 —— Python SDK 就是其中之一。
+
+会话恢复正是为这种情况准备的：允许一次全新的 `POST` 重新挂接到那条已断连接原本进行中的对话。传输是新的，但会话、带有消息历史的 LLM 客户端、转写记录与滚动摘要都不是新的，开场白也不会重播。
+
+每次 `POST` 的响应都会带上一个令牌和一个状态：
+
+```http
+HTTP/1.1 201 Created
+Location: /whip/{sessionId}
+X-Resume-Status: new
+X-Resume-Token: qcH8tnK-zT8...
+```
+
+恢复时，把该令牌作为查询参数重新拨号：
+
+```http
+POST /whip?resume=qcH8tnK-zT8... HTTP/1.1
+Content-Type: application/sdp
+```
+
+| `X-Resume-Status` | 含义 |
+|-------------------|------|
+| `new` | 未携带令牌，是一次全新的对话。 |
+| `resumed` | 已重新挂接。`Location` 仍是原会话 URL，智能体记得这通电话。 |
+| `expired` | 令牌未知、已被使用，或其会话已被回收。**通话可用，但对话是空白的** —— 智能体不记得此前的内容。 |
+
+携带过期令牌的重拨绝不会被直接拒绝，因为让整通电话失败比丢失历史更糟。状态头正是客户端用来区分二者的依据；悄无声息地从头开始，恰恰是这个令牌要防止的那种「失忆」。
+
+有两条性质可以依赖：
+
+- **令牌一次性使用。** 每次响应都会签发新令牌并让上一个失效，因此从日志或代理中截获的令牌，在合法客户端重拨的那一刻就已作废。
+- **令牌不是会话 ID。** 会话 ID 会出现在资源 URL 和日志里；而一个能访问进行中对话的凭据不应如此，所以它是取自 `crypto/rand` 的 32 字节。
+
+时间窗口为 `server.session_grace_ms`（默认 30 秒），从最后一个 peer 离开时开始计算。调大它可以给网络不稳定的客户端更多时间，代价是被遗弃的对话会在内存中保留更久。
+
+实时（语音到语音）会话不提供恢复：它们的历史保存在服务商那一侧，新的服务商连接无法继承，因此宁可不签发令牌，也不承诺服务端无法兑现的连续性。
 
 ### 会话生命周期
 

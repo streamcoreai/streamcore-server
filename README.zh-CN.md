@@ -80,7 +80,7 @@ Docker、TURN 端口与生产部署注意事项见[快速开始指南](./docs/qu
 - [ ] **水平扩展** —— 会话状态在内存中，单进程
 - [x] **会话重连（服务端）** —— 断开的连接可通过 ICE restart 在同一会话上恢复，对话与正在运行的流水线都得以保留
 - [x] **客户端侧重连** —— TypeScript、React Native、Go 与 Rust SDK 会在网络变化后自动驱动该重启
-- [ ] **Python SDK 的重连** —— aiortc 没有 ICE restart 原语，因此网络变化的 Python 客户端仍会重新拨号、开启一个新会话
+- [x] **会话恢复** —— 对于 ICE 重启已无能为力的断线，可携带一次性令牌重拨并重新挂接到进行中的对话；Python SDK 正是靠它重连，因为 aiortc 没有 ICE restart 原语
 - [ ] **指标导出** —— 有 `/health` 与时延事件，但没有 Prometheus/OpenTelemetry
 - [ ] **HTTP 智能体端点** —— 目前接入自有智能体需要写一个很小的 Go 文件，而不是改配置
 - [ ] **跨会话的持久记忆**
