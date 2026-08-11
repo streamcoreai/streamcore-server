@@ -1,13 +1,87 @@
 package config
 
 import (
+	"bufio"
 	"bytes"
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
+
+var (
+	exampleSectionPattern = regexp.MustCompile(`^\s*#?\s*\[([A-Za-z0-9_.-]+)\]\s*(?:#.*)?$`)
+	exampleKeyPattern     = regexp.MustCompile(`^\s*#?\s*([A-Za-z0-9_]+)\s*=`)
+)
+
+func configPaths(typ reflect.Type, prefix string) []string {
+	var paths []string
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		name := field.Tag.Get("toml")
+		if name == "" || name == "-" {
+			continue
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		if field.Type.Kind() == reflect.Struct {
+			paths = append(paths, configPaths(field.Type, path)...)
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func documentedConfigPaths(t *testing.T, path string) map[string]struct{} {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open config example: %v", err)
+	}
+	defer file.Close()
+
+	documented := make(map[string]struct{})
+	section := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if match := exampleSectionPattern.FindStringSubmatch(line); match != nil {
+			section = match[1]
+			continue
+		}
+		if section == "" {
+			continue
+		}
+		if match := exampleKeyPattern.FindStringSubmatch(line); match != nil {
+			documented[section+"."+match[1]] = struct{}{}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read config example: %v", err)
+	}
+	return documented
+}
+
+func TestConfigExampleDocumentsEveryField(t *testing.T) {
+	documented := documentedConfigPaths(t, filepath.Join("..", "..", "config.toml.example"))
+	var missing []string
+	for _, path := range configPaths(reflect.TypeOf(Config{}), "") {
+		if _, ok := documented[path]; !ok {
+			missing = append(missing, path)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("config.toml.example does not document: %s", strings.Join(missing, ", "))
+	}
+}
 
 // writeConfig writes a TOML file and returns its path.
 func writeConfig(t *testing.T, body string) string {
