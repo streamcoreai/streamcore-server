@@ -40,6 +40,11 @@ const defaultRestartRateLimit = 60
 // handful of candidate lines; anything near this is not one.
 const maxICEFragmentBytes = 64 * 1024
 
+// atCapacityRetryAfterS is the Retry-After sent with a 503 when
+// server.max_sessions is reached. Calls last minutes, so there is no point
+// hammering — but long enough that a slot opening is plausible.
+const atCapacityRetryAfterS = 10
+
 // Session resume — a StreamCore extension to RFC 9725, not part of the RFC.
 //
 // ICE restart covers a transport that is merely broken. It cannot cover one
@@ -167,6 +172,15 @@ func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager)
 
 	if ses == nil {
 		ses = sm.GetOrCreate(uuid.New().String())
+		if ses == nil {
+			// server.max_sessions is reached. 503 rather than 429: the client
+			// did nothing wrong, the server is full. Resumes are exempt — they
+			// reattach to a session that is already counted.
+			w.Header().Set("Retry-After", strconv.Itoa(atCapacityRetryAfterS))
+			log.Printf("[whip] refusing session for %s: server at capacity", clientIP(r))
+			http.Error(w, "server is at session capacity", http.StatusServiceUnavailable)
+			return
+		}
 		log.Printf("[whip] creating session %s", ses.ID)
 	}
 

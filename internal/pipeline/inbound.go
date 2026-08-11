@@ -113,7 +113,7 @@ func (p *Pipeline) runInbound() {
 		}
 	}
 
-	go p.runTurnBuffer()
+	go func() { defer p.recoverPanic("runTurnBuffer"); p.runTurnBuffer() }()
 
 	sttClient, err := stt.NewClient(p.ctx, p.cfg, sttCallback)
 	if err != nil {

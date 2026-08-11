@@ -33,6 +33,8 @@
 | 客户端集成 | TypeScript、React Native、Python、Go、Rust SDK |
 | 电话 | SIP 网桥组件，在 PCMU ↔ Opus 之间转码并通过 WHIP 接入 |
 | 鉴权 | `/whip` 上可选的 JWT 鉴权，配合短期 token 端点 |
+| 过载与故障隔离 | 按 IP 限流加全局 `max_sessions` 上限（503 带 `Retry-After`），以及按通话隔离的 panic 恢复 —— 一个异常通话不再拖垮整个进程 |
+| 密钥管理 | 所有 API key 与密钥都可用环境变量注入，密钥不进入镜像与配置文件 |
 | 时延可见性 | DataChannel 时延事件，以及日志中每轮的时延分解（端点检测、合并、embedding、向量检索、LLM、TTS） |
 
 ## 它的位置

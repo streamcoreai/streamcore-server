@@ -7,6 +7,7 @@ turn_secret = ""        # Shared secret for the built-in STUN/TURN server. Requi
 jwt_secret = ""         # Shared secret for JWT auth on /whip. Leave empty to disable auth.
 api_key = ""            # API key required to call POST /token. Leave empty to allow unauthenticated token generation.
 session_grace_ms = 30000 # How long a session with no connected peers is kept before it is reaped. The window lets a client recover a dropped connection (ICE restart or redial) without losing the conversation.
+max_sessions = 0        # Global cap on live sessions; past it POST /whip returns 503 with Retry-After. 0 = unlimited. Each session burns CPU and provider spend, so set this to what one instance can actually serve.
 
 [plugins]
 directory = "./plugins"     # Required if you want plugins and skills loaded

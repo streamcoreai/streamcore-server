@@ -110,7 +110,65 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	return &output
 }
 
+// clearEnvOverrides makes a test hermetic against secrets exported in the
+// developer's shell, which Load would otherwise pick up and log.
+func clearEnvOverrides(t *testing.T) {
+	t.Helper()
+	for _, o := range envOverrides {
+		t.Setenv(o.env, "")
+	}
+}
+
+func TestLoadReadsSecretsFromEnvironment(t *testing.T) {
+	clearEnvOverrides(t)
+	logs := captureLogs(t)
+	path := writeConfig(t, `
+[openai]
+api_key = "file-key"
+`)
+	// One variable overriding a file value, one filling a key the file never
+	// had — both are the container deployment case this exists for.
+	t.Setenv("OPENAI_API_KEY", "env-key")
+	t.Setenv("STREAMCORE_JWT_SECRET", "env-jwt")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OpenAI.APIKey != "env-key" {
+		t.Errorf("OpenAI.APIKey = %q, want the environment to win over the file", cfg.OpenAI.APIKey)
+	}
+	if cfg.Server.JWTSecret != "env-jwt" {
+		t.Errorf("Server.JWTSecret = %q, want the environment value", cfg.Server.JWTSecret)
+	}
+	// The override is announced by name so an unexpected key source is
+	// visible — but the value itself must never reach the log.
+	if got := logs.String(); !strings.Contains(got, "OPENAI_API_KEY") {
+		t.Errorf("override was not logged: %q", got)
+	}
+	if got := logs.String(); strings.Contains(got, "env-key") || strings.Contains(got, "env-jwt") {
+		t.Errorf("a secret value leaked into the log: %q", got)
+	}
+}
+
+func TestLoadIgnoresEmptyEnvOverrides(t *testing.T) {
+	clearEnvOverrides(t)
+	path := writeConfig(t, `
+[openai]
+api_key = "file-key"
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.OpenAI.APIKey != "file-key" {
+		t.Errorf("OpenAI.APIKey = %q, want the file value when the variable is unset", cfg.OpenAI.APIKey)
+	}
+}
+
 func TestLoadWarnsAboutUnknownKeys(t *testing.T) {
+	clearEnvOverrides(t)
 	logs := captureLogs(t)
 	path := writeConfig(t, `
 [pipeline]
@@ -130,6 +188,7 @@ api_ke = "test-key"
 }
 
 func TestLoadDoesNotWarnAboutKnownKeys(t *testing.T) {
+	clearEnvOverrides(t)
 	logs := captureLogs(t)
 	path := writeConfig(t, `
 [pipeline]

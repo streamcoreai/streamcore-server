@@ -97,12 +97,21 @@ func (m *Manager) Resume(token string) *Session {
 	return s
 }
 
+// GetOrCreate returns the named session, creating it if needed. It returns
+// nil when creating would exceed server.max_sessions — checked under the same
+// lock as the insert, so concurrent POSTs cannot race past the cap. An
+// existing session is always returned: it holds no new capacity.
 func (m *Manager) GetOrCreate(sessionID string) *Session {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if s, ok := m.sessions[sessionID]; ok {
 		return s
+	}
+
+	if max := m.cfg.Server.MaxSessions; max > 0 && len(m.sessions) >= max {
+		log.Printf("[manager] at session capacity (%d), refusing a new session", max)
+		return nil
 	}
 
 	s := NewSession(sessionID, m.cfg, m.pluginMgr, m.ragClient)
