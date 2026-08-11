@@ -276,7 +276,8 @@ func (c *agentClient) SetTools(tools []ToolDefinition) {
 	}
 }
 
-func (c *agentClient) SetToolHandler(handler func(ctx context.Context, call ToolCall) (string, error)) {}
+func (c *agentClient) SetToolHandler(handler func(ctx context.Context, call ToolCall) (string, error)) {
+}
 
 func (c *agentClient) AppendSystemPrompt(text string) {
 	c.mu.Lock()
