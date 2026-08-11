@@ -64,7 +64,7 @@ Docker, TURN ports, and production notes: [Quick start guide](./docs/quickstart.
 | | |
 |---|---|
 | **Transport** | WebRTC audio over WHIP ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) — one HTTP POST, no signaling socket. Opus/RTP both ways |
-| **Connectivity** | Built-in Pion STUN/TURN on UDP *and* TCP 3478 — no external coturn |
+| **Connectivity** | Built-in Pion STUN/TURN on UDP *and* TCP 3478 — no external coturn. A network handover or NAT rebind is recovered by ICE restart on the same session, so the conversation survives it |
 | **Turn-taking** | Adaptive VAD that tracks each call's noise floor, plus a debounce that merges mid-sentence pauses into one turn |
 | **Interruption** | Barge-in that ducks agent audio, filters backchannels ("mm-hm"), and cancels in-flight LLM and TTS on a confirmed interrupt |
 | **Streaming** | Streaming STT → streaming LLM → chunk-streaming TTS, so audio starts before synthesis finishes |
@@ -78,7 +78,7 @@ Full capability list: [Capabilities](./docs/capabilities.md).
 Listed so the table above stays honest — these are real gaps today, not soon-shipping promises:
 
 - [ ] **Horizontal scaling** — session state is in-memory and single-process
-- [ ] **Session reconnection** — no ICE restart; a dropped connection means a new session
+- [ ] **Client-driven reconnection** — the server recovers a dropped connection via ICE restart, but no SDK drives it yet, so a client whose network changes still redials
 - [ ] **Metrics export** — `/health` and timing events exist, no Prometheus/OpenTelemetry
 - [ ] **HTTP agent endpoint** — bring-your-own-agent needs a small Go file today, not config
 - [ ] **Persistent memory** across sessions

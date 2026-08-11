@@ -9,7 +9,7 @@
 ## 生产环境加固
 
 - [ ] **水平扩展。** 会话状态保存在内存中且为单进程。目前多实例部署需要粘性路由或外部会话协调。
-- [ ] **会话重连。** 没有 ICE restart，也没有恢复路径；连接断开就意味着一个新会话。
+- [ ] **客户端侧重连。** 服务端已能通过 ICE restart（`PATCH /whip/{sessionId}`，见[协议参考](./protocol.zh-CN.md#ice-重启)）在同一会话上恢复断开的连接，但还没有 SDK 去驱动它：没有任何 SDK 调用 `restartIce()` 或发送该 PATCH，因此网络发生变化的客户端仍然会重新拨号、开启一个新会话。
 - [ ] **指标与可观测性。** 已有 `/health` 与 DataChannel 时延事件，但没有 Prometheus/OpenTelemetry 导出。
 
 ## 接入自有智能体

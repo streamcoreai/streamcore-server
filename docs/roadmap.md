@@ -9,7 +9,7 @@ Want one of these? Say so in [Discord](https://discord.gg/xKGFaGWawT) or open an
 ## Production hardening
 
 - [ ] **Horizontal scaling.** Session state is in-memory and single-process. Multi-instance deployments need sticky routing or external session coordination today.
-- [ ] **Session reconnection.** There is no ICE restart or resume path; a dropped connection means a new session.
+- [ ] **Client-driven reconnection.** The server recovers a dropped connection on the same session via ICE restart (`PATCH /whip/{sessionId}`, see [Protocol](./protocol.md#ice-restart)), but no SDK drives it yet: none calls `restartIce()` or sends the PATCH, so a client whose network changes still redials and starts a new session.
 - [ ] **Metrics and observability.** `/health` and DataChannel timing events exist; there is no Prometheus/OpenTelemetry export.
 
 ## Bring-your-own-agent
