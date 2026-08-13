@@ -25,7 +25,19 @@ type openaiClient struct {
 	toolNameMap  map[string]string // sanitized name → original name
 }
 
-func NewOpenAIClient(apiKey, model, systemPrompt string) Client {
+// resolveOpenAIBaseURL normalises a configured endpoint, returning "" when the
+// caller should keep the library default (OpenAI itself).
+//
+// The trailing slash matters: the SDK joins paths onto this string, so
+// "https://host/v1/" would request "https://host/v1//chat/completions", which
+// most gateways answer with a 404 rather than a redirect.
+func resolveOpenAIBaseURL(baseURL string) string {
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
+// NewOpenAIClient creates a chat client for OpenAI or any endpoint speaking
+// its protocol. An empty baseURL targets OpenAI itself.
+func NewOpenAIClient(apiKey, model, systemPrompt, baseURL string) Client {
 	// Keep a warm connection pool so turns within a call (and the first turn
 	// after an idle gap) reuse an established TLS+HTTP/2 connection instead of
 	// paying a fresh handshake on the live audio path.
@@ -37,6 +49,9 @@ func NewOpenAIClient(apiKey, model, systemPrompt string) Client {
 	}
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.HTTPClient = &http.Client{Transport: transport, Timeout: 60 * time.Second}
+	if resolved := resolveOpenAIBaseURL(baseURL); resolved != "" {
+		cfg.BaseURL = resolved
+	}
 
 	c := &openaiClient{
 		client:       openai.NewClientWithConfig(cfg),
@@ -49,7 +64,8 @@ func NewOpenAIClient(apiKey, model, systemPrompt string) Client {
 
 	// Prime the connection pool in the background: ListModels is unbilled and
 	// establishes the TLS+H2 connection the first real turn will reuse. Errors
-	// are non-fatal (offline/dev) — this is best-effort warmup only.
+	// are non-fatal (offline/dev, or a compatible endpoint that does not
+	// implement /models) — this is best-effort warmup only.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
