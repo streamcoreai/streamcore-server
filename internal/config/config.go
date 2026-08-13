@@ -225,6 +225,13 @@ type OpenAIConfig struct {
 	APIKey       string `toml:"api_key"`
 	Model        string `toml:"model"`
 	SystemPrompt string `toml:"system_prompt"`
+	// BaseURL points the client at an OpenAI-compatible endpoint other than
+	// OpenAI's own — DeepSeek, Moonshot, Qwen and MiniMax all speak the same
+	// protocol and differ only by host and model name. Empty uses OpenAI.
+	//
+	// This is not the same as the ollama provider's base_url, which speaks
+	// Ollama's own /api/chat protocol; the two are not interchangeable.
+	BaseURL string `toml:"base_url"`
 }
 
 type OllamaConfig struct {

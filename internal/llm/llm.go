@@ -47,7 +47,7 @@ func NewClient(cfg *config.Config) (Client, error) {
 		if cfg.OpenAI.APIKey == "" {
 			return nil, fmt.Errorf("llm provider %q requires [openai] api_key to be set", cfg.LLM.Provider)
 		}
-		return NewOpenAIClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.SystemPrompt), nil
+		return NewOpenAIClient(cfg.OpenAI.APIKey, cfg.OpenAI.Model, cfg.OpenAI.SystemPrompt, cfg.OpenAI.BaseURL), nil
 	case "ollama":
 		return NewOllamaClient(cfg.Ollama.BaseURL, cfg.Ollama.Model, cfg.Ollama.SystemPrompt)
 	case "agent":

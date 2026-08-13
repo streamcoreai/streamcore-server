@@ -39,7 +39,7 @@ provider = "deepgram"   # Supported: deepgram, openai, assemblyai, vibevoice
 provider = "openai"     # Supported: openai, ollama, agent
 
 [tts]
-provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, speechify, vibevoice
+provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice
 
 # Provider credentials
 
@@ -93,6 +93,13 @@ keyterms = []           # Bias the decoder toward domain words
 api_key = ""            # Required for LLM, and for OpenAI STT if selected
 model = "gpt-4o-mini"
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
+base_url = ""           # Optional. Any endpoint speaking OpenAI's protocol — DeepSeek
+                        # (https://api.deepseek.com/v1, model deepseek-chat), Moonshot
+                        # (https://api.moonshot.cn/v1), Qwen, MiniMax. Empty targets OpenAI.
+                        # Prefer a non-reasoning model here: reasoning models emit their
+                        # thinking before the answer, and on a voice call that is dead air.
+                        # Note this is unrelated to [ollama] base_url, which speaks Ollama's
+                        # own protocol — the two are not interchangeable
 
 [ollama]
 base_url = "http://localhost:11434"  # Ollama server URL
