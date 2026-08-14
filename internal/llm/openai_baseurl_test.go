@@ -61,7 +61,7 @@ func TestOpenAIBaseURLRedirectsRequests(t *testing.T) {
 	f := newFakeOpenAICompatible(t)
 
 	c := NewOpenAIClient("test-key", "deepseek-chat", "sys", f.server.URL+"/v1")
-	if _, err := c.Chat(context.Background(), "hello", nil, nil); err != nil {
+	if _, err := c.Chat(context.Background(), Turn{Text: "hello", Prompt: "hello"}, nil, nil); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 
@@ -80,7 +80,7 @@ func TestOpenAIBaseURLTrimsTrailingSlash(t *testing.T) {
 	f := newFakeOpenAICompatible(t)
 
 	c := NewOpenAIClient("k", "m", "sys", f.server.URL+"/v1/")
-	if _, err := c.Chat(context.Background(), "hello", nil, nil); err != nil {
+	if _, err := c.Chat(context.Background(), Turn{Text: "hello", Prompt: "hello"}, nil, nil); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 

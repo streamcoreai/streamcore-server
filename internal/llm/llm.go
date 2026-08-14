@@ -28,9 +28,41 @@ type ToolResult struct {
 	Output string
 }
 
+// Turn is one caller utterance plus whatever context the pipeline gathered for
+// it.
+//
+// The split exists because providers need it in two shapes. A stateless model
+// only reads one message, so its context has to be folded into that message —
+// Prompt. An external agent keeps its own conversation and stores what it is
+// sent, so folding context in would file "[Context: …] User: what's my balance"
+// as the caller's words. It gets Text and the pieces separately.
+type Turn struct {
+	// Text is what the caller said. Never decorated.
+	Text string
+
+	// Prompt is Text with the context below folded in, for providers that carry
+	// context in the message. Equal to Text when there is none.
+	Prompt string
+
+	// InterruptedText is what the agent was saying when the caller cut in.
+	// Empty unless this turn follows a barge-in.
+	InterruptedText string
+
+	// Context holds retrieved RAG chunks.
+	Context []string
+
+	// Summary is the rolling digest of earlier turns, kept so facts from the
+	// start of a long call survive past the model's history window.
+	Summary string
+
+	// Note is a per-turn instruction, currently the nudge to ask again when the
+	// caller's speech arrived garbled. Instruction, not content.
+	Note string
+}
+
 // Client is the interface that all LLM providers must implement.
 type Client interface {
-	Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error)
+	Chat(ctx context.Context, turn Turn, onChunk func(string), onSentence func(string)) (string, error)
 	// OneShot makes a single non-streaming call independent of conversation
 	// state. Used for focused transformations such as summarisation.
 	OneShot(ctx context.Context, system, user string) (string, error)

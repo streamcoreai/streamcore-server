@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func TestChatForwardsTheResourceID(t *testing.T) {
 	agent := newCaptureAgent(t)
 	client := agent.client("user_8891")
 
-	if _, err := client.Chat(context.Background(), "hello", nil, nil); err != nil {
+	if _, err := client.Chat(context.Background(), Turn{Text: "hello", Prompt: "hello"}, nil, nil); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 
@@ -80,7 +81,7 @@ func TestResourceIDIsOmittedWhenUnknown(t *testing.T) {
 	defer srv.Close()
 
 	client := NewAgentClient(srv.URL, "", 0, "")
-	if _, err := client.Chat(context.Background(), "hello", nil, nil); err != nil {
+	if _, err := client.Chat(context.Background(), Turn{Text: "hello", Prompt: "hello"}, nil, nil); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 
@@ -93,16 +94,83 @@ func TestResourceIDIsOmittedWhenUnknown(t *testing.T) {
 	}
 }
 
+// The whole reason Turn is split: an agent that persists what it receives must
+// end up with the caller's words in its thread, not the pipeline's scaffolding.
+// Prompt carries that scaffolding for stateless models and must never be sent.
+func TestContextTravelsBesideTextNotInsideIt(t *testing.T) {
+	agent := newCaptureAgent(t)
+	client := agent.client("user_8891")
+
+	turn := Turn{
+		Text:            "what's my balance",
+		Prompt:          "[Context:\nbalance is 42\n]\n\nUser: what's my balance",
+		InterruptedText: "your account was",
+		Context:         []string{"balance is 42"},
+		Summary:         "caller asked about fees earlier",
+		Note:            " (speech was unclear, ask them to repeat)",
+	}
+	if _, err := client.Chat(context.Background(), turn, nil, nil); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	got := agent.requests[0]
+	if got.Text != "what's my balance" {
+		t.Errorf("text = %q, want the caller's words verbatim", got.Text)
+	}
+	if strings.Contains(got.Text, "[Context:") {
+		t.Errorf("prompt scaffolding leaked into text: %q", got.Text)
+	}
+	if got.InterruptedText != "your account was" {
+		t.Errorf("interrupted_text = %q", got.InterruptedText)
+	}
+	if len(got.Context) != 1 || got.Context[0] != "balance is 42" {
+		t.Errorf("context = %v", got.Context)
+	}
+	if got.Summary != "caller asked about fees earlier" {
+		t.Errorf("summary = %q", got.Summary)
+	}
+	// The note is an instruction, so it rides with the skill text.
+	if !strings.Contains(got.System, "ask them to repeat") {
+		t.Errorf("system = %q, want the per-turn note appended", got.System)
+	}
+}
+
+// A plain turn carries no extras, so they stay off the wire entirely.
+func TestPlainTurnSendsNoContextFields(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"text":"ok."}`))
+	}))
+	defer srv.Close()
+
+	client := NewAgentClient(srv.URL, "", 0, "")
+	if _, err := client.Chat(context.Background(), Turn{Text: "hi", Prompt: "hi"}, nil, nil); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	for _, absent := range []string{"interrupted_text", "context", "summary", "resource_id"} {
+		if _, present := fields[absent]; present {
+			t.Errorf("%s present on a plain turn: %s", absent, body)
+		}
+	}
+}
+
 // Reset drops the history, not the person.
 func TestResetRotatesTheSessionButKeepsTheResource(t *testing.T) {
 	agent := newCaptureAgent(t)
 	client := agent.client("user_8891")
 
-	if _, err := client.Chat(context.Background(), "first", nil, nil); err != nil {
+	if _, err := client.Chat(context.Background(), Turn{Text: "first", Prompt: "first"}, nil, nil); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
 	client.Reset()
-	if _, err := client.Chat(context.Background(), "second", nil, nil); err != nil {
+	if _, err := client.Chat(context.Background(), Turn{Text: "second", Prompt: "second"}, nil, nil); err != nil {
 		t.Fatalf("Chat after reset: %v", err)
 	}
 

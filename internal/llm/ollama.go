@@ -114,7 +114,9 @@ func (c *ollamaClient) AppendSystemPrompt(text string) {
 	}
 }
 
-func (c *ollamaClient) Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error) {
+func (c *ollamaClient) Chat(ctx context.Context, turn Turn, onChunk func(string), onSentence func(string)) (string, error) {
+	// Prompt, not Text — see the openai client.
+	userText := turn.Prompt
 	c.mu.Lock()
 	c.history = append(c.history, api.Message{
 		Role:    "user",

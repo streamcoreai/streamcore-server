@@ -26,16 +26,23 @@ import (
 // Request (POST <url>, application/json):
 //
 //	{
-//	  "session_id":  "9f2c…",  // stable for the conversation; rotates on Reset
-//	  "resource_id": "…",      // who is on the call; omitted when unknown
-//	  "type":        "chat",   // "chat" for a user turn, "oneshot" for a stateless transform
-//	  "text":        "…",      // the transcribed user turn (or the oneshot user text)
-//	  "system":      "…"       // skill text appended by the server; oneshot system prompt
+//	  "session_id":       "9f2c…", // stable for the conversation; rotates on Reset
+//	  "resource_id":      "…",     // who is on the call; omitted when unknown
+//	  "type":             "chat",  // "chat" for a user turn, "oneshot" for a stateless transform
+//	  "text":             "…",     // exactly what the caller said
+//	  "system":           "…",     // skill text, plus any instruction for this turn
+//	  "interrupted_text": "…",     // what the agent was saying when cut off
+//	  "context":          ["…"],   // retrieved chunks, when RAG is on
+//	  "summary":          "…"      // rolling digest of earlier turns
 //	}
 //
 // session_id scopes one conversation, resource_id the person behind it, so an
 // agent can remember a caller between calls. It comes from a verified JWT claim
 // or a trusted server-side caller, and survives a resume unchanged.
+//
+// Everything after system is context rather than speech, and is kept out of
+// text on purpose: an agent that stores what it receives should end up with the
+// caller's words in its history, not the server's scaffolding around them.
 //
 // Accepted responses, by Content-Type:
 //
@@ -91,16 +98,27 @@ type agentRequest struct {
 	Type       string `json:"type"`
 	Text       string `json:"text"`
 	System     string `json:"system,omitempty"`
+
+	// Context the pipeline gathered for this turn, kept out of Text so an agent
+	// that persists what it receives stores the caller's words and nothing else.
+	InterruptedText string   `json:"interrupted_text,omitempty"`
+	Context         []string `json:"context,omitempty"`
+	Summary         string   `json:"summary,omitempty"`
 }
 
-func (c *agentClient) Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error) {
+func (c *agentClient) Chat(ctx context.Context, turn Turn, onChunk func(string), onSentence func(string)) (string, error) {
 	c.mu.Lock()
 	req := agentRequest{
 		SessionID:  c.sessionID,
 		ResourceID: c.resourceID,
 		Type:       "chat",
-		Text:       userText,
-		System:     c.extraSystem,
+		Text:       turn.Text,
+		// Note is an instruction for this turn only, so it rides with the skill
+		// text rather than accumulating into it.
+		System:          c.extraSystem + turn.Note,
+		InterruptedText: turn.InterruptedText,
+		Context:         turn.Context,
+		Summary:         turn.Summary,
 	}
 	c.mu.Unlock()
 
