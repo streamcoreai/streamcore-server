@@ -142,3 +142,25 @@ Content-Type: application/sdp
 ## 鉴权
 
 设置 `server.jwt_secret` 后，`/whip` 会要求 `Authorization: Bearer <jwt>`。设置该项时，服务还会暴露 `POST /token`，签发有效期 1 小时的 HS256 token。再设置 `server.api_key`，则 `/token` 本身也要求 `Authorization: Bearer <api_key>`，这样只有你的后端才能签发会话 token。两者默认都为空，即关闭鉴权。
+
+### 通话方身份
+
+`POST /token` 接受一个可选的请求体，用于标明这个 token 属于谁：
+
+```json
+{ "resource_id": "user_8891" }
+```
+
+该值会作为 `sub` claim 签进 token，`/whip` 再以 `resource_id` 字段转发给外部 agent（参见[自带 agent](./bring-your-own-agent.zh-CN.md)）。`session_id` 划定的是一次对话，而它划定的是跨越所有对话的那个人——正是它让 agent 能认出昨天挂断、今天又打回来的来电者。
+
+请在这里签发，而不要让客户端自行上报：`/token` 由你的后端调用，它持有 API key，本来就知道当前登录的是哪个用户；而 `/whip` 是由浏览器调用的。页面无法伪造一个它签不出来的 claim。
+
+没有 token 端点、直接拨 `/whip` 的服务端客户端可以改为发送：
+
+```http
+X-StreamCore-Resource-Id: +14155550123
+```
+
+该请求头**仅在**请求不带已签名 claim 时才会被采纳，因此永远无法覆盖 claim。它同时也不在 CORS 的 `Access-Control-Allow-Headers` 列表中，这意味着浏览器根本发不出这个头——它是留给受信任的服务端调用方的，例如 [sip-server](../../sip-server/README.zh-CN.md)，它会把来电号码填进去。
+
+身份始终是可选的。不提供身份的部署只会在 agent 请求中省略 `resource_id`，agent 退回到按会话划定记忆。

@@ -193,7 +193,9 @@ func New(
 		return nil, err
 	}
 	if conv == nil {
-		if conv, err = NewConversationState(cfg); err != nil {
+		// No identity here: a Session always builds the conversation itself and
+		// passes it in, so reaching this means there is no session.
+		if conv, err = NewConversationState(cfg, ""); err != nil {
 			return nil, err
 		}
 	}

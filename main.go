@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -153,6 +154,10 @@ func corsMiddleware(next http.Handler) http.Handler {
 // Clients call POST /token to get a token before connecting to /whip.
 // If apiKey is non-empty, the request must include a matching
 // Authorization: Bearer <apiKey> header.
+//
+// The body may carry {"resource_id": "..."} to bind the token to a caller.
+// It is minted here rather than accepted at /whip because this endpoint is
+// called by a backend holding the API key, which already knows who its user is.
 func tokenHandler(secret, apiKey string) http.HandlerFunc {
 	secretBytes := []byte(secret)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -170,11 +175,24 @@ func tokenHandler(secret, apiKey string) http.HandlerFunc {
 			}
 		}
 
+		// Most callers want a plain anonymous token and send no body, so a
+		// missing or unparseable one is not an error.
+		var body struct {
+			ResourceID string `json:"resource_id"`
+		}
+		if r.Body != nil {
+			json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
+		}
+
 		now := time.Now()
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		claims := jwt.MapClaims{
 			"iat": now.Unix(),
 			"exp": now.Add(1 * time.Hour).Unix(),
-		})
+		}
+		if resourceID := strings.TrimSpace(body.ResourceID); resourceID != "" {
+			claims["sub"] = resourceID
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 		signed, err := token.SignedString(secretBytes)
 		if err != nil {
@@ -190,6 +208,9 @@ func tokenHandler(secret, apiKey string) http.HandlerFunc {
 // jwtMiddleware validates a Bearer token in the Authorization header using
 // HMAC-SHA256. It wraps a handler and rejects requests with missing or
 // invalid tokens with 401 Unauthorized.
+//
+// A "sub" claim is passed through to the handler as the caller identity, read
+// only after the signature checks out.
 func jwtMiddleware(secret string, next http.HandlerFunc) http.HandlerFunc {
 	secretBytes := []byte(secret)
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +227,7 @@ func jwtMiddleware(secret string, next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		tokenStr := strings.TrimPrefix(auth, "Bearer ")
-		_, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.ErrSignatureInvalid
 			}
@@ -215,6 +236,10 @@ func jwtMiddleware(secret string, next http.HandlerFunc) http.HandlerFunc {
 		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
+		}
+
+		if subject, err := token.Claims.GetSubject(); err == nil && subject != "" {
+			r = r.WithContext(signaling.WithResourceID(r.Context(), subject))
 		}
 
 		next(w, r)

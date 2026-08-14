@@ -31,6 +31,7 @@ Each request is JSON:
 ```json
 {
   "session_id": "9f2c…",
+  "resource_id": "user_8891",
   "type": "chat",
   "text": "what the caller said",
   "system": "skill text appended by the server, if any"
@@ -38,6 +39,10 @@ Each request is JSON:
 ```
 
 `session_id` is stable for the conversation and rotates on reset. `type` is `"chat"` for a user turn, or `"oneshot"` for stateless background transforms such as the rolling summary (then `system` and `text` carry the transform's prompt pair).
+
+`resource_id` identifies **who** is on the call, where `session_id` identifies **which call**. Use it to scope memory to the person: keyed on `session_id` alone, an agent starts over every time someone rings back. It is omitted entirely when the deployment asserts no identity, so treat its absence as anonymous rather than as an empty user.
+
+It comes from a signed JWT claim minted by your backend, or from a trusted server-side caller — [sip-server](../../sip-server/README.md) sets it to the far end's phone number — and never from the browser. It also survives a reset and a reconnect unchanged: the conversation may start over, but the person on the line has not changed. See [Protocol → Caller identity](./protocol.md#caller-identity) for how to assert it.
 
 ### What your agent sends back
 
@@ -78,6 +83,8 @@ data: [DONE]
 ```
 
 Whichever shape you pick, the concatenated text is exactly what the caller hears — reply with plain conversational words, not markdown. `"oneshot"` requests are answered the same way (buffered JSON is fine there; the result is used internally, never spoken). A complete agent is ~10 lines of Flask or Express: read `text`, look up `session_id`, return words.
+
+**Runnable example:** [`examples/bring-your-own-agent`](../../examples/bring-your-own-agent) implements this endpoint twice — Node and Python, both dependency-free — with streaming, barge-in cancellation, `oneshot` handling, and separate memory for the conversation and the person. Start it with `node agent.mjs`, point `[agent] url` at it, and call in.
 
 ## 3. Point the model layer at your own infrastructure
 

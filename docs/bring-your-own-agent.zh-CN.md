@@ -31,6 +31,7 @@ timeout_ms = 60000      # 单轮总预算，含流式返回回复的时间
 ```json
 {
   "session_id": "9f2c…",
+  "resource_id": "user_8891",
   "type": "chat",
   "text": "用户这一轮说的话",
   "system": "服务端追加的技能文本（如有）"
@@ -38,6 +39,10 @@ timeout_ms = 60000      # 单轮总预算，含流式返回回复的时间
 ```
 
 `session_id` 在整段对话中保持不变，重置时轮换。`type` 为 `"chat"` 表示一轮用户对话；`"oneshot"` 表示无状态的后台变换（如滚动摘要），此时 `system` 与 `text` 携带该变换的提示词。
+
+`resource_id` 标识通话里的**是谁**，而 `session_id` 标识的是**哪一通**。用它把记忆划到人身上：只按 `session_id` 划分的话，对方每次打回来 agent 都要从头认识一遍。部署未提供身份时该字段会被整个省略，因此请把「不存在」当作匿名，而不是当作一个空用户。
+
+它来自你的后端签发的 JWT claim，或来自受信任的服务端调用方——[sip-server](../../sip-server/README.zh-CN.md) 会填入对端的电话号码——绝不会来自浏览器。它也会原封不动地跨过重置与重连：对话可以从头开始，但线那头的人没有变。如何签发见[协议 → 通话方身份](./protocol.zh-CN.md#通话方身份)。
 
 ### 你的智能体需要怎么回复
 
@@ -78,6 +83,8 @@ data: [DONE]
 ```
 
 无论选哪种格式，拼接后的文本就是来电者听到的内容 —— 请返回口语化的纯文字，不要 markdown。`"oneshot"` 请求用同样的方式回复（用缓冲的 JSON 即可，结果只做内部使用、不会播报）。一个完整的智能体只需约 10 行 Flask 或 Express：读取 `text`，按 `session_id` 查会话，返回文字。
+
+**可运行示例：**[`examples/bring-your-own-agent`](../../examples/bring-your-own-agent) 用 Node 与 Python 各实现了一份该端点，均零依赖，涵盖流式返回、插话取消、`oneshot` 处理，以及对话与人两层独立记忆。用 `node agent.mjs` 启动，把 `[agent] url` 指过去，打进来即可。
 
 ## 3. 把模型层指向你自己的基础设施
 
