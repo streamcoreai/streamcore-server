@@ -150,3 +150,25 @@ Messages the client sends on the same channel are routed into the pipeline — c
 ## Auth
 
 Set `server.jwt_secret` to require `Authorization: Bearer <jwt>` on `/whip`. When it is set, the server also exposes `POST /token`, which issues an HS256 token valid for one hour. Set `server.api_key` to require `Authorization: Bearer <api_key>` on `/token` itself, so only your backend can mint session tokens. Both are empty by default, which disables auth.
+
+### Caller identity
+
+`POST /token` accepts an optional body naming who the token is for:
+
+```json
+{ "resource_id": "user_8891" }
+```
+
+The value is signed into the token as its `sub` claim, and `/whip` forwards it to an external agent as `resource_id` (see [Bring your own agent](./bring-your-own-agent.md)). Where `session_id` scopes one conversation, this scopes the person across all of them — it is what lets an agent recognise a caller who hung up yesterday and rang back today.
+
+Mint it here rather than sending it from the client: `/token` is called by your backend, which holds the API key and already knows which user is signed in, while `/whip` is called by the browser. A page cannot forge a claim it never signs.
+
+Server-side clients that dial `/whip` directly without a token endpoint may instead send:
+
+```http
+X-StreamCore-Resource-Id: +14155550123
+```
+
+The header is consulted **only** when the request carries no signed claim, so it can never override one. It is also absent from the CORS `Access-Control-Allow-Headers` list, which means browsers cannot send it at all — it exists for trusted server-side callers such as [sip-server](../../sip-server/README.md), which sets it to the number a call came from.
+
+Identity is optional throughout. A deployment that asserts none simply omits `resource_id` from agent requests, and the agent falls back to session-scoped memory.

@@ -39,10 +39,14 @@ type ConversationState struct {
 
 // NewConversationState builds the durable half of a call.
 //
+// resourceID is who is on the call, empty when nobody was identified. It lives
+// on the conversation rather than the Pipeline so it survives a redial, same as
+// the message history.
+//
 // In realtime mode no LLM client is constructed: the speech-to-speech provider
 // replaces STT, LLM, and TTS at once, and building one would demand API keys
 // for a provider this deployment does not use.
-func NewConversationState(cfg *config.Config) (*ConversationState, error) {
+func NewConversationState(cfg *config.Config, resourceID string) (*ConversationState, error) {
 	state := &ConversationState{
 		Log:                  &TranscriptLog{},
 		rollingSummary:       &atomic.Value{},
@@ -50,7 +54,7 @@ func NewConversationState(cfg *config.Config) (*ConversationState, error) {
 	}
 
 	if !cfg.RealtimeEnabled() {
-		client, err := llm.NewClient(cfg)
+		client, err := llm.NewClient(cfg, resourceID)
 		if err != nil {
 			return nil, err
 		}

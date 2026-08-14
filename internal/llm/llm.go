@@ -41,7 +41,10 @@ type Client interface {
 }
 
 // NewClient returns an LLM client for the configured provider.
-func NewClient(cfg *config.Config) (Client, error) {
+//
+// resourceID is who is on the call, empty when nobody was identified. Only the
+// "agent" provider uses it; the others keep the conversation in-process.
+func NewClient(cfg *config.Config, resourceID string) (Client, error) {
 	switch cfg.LLM.Provider {
 	case "openai":
 		if cfg.OpenAI.APIKey == "" {
@@ -54,7 +57,7 @@ func NewClient(cfg *config.Config) (Client, error) {
 		if cfg.Agent.URL == "" {
 			return nil, fmt.Errorf("llm provider %q requires [agent] url to be set", cfg.LLM.Provider)
 		}
-		return NewAgentClient(cfg.Agent.URL, cfg.Agent.APIKey, cfg.Agent.TimeoutMs), nil
+		return NewAgentClient(cfg.Agent.URL, cfg.Agent.APIKey, cfg.Agent.TimeoutMs, resourceID), nil
 	default:
 		return nil, fmt.Errorf("unknown llm provider %q (supported: openai, ollama, agent)", cfg.LLM.Provider)
 	}

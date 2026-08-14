@@ -51,6 +51,31 @@ type Session struct {
 	// a live conversation should be neither. Single-use — every resume issues
 	// a fresh one.
 	resumeToken string
+
+	// resourceID is who is on the call, from a verified JWT claim or a trusted
+	// server-side caller. Empty when the deployment offers no identity. An
+	// external agent uses it to scope memory to the person; the session ID only
+	// covers this one call.
+	resourceID string
+}
+
+// SetResourceID binds an identity to the session once. Later calls are ignored
+// so a redial cannot hand an in-flight conversation to someone else.
+func (s *Session) SetResourceID(resourceID string) {
+	if resourceID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resourceID == "" {
+		s.resourceID = resourceID
+	}
+}
+
+func (s *Session) ResourceID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resourceID
 }
 
 // newResumeToken returns a high-entropy single-use token. crypto/rand rather
@@ -168,7 +193,8 @@ func (s *Session) conversation() (*pipeline.ConversationState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.conv == nil {
-		conv, err := pipeline.NewConversationState(s.cfg)
+		// Read the field directly, not ResourceID() — the mutex is already held.
+		conv, err := pipeline.NewConversationState(s.cfg, s.resourceID)
 		if err != nil {
 			return nil, err
 		}

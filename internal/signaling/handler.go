@@ -184,6 +184,11 @@ func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager)
 		log.Printf("[whip] creating session %s", ses.ID)
 	}
 
+	// Must happen before AddPeer, which builds the conversation and the LLM
+	// client that forwards the identity. SetResourceID does not overwrite, so a
+	// resumed session keeps whoever it started with.
+	ses.SetResourceID(resolveResourceID(r))
+
 	sessionID := ses.ID
 	peerID := sessionID
 	p, err := ses.AddPeer(peerID, direction)

@@ -26,11 +26,16 @@ import (
 // Request (POST <url>, application/json):
 //
 //	{
-//	  "session_id": "9f2c…",   // stable for the conversation; rotates on Reset
-//	  "type":       "chat",    // "chat" for a user turn, "oneshot" for a stateless transform
-//	  "text":       "…",       // the transcribed user turn (or the oneshot user text)
-//	  "system":     "…"        // skill text appended by the server; oneshot system prompt
+//	  "session_id":  "9f2c…",  // stable for the conversation; rotates on Reset
+//	  "resource_id": "…",      // who is on the call; omitted when unknown
+//	  "type":        "chat",   // "chat" for a user turn, "oneshot" for a stateless transform
+//	  "text":        "…",      // the transcribed user turn (or the oneshot user text)
+//	  "system":      "…"       // skill text appended by the server; oneshot system prompt
 //	}
+//
+// session_id scopes one conversation, resource_id the person behind it, so an
+// agent can remember a caller between calls. It comes from a verified JWT claim
+// or a trusted server-side caller, and survives a resume unchanged.
 //
 // Accepted responses, by Content-Type:
 //
@@ -43,6 +48,10 @@ type agentClient struct {
 	apiKey string
 	http   *http.Client
 
+	// Fixed for the life of the client. Unlike sessionID, a Reset leaves it
+	// alone: the conversation starts over, the caller has not changed.
+	resourceID string
+
 	mu          sync.Mutex
 	sessionID   string
 	extraSystem string // accumulated skill text, forwarded on every turn
@@ -50,8 +59,8 @@ type agentClient struct {
 
 // NewAgentClient returns a Client that proxies turns to an external agent
 // endpoint. timeoutMs bounds a whole turn including streaming the reply;
-// zero means 60s.
-func NewAgentClient(url, apiKey string, timeoutMs int) Client {
+// zero means 60s. An empty resourceID is omitted from every request.
+func NewAgentClient(url, apiKey string, timeoutMs int, resourceID string) Client {
 	if timeoutMs <= 0 {
 		timeoutMs = 60000
 	}
@@ -62,10 +71,11 @@ func NewAgentClient(url, apiKey string, timeoutMs int) Client {
 		IdleConnTimeout:     90 * time.Second,
 	}
 	return &agentClient{
-		url:       url,
-		apiKey:    apiKey,
-		http:      &http.Client{Transport: transport, Timeout: time.Duration(timeoutMs) * time.Millisecond},
-		sessionID: newAgentSessionID(),
+		url:        url,
+		apiKey:     apiKey,
+		http:       &http.Client{Transport: transport, Timeout: time.Duration(timeoutMs) * time.Millisecond},
+		sessionID:  newAgentSessionID(),
+		resourceID: resourceID,
 	}
 }
 
@@ -76,19 +86,21 @@ func newAgentSessionID() string {
 }
 
 type agentRequest struct {
-	SessionID string `json:"session_id"`
-	Type      string `json:"type"`
-	Text      string `json:"text"`
-	System    string `json:"system,omitempty"`
+	SessionID  string `json:"session_id"`
+	ResourceID string `json:"resource_id,omitempty"`
+	Type       string `json:"type"`
+	Text       string `json:"text"`
+	System     string `json:"system,omitempty"`
 }
 
 func (c *agentClient) Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error) {
 	c.mu.Lock()
 	req := agentRequest{
-		SessionID: c.sessionID,
-		Type:      "chat",
-		Text:      userText,
-		System:    c.extraSystem,
+		SessionID:  c.sessionID,
+		ResourceID: c.resourceID,
+		Type:       "chat",
+		Text:       userText,
+		System:     c.extraSystem,
 	}
 	c.mu.Unlock()
 
@@ -106,10 +118,11 @@ func (c *agentClient) OneShot(ctx context.Context, system, user string) (string,
 	c.mu.Unlock()
 
 	out, err := c.do(ctx, agentRequest{
-		SessionID: sessionID,
-		Type:      "oneshot",
-		Text:      user,
-		System:    system,
+		SessionID:  sessionID,
+		ResourceID: c.resourceID,
+		Type:       "oneshot",
+		Text:       user,
+		System:     system,
 	}, nil, nil)
 	if err != nil {
 		return "", err
