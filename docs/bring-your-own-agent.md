@@ -34,11 +34,25 @@ Each request is JSON:
   "resource_id": "user_8891",
   "type": "chat",
   "text": "what the caller said",
-  "system": "skill text appended by the server, if any"
+  "system": "skill text appended by the server, if any",
+  "interrupted_text": "what the agent was saying when cut off",
+  "context": ["retrieved chunk", "…"],
+  "summary": "rolling digest of earlier turns"
 }
 ```
 
 `session_id` is stable for the conversation and rotates on reset. `type` is `"chat"` for a user turn, or `"oneshot"` for stateless background transforms such as the rolling summary (then `system` and `text` carry the transform's prompt pair).
+
+**`text` is always exactly what the caller said.** The server never folds context into it. That matters for any agent that persists what it receives: if retrieval results and barge-in notices were spliced into the message, your conversation history would fill up with `[Context: …] User: what's my balance` instead of `what's my balance`, and every later turn would read that back as the caller's own words.
+
+The context travels alongside instead, and every field is optional:
+
+| Field | When it appears | What to do with it |
+|---|---|---|
+| `interrupted_text` | The caller barged in over the agent's last reply | What the caller actually heard. Useful to avoid repeating yourself, and to correct what you stored — the caller heard this much, not the whole reply you generated |
+| `context` | `[rag]` is enabled and the turn matched | Retrieved chunks. Fold them into your prompt, or ignore them if your agent does its own retrieval |
+| `summary` | A long call, after the rolling summary kicks in | The server's digest of earlier turns. Largely redundant if your agent has its own memory |
+| `system` | Skills are configured, or a turn arrived garbled | Instructions rather than content. Prepend to your system prompt |
 
 `resource_id` identifies **who** is on the call, where `session_id` identifies **which call**. Use it to scope memory to the person: keyed on `session_id` alone, an agent starts over every time someone rings back. It is omitted entirely when the deployment asserts no identity, so treat its absence as anonymous rather than as an empty user.
 

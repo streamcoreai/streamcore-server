@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/streamcoreai/streamcore-server/internal/audio"
+	"github.com/streamcoreai/streamcore-server/internal/llm"
 	"github.com/streamcoreai/streamcore-server/internal/procstat"
 	"github.com/streamcoreai/streamcore-server/internal/rag"
 	"github.com/streamcoreai/streamcore-server/internal/tts"
@@ -112,7 +113,9 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 	// user's intent without dumping the previous response — like a human would.
 	// For longer interruptions we include brief prior context so the LLM can
 	// pick up naturally.
-	llmInput := userText
+	// turn.Text stays the caller's words throughout; turn.Prompt accumulates the
+	// same context inline for providers that can only read one message.
+	turn := llm.Turn{Text: userText, Prompt: userText}
 	if interrupted, _ := p.interruptedText.Load().(string); interrupted != "" {
 		p.interruptedText.Store("")
 		trimmedUser := strings.TrimSpace(strings.ToLower(userText))
@@ -120,14 +123,15 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 		if len(words) <= 2 {
 			// Short interruption — user is redirecting, not adding new info.
 			// Just let the LLM know it was cut off so it doesn't repeat itself.
-			llmInput = fmt.Sprintf("[You were interrupted mid-response. The user said: '%s'. Respond to what they said — do not continue or repeat your previous answer.]", userText)
+			turn.Prompt = fmt.Sprintf("[You were interrupted mid-response. The user said: '%s'. Respond to what they said — do not continue or repeat your previous answer.]", userText)
 		} else {
 			// Longer interruption — include brief context of what agent was saying.
 			if len(interrupted) > 150 {
 				interrupted = "..." + interrupted[len(interrupted)-150:]
 			}
-			llmInput = fmt.Sprintf("[You were interrupted while saying: '%s'. The user said: '%s'. Address what the user said.]", interrupted, userText)
+			turn.Prompt = fmt.Sprintf("[You were interrupted while saying: '%s'. The user said: '%s'. Address what the user said.]", interrupted, userText)
 		}
+		turn.InterruptedText = interrupted
 	}
 
 	timing := &procstat.TurnTiming{}
@@ -163,21 +167,26 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 				log.Printf("[agent] RAG search error: %v", err)
 			} else if len(chunks) > 0 {
 				timing.RAGChunks = len(chunks)
-				llmInput = fmt.Sprintf("[Context:\n%s]\n\nUser: %s", strings.Join(chunks, "\n---\n"), llmInput)
+				turn.Context = chunks
+				turn.Prompt = fmt.Sprintf("[Context:\n%s]\n\nUser: %s", strings.Join(chunks, "\n---\n"), turn.Prompt)
 			}
 		}
 	}
 
 	// Prepend the rolling summary so facts from early in a long call survive
 	// after the LLM's own history window has dropped them.
-	if block := summaryContextBlock(p.currentRollingSummary()); block != "" {
-		llmInput = block + llmInput
+	if summary := p.currentRollingSummary(); summary != "" {
+		turn.Summary = summary
+		if block := summaryContextBlock(summary); block != "" {
+			turn.Prompt = block + turn.Prompt
+		}
 	}
 
 	// When the caller's speech came through garbled, tell the model to ask
 	// rather than guess. Escalates with consecutive low-confidence turns.
 	if note := p.misunderstandingNote(userText); note != "" {
-		llmInput += note
+		turn.Note = note
+		turn.Prompt += note
 	}
 
 	p.lastAgentText.Store("")
@@ -199,7 +208,7 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 	}()
 
 	llmFirstToken := true
-	_, err := p.llmClient.Chat(respCtx, llmInput,
+	_, err := p.llmClient.Chat(respCtx, turn,
 		func(chunk string) {
 			if llmFirstToken && p.cfg.Pipeline.Debug && !turnStart.IsZero() {
 				llmFirstToken = false

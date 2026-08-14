@@ -135,7 +135,10 @@ func (c *openaiClient) AppendSystemPrompt(text string) {
 // If the LLM returns tool calls, they are executed via the tool handler
 // and the results are fed back for a follow-up response. This loop
 // continues until the LLM produces a text response.
-func (c *openaiClient) Chat(ctx context.Context, userText string, onChunk func(string), onSentence func(string)) (string, error) {
+func (c *openaiClient) Chat(ctx context.Context, turn Turn, onChunk func(string), onSentence func(string)) (string, error) {
+	// Prompt, not Text: the model has no memory of its own, so any context the
+	// pipeline gathered has to travel inside the message.
+	userText := turn.Prompt
 	c.mu.Lock()
 	// Reconcile history before adding the new user message. If a previous
 	// Chat call was interrupted mid-tool-execution (barge-in or new turn),
