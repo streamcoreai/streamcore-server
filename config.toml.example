@@ -33,7 +33,7 @@ turn_merge_ms = 350          # Debounce window for merging finals into one turn.
 provider = ""           # Supported: grok (empty = classic pipeline)
 
 [stt]
-provider = "deepgram"   # Supported: deepgram, openai, assemblyai, vibevoice
+provider = "deepgram"   # Supported: deepgram, openai, assemblyai, vibevoice, volcengine
 
 [llm]
 provider = "openai"     # Supported: openai, ollama, agent
@@ -156,6 +156,19 @@ model = ""              # Optional; defaults to speech-2.6-turbo (low latency). 
 asr_url = "ws://127.0.0.1:8200"    # WebSocket URL for VibeVoice ASR server
 tts_url = "http://127.0.0.1:8300"  # HTTP URL for VibeVoice TTS server
 voice = "en-Emma_woman"             # TTS voice name
+
+# Volcengine (Doubao) streaming ASR. Used when stt.provider = "volcengine".
+# Useful where Deepgram is slow to reach or its Mandarin is not good enough;
+# the console gives a free hourly allowance to start with.
+[volcengine]
+api_key = ""            # Required. The console's API key, sent as X-Api-Key.
+                        # The older app-id + access-token pair is rejected here
+resource_id = ""        # Optional; defaults to volc.seedasr.sauc.duration (hourly plan).
+                        # volc.seedasr.sauc.concurrent bills by concurrency instead
+model = ""              # Optional; defaults to bigmodel
+url = ""                # Optional; defaults to wss://openspeech.bytedance.com/api/v3/sauc/bigmodel
+end_window_ms = 0       # Optional; silence (ms) that settles an utterance, defaults to 800.
+                        # Same role as [deepgram] endpointing
 
 # Vision (used by the vision-analyze plugin)
 # The plugin reads OPENAI_API_KEY from the environment (same key as [openai]).
