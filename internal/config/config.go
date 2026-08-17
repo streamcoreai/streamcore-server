@@ -33,6 +33,7 @@ type Config struct {
 	Ollama     OllamaConfig     `toml:"ollama"`
 	Agent      AgentConfig      `toml:"agent"`
 	VibeVoice  VibeVoiceConfig  `toml:"vibevoice"`
+	Volcengine VolcengineConfig `toml:"volcengine"`
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
 	Speechify  SpeechifyConfig  `toml:"speechify"`
@@ -319,6 +320,22 @@ type VibeVoiceConfig struct {
 	ASRURL string `toml:"asr_url"` // WebSocket URL for the ASR server
 	TTSURL string `toml:"tts_url"` // HTTP URL for the TTS server
 	Voice  string `toml:"voice"`   // TTS voice name
+}
+
+// VolcengineConfig configures Volcengine (Doubao) streaming ASR.
+type VolcengineConfig struct {
+	// APIKey is the console's API key, sent as X-Api-Key. The older
+	// app-id-plus-access-token pair does not work against these resources.
+	APIKey string `toml:"api_key"`
+	// ResourceID selects the plan: volc.seedasr.sauc.duration bills by the
+	// hour, volc.seedasr.sauc.concurrent by concurrency. Empty uses duration.
+	ResourceID string `toml:"resource_id"`
+	Model      string `toml:"model"`
+	// URL overrides the endpoint. Empty uses the streaming bigmodel endpoint.
+	URL string `toml:"url"`
+	// EndWindowMs is the silence that ends an utterance, the same knob as
+	// [deepgram] endpointing. Empty uses 300.
+	EndWindowMs int `toml:"end_window_ms"`
 }
 
 // Load reads configuration from a TOML file. It tries the given path first,
