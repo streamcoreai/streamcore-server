@@ -32,13 +32,13 @@ turn_merge_ms = 350                  # Debounce window for merging finals into o
 provider = ""                        # "grok", or empty for the classic pipeline
 
 [stt]
-provider = "deepgram"
+provider = "deepgram"                # aliyun | assemblyai | deepgram | openai | vibevoice | volcengine
 
 [llm]
-provider = "openai"
+provider = "openai"                  # openai | ollama | agent
 
 [tts]
-provider = "cartesia"
+provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | vibevoice
 
 # [grok]                             # Used when realtime.provider = "grok"
 # api_key = ""
@@ -67,6 +67,19 @@ utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes
 # format_turns = true                # Auto-punctuate and capitalise the final turn
 # end_of_turn_silence_ms = 0         # Override how long the model waits before ending a turn
 # keyterms = []
+
+# [aliyun]                           # Alibaba Cloud Model Studio (DashScope) streaming ASR
+# api_key = ""
+# model = ""                         # Defaults to paraformer-realtime-v2; fun-asr-realtime is the alternative
+# language = ""                      # Hint for a multilingual model ("zh", "en"); empty auto-detects
+# vocabulary_id = ""                 # Hotword list from the console, for terms it keeps getting wrong
+# url = ""                           # Defaults to wss://dashscope.aliyuncs.com/api-ws/v1/inference
+
+# [volcengine]                       # Doubao streaming ASR
+# api_key = ""                       # Console API key, sent as X-Api-Key; app-id + access-token is rejected
+# resource_id = ""                   # Defaults to volc.seedasr.sauc.duration (hourly); .concurrent bills by concurrency
+# model = ""                         # Defaults to bigmodel
+# end_window_ms = 0                  # Silence that settles an utterance, defaults to 800. Same role as endpointing
 
 [openai]
 api_key = ""
@@ -159,6 +172,8 @@ Provider keys use each provider's conventional variable name; secrets owned by t
 | `STREAMCORE_AGENT_API_KEY` | `agent.api_key` |
 | `DEEPGRAM_API_KEY` | `deepgram.api_key` |
 | `ASSEMBLYAI_API_KEY` | `assemblyai.api_key` |
+| `ALIYUN_API_KEY` | `aliyun.api_key` |
+| `VOLCENGINE_API_KEY` | `volcengine.api_key` |
 | `OPENAI_API_KEY` | `openai.api_key` |
 | `XAI_API_KEY` | `grok.api_key` |
 | `CARTESIA_API_KEY` | `cartesia.api_key` |

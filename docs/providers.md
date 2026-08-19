@@ -4,9 +4,9 @@
 
 | Role | Providers | Required credentials |
 |------|-----------|----------------------|
-| STT | `deepgram`, `assemblyai`, `openai`, `vibevoice` | Deepgram API key, AssemblyAI API key, OpenAI API key, or a local VibeVoice ASR server |
+| STT | `aliyun`, `assemblyai`, `deepgram`, `openai`, `vibevoice`, `volcengine` | Matching provider API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama`, `agent` | OpenAI API key, an Ollama instance you control, or your own HTTP agent endpoint |
-| TTS | `cartesia`, `deepgram`, `elevenlabs`, `minimax`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
+| TTS | `cartesia`, `deepgram`, `elevenlabs`, `mimo`, `minimax`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | Speech-to-speech | `grok` | xAI API key — replaces STT, LLM, and TTS together |
 | RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
 
@@ -17,6 +17,9 @@ Notes:
 - `llm.provider = "agent"` POSTs each turn to an HTTP endpoint you host; your agent owns memory, prompting, and tools, and replies stream back as SSE, chunked text, or JSON. See [Bring your own agent](./bring-your-own-agent.md).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.
 - `tts.provider = "minimax"` covers 40+ languages and is the strongest option for Mandarin. See [MiniMax TTS](#minimax-tts) for the region and model-plan caveats.
+- `tts.provider = "mimo"` is Xiaomi's MiMo TTS, with Chinese and English voices and optional voice cloning on the paid models.
+- `stt.provider = "aliyun"` is Alibaba Cloud Model Studio (DashScope) streaming ASR; `vocabulary_id` biases it toward domain terms.
+- `stt.provider = "volcengine"` is Doubao streaming ASR — useful where Deepgram is slow to reach or its Mandarin is not good enough. The console gives a free hourly allowance.
 - `realtime.provider = "grok"` switches to speech-to-speech and ignores `[stt]`, `[llm]`, and `[tts]` entirely.
 
 Every key and knob lives in the [configuration reference](./configuration.md).

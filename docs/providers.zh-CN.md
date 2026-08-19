@@ -4,9 +4,9 @@
 
 | 角色 | 服务商 | 所需凭据 |
 |------|-----------|----------------------|
-| STT | `deepgram`、`assemblyai`、`openai`、`vibevoice` | Deepgram API key、AssemblyAI API key、OpenAI API key，或一个本地 VibeVoice ASR 服务 |
+| STT | `aliyun`、`assemblyai`、`deepgram`、`openai`、`vibevoice`、`volcengine` | 对应服务商的 API key，或一个本地 VibeVoice ASR 服务 |
 | LLM | `openai`、`ollama`、`agent` | OpenAI API key、你自己掌控的 Ollama 实例，或你自己的 HTTP 智能体端点 |
-| TTS | `cartesia`、`deepgram`、`elevenlabs`、`minimax`、`speechify`、`vibevoice` | 对应服务商的 API key，或一个本地 VibeVoice TTS 服务 |
+| TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`speechify`、`vibevoice` | 对应服务商的 API key，或一个本地 VibeVoice TTS 服务 |
 | 语音到语音 | `grok` | xAI API key —— 一并取代 STT、LLM 与 TTS |
 | RAG（可选） | `pgvector`、`supabase` | Postgres 连接串或 Supabase URL + key，另需 OpenAI key 用于 embedding |
 
@@ -17,6 +17,9 @@
 - `llm.provider = "agent"` 把每一轮对话 POST 到你托管的 HTTP 端点；记忆、提示词与工具都由你的智能体掌控，回复以 SSE、分块文本或 JSON 流式返回。见[接入你自己的智能体](./bring-your-own-agent.zh-CN.md)。
 - `stt.provider = "vibevoice"` 与 `tts.provider = "vibevoice"` 使用本地模型；请先启动 Python 边车进程。
 - `tts.provider = "minimax"` 覆盖 40+ 语言，是中文场景下最强的选项。区域与套餐相关的坑见 [MiniMax TTS](#minimax-tts)。
+- `tts.provider = "mimo"` 是小米 MiMo TTS，中英文音色齐备，付费模型还支持声音克隆。
+- `stt.provider = "aliyun"` 是阿里云百炼（DashScope）流式 ASR；`vocabulary_id` 可以把模型往你的领域词上带。
+- `stt.provider = "volcengine"` 是豆包流式 ASR —— 适合 Deepgram 访问慢、或它的中文识别不够好的场景。控制台有免费时长可以先试。
 - `realtime.provider = "grok"` 切换到语音到语音模式，并完全忽略 `[stt]`、`[llm]` 与 `[tts]`。
 
 所有 key 与可调项都在[配置参考](./configuration.zh-CN.md)里。
