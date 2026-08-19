@@ -9,6 +9,10 @@
 **Talk to your AI over WebRTC — with interruption, streaming speech, and NAT traversal handled.**<br/>
 One Go binary. Bring your own agent.
 
+### [▶ Talk to it now at streamcore.ai](https://streamcore.ai)
+
+No install, no signup — browser mic, and you can cut it off mid-sentence.
+
 [![CI](https://github.com/streamcoreai/streamcore-server/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/streamcoreai/streamcore-server/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/github/go-mod/go-version/streamcoreai/streamcore-server?logo=go&logoColor=white)](./go.mod)
 [![WHIP RFC 9725](https://img.shields.io/badge/WHIP-RFC%209725-6f42c1)](https://www.rfc-editor.org/rfc/rfc9725.html)
@@ -17,7 +21,7 @@ One Go binary. Bring your own agent.
 [![Discord](https://img.shields.io/badge/join%20us%20on-discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/xKGFaGWawT)
 [![Follow @jasonshen_](https://img.shields.io/badge/follow-%40jasonshen__-000000?logo=x&logoColor=white)](https://x.com/jasonshen_)
 
-[**Quick start**](#quick-start) · [**Docs**](./docs/) · [**Demo**](#demo) · [**SDKs**](#sdks-and-examples) · [**Roadmap**](./docs/roadmap.md) · [**Discord**](https://discord.gg/xKGFaGWawT) · [简体中文](./README.zh-CN.md)
+[**Live demo**](https://streamcore.ai) · [**Quick start**](#quick-start) · [**Docs**](./docs/) · [**SDKs**](#sdks-and-examples) · [**Roadmap**](./docs/roadmap.md) · [**Discord**](https://discord.gg/xKGFaGWawT) · [简体中文](./README.zh-CN.md)
 
 </div>
 
@@ -33,9 +37,14 @@ Built with it: voice agents, realtime copilots, live translation, AI-hosted audi
 
 ## Demo
 
+**[streamcore.ai](https://streamcore.ai) runs this repo.** Open it, hit *Start Conversation*, and interrupt the agent
+while it is talking. Per-turn STT, LLM, and TTS latency is on screen while you do it.
+
 <a href="https://streamcore.ai" target="_blank">
-  <img src="https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-e4ee3f1f1a14a51d.jpg" alt="Demo Video" />
+  <img src="https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-e4ee3f1f1a14a51d.jpg" alt="Talk to the live demo at streamcore.ai" />
 </a>
+
+Prefer a recording? [Watch the walkthrough](https://www.loom.com/share/ee079aca75aa4fa1ba6a5e51302fbd56).
 
 ## Quick start
 

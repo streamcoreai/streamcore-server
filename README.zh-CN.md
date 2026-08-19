@@ -9,6 +9,10 @@
 **通过 WebRTC 与你的 AI 对话 —— 插话打断、流式语音、NAT 穿透全部就绪。**<br/>
 一个 Go 二进制，智能体依然归你。
 
+### [▶ 立即在 streamcore.ai 对话](https://streamcore.ai)
+
+无需安装、无需注册 —— 打开浏览器麦克风，你可以随时把它打断。
+
 [![CI](https://github.com/streamcoreai/streamcore-server/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/streamcoreai/streamcore-server/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/github/go-mod/go-version/streamcoreai/streamcore-server?logo=go&logoColor=white)](./go.mod)
 [![WHIP RFC 9725](https://img.shields.io/badge/WHIP-RFC%209725-6f42c1)](https://www.rfc-editor.org/rfc/rfc9725.html)
@@ -17,7 +21,7 @@
 [![Discord](https://img.shields.io/badge/join%20us%20on-discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/xKGFaGWawT)
 [![Follow @jasonshen_](https://img.shields.io/badge/follow-%40jasonshen__-000000?logo=x&logoColor=white)](https://x.com/jasonshen_)
 
-[**快速开始**](#快速开始) · [**文档**](./docs/README.zh-CN.md) · [**演示**](#演示) · [**SDK**](#sdk-与示例) · [**路线图**](./docs/roadmap.zh-CN.md) · [**Discord**](https://discord.gg/xKGFaGWawT) · [English](./README.md)
+[**在线演示**](https://streamcore.ai) · [**快速开始**](#快速开始) · [**文档**](./docs/README.zh-CN.md) · [**SDK**](#sdk-与示例) · [**路线图**](./docs/roadmap.zh-CN.md) · [**Discord**](https://discord.gg/xKGFaGWawT) · [English](./README.md)
 
 </div>
 
@@ -33,9 +37,14 @@ StreamCore 正是处理这一切的那一层。它掌管用户与你的 AI 之�
 
 ## 演示
 
+**[streamcore.ai](https://streamcore.ai) 跑的就是这个仓库。** 打开页面点 *Start Conversation*，在它说话时直接插话打断，
+屏幕上会实时显示每一轮的 STT、LLM、TTS 延迟。
+
 <a href="https://streamcore.ai" target="_blank">
-  <img src="https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-e4ee3f1f1a14a51d.jpg" alt="Demo Video" />
+  <img src="https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-e4ee3f1f1a14a51d.jpg" alt="在 streamcore.ai 与它对话" />
 </a>
+
+想先看录屏？[观看演示视频](https://www.loom.com/share/ee079aca75aa4fa1ba6a5e51302fbd56)。
 
 ## 快速开始
 
