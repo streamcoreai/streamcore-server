@@ -20,6 +20,24 @@ const (
 	turnMergeIncomplete = 900 * time.Millisecond
 )
 
+// mergeWait returns how long to hold a pending turn before answering it.
+//
+// Terminal punctuation wins over a dangling-looking tail word. The tail list
+// exists to hold open utterances with no closer ("I already fixed it" — the
+// caller is still going), but it also matches pronouns, so a sentence the
+// provider punctuated as finished ("I already fixed it.") was taking the long
+// incomplete window too. When the STT has already judged the thought complete,
+// believe it; only an unpunctuated dangling tail extends the wait.
+func mergeWait(text string, base time.Duration) time.Duration {
+	if endsTerminal(text) {
+		return base
+	}
+	if endsIncomplete(text) || endsDictation(text) {
+		return turnMergeIncomplete
+	}
+	return base
+}
+
 // runTurnBuffer debounces final transcripts into whole turns. It waits a
 // short window after each final; a further final inside that window is merged
 // and the window restarts. The wait adapts to how the text ends:
@@ -98,12 +116,7 @@ func (p *Pipeline) runTurnBuffer() {
 			}
 
 			// A caller still mid-thought gets a longer grace period.
-			wait := base
-			if endsIncomplete(pending.Text) || endsDictation(pending.Text) {
-				wait = turnMergeIncomplete
-			} else if endsTerminal(pending.Text) {
-				wait = base
-			}
+			wait := mergeWait(pending.Text, base)
 			if elapsed := time.Since(turnBegan); elapsed+wait > turnMergeMax {
 				if remaining := turnMergeMax - elapsed; remaining > 0 {
 					wait = remaining
