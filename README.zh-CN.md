@@ -33,7 +33,7 @@ StreamCore 正是处理这一切的那一层。它掌管用户与你的 AI 之�
 
 ## 演示
 
-<a href="https://www.loom.com/share/ee079aca75aa4fa1ba6a5e51302fbd56" target="_blank">
+<a href="https://streamcore.ai" target="_blank">
   <img src="https://cdn.loom.com/sessions/thumbnails/ee079aca75aa4fa1ba6a5e51302fbd56-e4ee3f1f1a14a51d.jpg" alt="Demo Video" />
 </a>
 
