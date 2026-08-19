@@ -3,6 +3,7 @@ package config
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -81,6 +82,55 @@ func TestConfigExampleDocumentsEveryField(t *testing.T) {
 		sort.Strings(missing)
 		t.Fatalf("config.toml.example does not document: %s", strings.Join(missing, ", "))
 	}
+}
+
+// Every credential must be settable from the environment, with no exceptions —
+// a provider you can only configure through the file is one you cannot deploy
+// in a container without baking the secret into an image.
+func TestEveryCredentialHasAnEnvOverride(t *testing.T) {
+	covered := make(map[string]struct{}, len(envOverrides))
+	cfg := &Config{}
+	for _, o := range envOverrides {
+		covered[fmt.Sprintf("%p", o.field(cfg))] = struct{}{}
+	}
+
+	var missing []string
+	for _, path := range configPaths(reflect.TypeOf(Config{}), "") {
+		name := path[strings.LastIndex(path, ".")+1:]
+		if name != "api_key" && name != "connection_string" {
+			continue
+		}
+		if _, ok := covered[fmt.Sprintf("%p", fieldByTOMLPath(cfg, path))]; !ok {
+			missing = append(missing, path)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("no environment override for: %s", strings.Join(missing, ", "))
+	}
+}
+
+// fieldByTOMLPath resolves a dotted path of TOML tags to the string field it
+// names, so the test can compare against the pointers envOverrides hands out.
+func fieldByTOMLPath(cfg *Config, path string) *string {
+	value := reflect.ValueOf(cfg).Elem()
+	for segment := range strings.SplitSeq(path, ".") {
+		found := false
+		for i := 0; i < value.NumField(); i++ {
+			if value.Type().Field(i).Tag.Get("toml") == segment {
+				value = value.Field(i)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+	if value.Kind() != reflect.String {
+		return nil
+	}
+	return value.Addr().Interface().(*string)
 }
 
 // writeConfig writes a TOML file and returns its path.

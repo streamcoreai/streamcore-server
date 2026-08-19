@@ -506,6 +506,8 @@ var envOverrides = []struct {
 	{"STREAMCORE_AGENT_API_KEY", func(c *Config) *string { return &c.Agent.APIKey }},
 	{"DEEPGRAM_API_KEY", func(c *Config) *string { return &c.Deepgram.APIKey }},
 	{"ASSEMBLYAI_API_KEY", func(c *Config) *string { return &c.AssemblyAI.APIKey }},
+	{"ALIYUN_API_KEY", func(c *Config) *string { return &c.Aliyun.APIKey }},
+	{"VOLCENGINE_API_KEY", func(c *Config) *string { return &c.Volcengine.APIKey }},
 	{"OPENAI_API_KEY", func(c *Config) *string { return &c.OpenAI.APIKey }},
 	{"XAI_API_KEY", func(c *Config) *string { return &c.Grok.APIKey }},
 	{"CARTESIA_API_KEY", func(c *Config) *string { return &c.Cartesia.APIKey }},
