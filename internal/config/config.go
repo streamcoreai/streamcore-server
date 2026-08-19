@@ -34,6 +34,7 @@ type Config struct {
 	Agent      AgentConfig      `toml:"agent"`
 	VibeVoice  VibeVoiceConfig  `toml:"vibevoice"`
 	Volcengine VolcengineConfig `toml:"volcengine"`
+	Aliyun     AliyunConfig     `toml:"aliyun"`
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
 	Speechify  SpeechifyConfig  `toml:"speechify"`
@@ -320,6 +321,21 @@ type VibeVoiceConfig struct {
 	ASRURL string `toml:"asr_url"` // WebSocket URL for the ASR server
 	TTSURL string `toml:"tts_url"` // HTTP URL for the TTS server
 	Voice  string `toml:"voice"`   // TTS voice name
+}
+
+// AliyunConfig configures Alibaba Cloud Model Studio (DashScope) streaming ASR.
+type AliyunConfig struct {
+	APIKey string `toml:"api_key"`
+	// Model is the realtime recognition model. Empty uses
+	// paraformer-realtime-v2; fun-asr-realtime is the alternative.
+	Model string `toml:"model"`
+	// Language biases a multilingual model ("zh", "en"). Empty auto-detects.
+	Language string `toml:"language"`
+	// VocabularyID selects a hotword list created in the console, for domain
+	// terms the model keeps getting wrong.
+	VocabularyID string `toml:"vocabulary_id"`
+	// URL overrides the endpoint. Empty uses the public DashScope one.
+	URL string `toml:"url"`
 }
 
 // VolcengineConfig configures Volcengine (Doubao) streaming ASR.

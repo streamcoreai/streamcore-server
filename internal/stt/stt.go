@@ -41,6 +41,11 @@ func NewClient(ctx context.Context, cfg *config.Config, onResult func(Transcript
 			return nil, fmt.Errorf("stt provider %q requires [assemblyai] api_key to be set", cfg.STT.Provider)
 		}
 		return NewAssemblyAIClient(ctx, cfg.AssemblyAI, onResult)
+	case "aliyun":
+		if cfg.Aliyun.APIKey == "" {
+			return nil, fmt.Errorf("stt provider %q requires [aliyun] api_key to be set", cfg.STT.Provider)
+		}
+		return NewAliyunClient(ctx, cfg.Aliyun, onResult)
 	case "volcengine":
 		if cfg.Volcengine.APIKey == "" {
 			return nil, fmt.Errorf("stt provider %q requires [volcengine] api_key to be set", cfg.STT.Provider)
@@ -49,6 +54,6 @@ func NewClient(ctx context.Context, cfg *config.Config, onResult func(Transcript
 	case "vibevoice":
 		return NewVibeVoiceClient(ctx, cfg.VibeVoice.ASRURL, onResult)
 	default:
-		return nil, fmt.Errorf("unknown stt provider %q (supported: deepgram, openai, assemblyai, vibevoice, volcengine)", cfg.STT.Provider)
+		return nil, fmt.Errorf("unknown stt provider %q (supported: aliyun, assemblyai, deepgram, openai, vibevoice, volcengine)", cfg.STT.Provider)
 	}
 }
