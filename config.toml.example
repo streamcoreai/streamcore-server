@@ -33,7 +33,7 @@ turn_merge_ms = 350          # Debounce window for merging finals into one turn.
 provider = ""           # Supported: grok (empty = classic pipeline)
 
 [stt]
-provider = "deepgram"   # Supported: deepgram, openai, assemblyai, vibevoice, volcengine
+provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, openai, vibevoice, volcengine
 
 [llm]
 provider = "openai"     # Supported: openai, ollama, agent
@@ -156,6 +156,17 @@ model = ""              # Optional; defaults to speech-2.6-turbo (low latency). 
 asr_url = "ws://127.0.0.1:8200"    # WebSocket URL for VibeVoice ASR server
 tts_url = "http://127.0.0.1:8300"  # HTTP URL for VibeVoice TTS server
 voice = "en-Emma_woman"             # TTS voice name
+
+# Alibaba Cloud Model Studio (DashScope) streaming ASR. Used when
+# stt.provider = "aliyun". Get an API key at https://bailian.console.aliyun.com/
+[aliyun]
+api_key = ""            # Required
+model = ""              # Optional; defaults to paraformer-realtime-v2.
+                        # fun-asr-realtime is the alternative
+language = ""           # Optional hint for a multilingual model ("zh", "en"). Empty auto-detects
+vocabulary_id = ""      # Optional; a hotword list created in the console, for domain
+                        # terms the model keeps getting wrong
+url = ""                # Optional; defaults to wss://dashscope.aliyuncs.com/api-ws/v1/inference
 
 # Volcengine (Doubao) streaming ASR. Used when stt.provider = "volcengine".
 # Useful where Deepgram is slow to reach or its Mandarin is not good enough;
