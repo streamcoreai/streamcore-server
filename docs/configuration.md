@@ -14,6 +14,12 @@ port = "8080"
 # session_grace_ms = 30000  # Grace period before a session with no peers is reaped (allows ICE restart / redial)
 # max_sessions = 0     # Global cap on live sessions; past it POST /whip returns 503 + Retry-After. 0 = unlimited
 
+[debug]
+bind = ""                      # Empty disables pprof; use 127.0.0.1:6060 and an SSH tunnel in production
+allow_public = false            # Must be true to bind pprof to a non-loopback address
+block_profile_rate = 0          # 1 records every blocking event; 0 disables block profiling
+mutex_profile_fraction = 0      # 1 records every mutex contention event; 0 disables mutex profiling
+
 [plugins]
 directory = "./plugins"
 
@@ -144,6 +150,8 @@ Notes:
 
 - `server.public_ip` plus `server.turn_secret` enables the built-in Pion STUN/TURN server, replacing an external coturn container. TURN listens on UDP and TCP 3478 and relays media on UDP 50001–60000.
 - `server.max_sessions` bounds the blast radius of distributed clients: the per-IP rate limit cannot, and every session burns CPU and provider spend. Past the cap, `POST /whip` returns 503 with `Retry-After`; session resumes are exempt, since they reattach to a session that is already counted. Size it to what one instance can actually serve.
+- `debug.bind` enables Go's pprof handlers on a separate listener. Keep it on loopback and reach it through an SSH tunnel; a non-loopback address is rejected unless `debug.allow_public = true` explicitly acknowledges that profiles expose process data and CPU profiles consume resources. The public server never serves `/debug/pprof/`.
+- `debug.block_profile_rate` and `debug.mutex_profile_fraction` enable the corresponding runtime profiles while the debug listener is active. Both default to `0` (off); set either to `1` to record every event while diagnosing contention.
 - `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
 - `pipeline.barge_in` lets users interrupt the agent while it is speaking. Agent audio ducks as soon as the caller starts talking over it and recovers if the interruption turns out to be a backchannel.
 - `pipeline.greeting` plays when a session connects. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
@@ -157,6 +165,14 @@ Notes:
 - `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.
 - `minimax.base_url` selects the region. Leave it unset for the global endpoint; mainland-China accounts must point it at `https://api.minimaxi.com/v1`, since keys do not work across the two platforms.
 - `minimax.model` must match your plan: a Token Plan key (`sk-cp-`) only covers `speech-2.8-hd`, while any other model bills pay-as-you-go and errors with `2056` on a zero balance.
+
+With `debug.bind = "127.0.0.1:6060"`, collect the profiles most useful for a long-running server with:
+
+```bash
+go tool pprof http://localhost:6060/debug/pprof/heap
+go tool pprof http://localhost:6060/debug/pprof/profile  # collects a 30-second CPU profile
+curl 'http://localhost:6060/debug/pprof/goroutine?debug=2'
+```
 
 ## Secrets from environment variables
 

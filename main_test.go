@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/streamcoreai/streamcore-server/internal/config"
 	"github.com/streamcoreai/streamcore-server/internal/signaling"
 )
 
@@ -118,5 +121,50 @@ func TestResourceIDCannotBeMintedWithoutTheAPIKey(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestPublicMuxDoesNotServePprof(t *testing.T) {
+	mux := newPublicMux(func(http.ResponseWriter, *http.Request) {}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestDebugServerServesPprofOnLoopback(t *testing.T) {
+	srv, err := startDebugServer(config.DebugConfig{Bind: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatalf("startDebugServer: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown debug server: %v", err)
+		}
+	})
+
+	resp, err := http.Get("http://" + srv.Addr + "/debug/pprof/")
+	if err != nil {
+		t.Fatalf("GET pprof index: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestDebugServerRejectsPublicBindWithoutAcknowledgement(t *testing.T) {
+	_, err := startDebugServer(config.DebugConfig{Bind: "0.0.0.0:0"})
+	if err == nil {
+		t.Fatal("public debug bind was accepted without allow_public")
+	}
+	if !strings.Contains(err.Error(), "debug.allow_public = true") {
+		t.Fatalf("error = %q, want allow_public guidance", err)
 	}
 }
