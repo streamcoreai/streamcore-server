@@ -9,6 +9,12 @@ api_key = ""            # API key required to call POST /token. Leave empty to a
 session_grace_ms = 30000 # How long a session with no connected peers is kept before it is reaped. The window lets a client recover a dropped connection (ICE restart or redial) without losing the conversation.
 max_sessions = 0        # Global cap on live sessions; past it POST /whip returns 503 with Retry-After. 0 = unlimited. Each session burns CPU and provider spend, so set this to what one instance can actually serve.
 
+[debug]
+bind = ""                      # pprof listener. Empty disables it; use 127.0.0.1:6060 and an SSH tunnel in production.
+allow_public = false            # Required acknowledgement when bind is not loopback. Public pprof endpoints expose process data and can consume CPU.
+block_profile_rate = 0          # Average nanoseconds blocked per sample; 1 records every event. 0 disables block profiling.
+mutex_profile_fraction = 0      # Sample 1 in this many mutex contention events; 1 records every event. 0 disables mutex profiling.
+
 [plugins]
 directory = "./plugins"     # Required if you want plugins and skills loaded
 

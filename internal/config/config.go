@@ -19,6 +19,7 @@ import (
 // then unused.
 type Config struct {
 	Server     ServerConfig     `toml:"server"`
+	Debug      DebugConfig      `toml:"debug"`
 	Plugins    PluginsConfig    `toml:"plugins"`
 	Pipeline   PipelineConfig   `toml:"pipeline"`
 	Realtime   RealtimeConfig   `toml:"realtime"`
@@ -42,6 +43,13 @@ type Config struct {
 	MiMo       MiMoConfig       `toml:"mimo"`
 	Pgvector   PgvectorConfig   `toml:"pgvector"`
 	Supabase   SupabaseConfig   `toml:"supabase"`
+}
+
+type DebugConfig struct {
+	Bind                 string `toml:"bind"`
+	AllowPublic          bool   `toml:"allow_public"`
+	BlockProfileRate     int    `toml:"block_profile_rate"`
+	MutexProfileFraction int    `toml:"mutex_profile_fraction"`
 }
 
 type PluginsConfig struct {

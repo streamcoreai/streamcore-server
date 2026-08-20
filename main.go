@@ -2,16 +2,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
-
-	"encoding/json"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/streamcoreai/streamcore-server/internal/config"
@@ -27,6 +30,10 @@ func main() {
 	cfg, err := config.Load("")
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+	debugSrv, err := startDebugServer(cfg.Debug)
+	if err != nil {
+		log.Fatalf("debug server: %v", err)
 	}
 
 	if cfg.RealtimeEnabled() {
@@ -72,24 +79,18 @@ func main() {
 
 	sm := session.NewManager(cfg, pluginMgr, ragClient)
 
-	mux := http.NewServeMux()
 	whipHandler := signaling.NewWHIPHandler(sm)
 	if cfg.Server.JWTSecret != "" {
 		log.Println("JWT authentication enabled for /whip")
 		whipHandler = jwtMiddleware(cfg.Server.JWTSecret, whipHandler)
 	}
-	mux.HandleFunc("/whip", whipHandler)
-	mux.HandleFunc("/whip/", whipHandler)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
 
+	var issueToken http.HandlerFunc
 	if cfg.Server.JWTSecret != "" {
-		mux.HandleFunc("/token", tokenHandler(cfg.Server.JWTSecret, cfg.Server.APIKey))
+		issueToken = tokenHandler(cfg.Server.JWTSecret, cfg.Server.APIKey)
 	}
 
-	handler := corsMiddleware(mux)
+	handler := corsMiddleware(newPublicMux(whipHandler, issueToken))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Server.Port,
@@ -130,7 +131,66 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
 	}
+	if debugSrv != nil {
+		if err := debugSrv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("debug HTTP shutdown error: %v", err)
+		}
+	}
 	log.Println("Server stopped")
+}
+
+func newPublicMux(whipHandler, issueToken http.HandlerFunc) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/whip", whipHandler)
+	mux.HandleFunc("/whip/", whipHandler)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	if issueToken != nil {
+		mux.HandleFunc("/token", issueToken)
+	}
+	return mux
+}
+
+func startDebugServer(cfg config.DebugConfig) (*http.Server, error) {
+	if cfg.Bind == "" {
+		return nil, nil
+	}
+	if cfg.BlockProfileRate < 0 {
+		return nil, fmt.Errorf("block_profile_rate must not be negative")
+	}
+	if cfg.MutexProfileFraction < 0 {
+		return nil, fmt.Errorf("mutex_profile_fraction must not be negative")
+	}
+
+	listener, err := net.Listen("tcp", cfg.Bind)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %q: %w", cfg.Bind, err)
+	}
+	if !cfg.AllowPublic {
+		addr, ok := listener.Addr().(*net.TCPAddr)
+		if !ok || !addr.IP.IsLoopback() {
+			listener.Close()
+			return nil, fmt.Errorf("bind %q resolves to a non-loopback address; set debug.allow_public = true to acknowledge public pprof exposure", cfg.Bind)
+		}
+	}
+
+	runtime.SetBlockProfileRate(cfg.BlockProfileRate)
+	runtime.SetMutexProfileFraction(cfg.MutexProfileFraction)
+
+	srv := &http.Server{
+		Addr:              listener.Addr().String(),
+		Handler:           http.DefaultServeMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Printf("Debug pprof server listening on %s", srv.Addr)
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("debug server error: %v", err)
+		}
+	}()
+	return srv, nil
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
