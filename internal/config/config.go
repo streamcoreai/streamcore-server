@@ -331,7 +331,8 @@ type VibeVoiceConfig struct {
 	Voice  string `toml:"voice"`   // TTS voice name
 }
 
-// AliyunConfig configures Alibaba Cloud Model Studio (DashScope) streaming ASR.
+// AliyunConfig configures Alibaba Cloud Model Studio (DashScope), which serves
+// both streaming ASR and streaming TTS from the same endpoint and key.
 type AliyunConfig struct {
 	APIKey string `toml:"api_key"`
 	// Model is the realtime recognition model. Empty uses
@@ -344,6 +345,14 @@ type AliyunConfig struct {
 	VocabularyID string `toml:"vocabulary_id"`
 	// URL overrides the endpoint. Empty uses the public DashScope one.
 	URL string `toml:"url"`
+
+	// TTSModel is the synthesis model used when tts.provider = "aliyun".
+	// Empty uses cosyvoice-v2. Kept separate from Model because one [aliyun]
+	// section can drive both directions at once.
+	TTSModel string `toml:"tts_model"`
+	// Voice is the synthesis voice. Voices are tied to a model generation —
+	// a v1 voice on cosyvoice-v2 is rejected — so change both together.
+	Voice string `toml:"voice"`
 }
 
 // VolcengineConfig configures Volcengine (Doubao) streaming ASR.
