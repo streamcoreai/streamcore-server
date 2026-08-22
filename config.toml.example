@@ -45,7 +45,7 @@ provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, openai, vibev
 provider = "openai"     # Supported: openai, ollama, agent
 
 [tts]
-provider = "cartesia"   # Supported: cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice
+provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice
 
 # Provider credentials
 
@@ -163,15 +163,20 @@ asr_url = "ws://127.0.0.1:8200"    # WebSocket URL for VibeVoice ASR server
 tts_url = "http://127.0.0.1:8300"  # HTTP URL for VibeVoice TTS server
 voice = "en-Emma_woman"             # TTS voice name
 
-# Alibaba Cloud Model Studio (DashScope) streaming ASR. Used when
-# stt.provider = "aliyun". Get an API key at https://bailian.console.aliyun.com/
+# Alibaba Cloud Model Studio (DashScope). One endpoint and one key serve both
+# streaming ASR (stt.provider = "aliyun") and streaming TTS
+# (tts.provider = "aliyun"). Get an API key at https://bailian.console.aliyun.com/
 [aliyun]
 api_key = ""            # Required
-model = ""              # Optional; defaults to paraformer-realtime-v2.
+model = ""              # STT. Optional; defaults to paraformer-realtime-v2.
                         # fun-asr-realtime is the alternative
-language = ""           # Optional hint for a multilingual model ("zh", "en"). Empty auto-detects
-vocabulary_id = ""      # Optional; a hotword list created in the console, for domain
+language = ""           # STT. Optional hint for a multilingual model ("zh", "en"). Empty auto-detects
+vocabulary_id = ""      # STT. Optional; a hotword list created in the console, for domain
                         # terms the model keeps getting wrong
+tts_model = ""          # TTS. Optional; defaults to cosyvoice-v2
+voice = ""              # TTS. Optional; defaults to longxiaochun_v2. Voices are tied to a
+                        # model generation — a v1 voice on cosyvoice-v2 is rejected, so
+                        # change tts_model and voice together
 url = ""                # Optional; defaults to wss://dashscope.aliyuncs.com/api-ws/v1/inference
 
 # Volcengine (Doubao) streaming ASR. Used when stt.provider = "volcengine".
