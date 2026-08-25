@@ -199,13 +199,25 @@ func startDebugServer(cfg config.DebugConfig) (*http.Server, error) {
 		Handler:           newDebugMux(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	go func() {
-		log.Printf("Debug pprof server listening on %s", srv.Addr)
-		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("debug server error: %v", err)
-		}
-	}()
+	go serveDebug(srv, listener)
 	return srv, nil
+}
+
+// serveDebug runs the pprof listener until it stops.
+//
+// A failure here must not end the process. pprof is opt-in and optional; the
+// media pipeline is neither. log.Fatalf would be os.Exit(1), skipping
+// sm.CloseAll() and both graceful shutdowns in main, so an accept error on a
+// profiling socket would drop every live WebRTC call with no cleanup. The main
+// HTTP server keeps log.Fatalf because the process genuinely cannot do its job
+// without that listener; this one it can.
+//
+// Separate from the goroutine literal so a test can prove it returns.
+func serveDebug(srv *http.Server, listener net.Listener) {
+	log.Printf("Debug pprof server listening on %s", srv.Addr)
+	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+		log.Printf("debug server error: %v; continuing without pprof", err)
+	}
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
