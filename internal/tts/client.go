@@ -87,10 +87,16 @@ func newProviderClient(cfg *config.Config) (Client, error) {
 			return nil, ErrMissingAPIKey{Provider: "aliyun", Field: "[aliyun] api_key"}
 		}
 		return NewAliyunClient(cfg.Aliyun.APIKey, cfg.Aliyun.Voice, cfg.Aliyun.TTSModel, cfg.Aliyun.URL), nil
+	case "volcengine":
+		if cfg.Volcengine.APIKey == "" {
+			return nil, ErrMissingAPIKey{Provider: "volcengine", Field: "[volcengine] api_key"}
+		}
+		return NewVolcengineClient(cfg.Volcengine.APIKey, cfg.Volcengine.Speaker,
+			cfg.Volcengine.TTSResourceID, cfg.Volcengine.TTSURL), nil
 	case "vibevoice":
 		return NewVibeVoiceClient(cfg.VibeVoice.TTSURL, cfg.VibeVoice.Voice), nil
 	default:
-		return nil, fmt.Errorf("unknown tts provider %q (supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice)", cfg.TTS.Provider)
+		return nil, fmt.Errorf("unknown tts provider %q (supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice, volcengine)", cfg.TTS.Provider)
 	}
 }
 

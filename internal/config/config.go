@@ -355,7 +355,8 @@ type AliyunConfig struct {
 	Voice string `toml:"voice"`
 }
 
-// VolcengineConfig configures Volcengine (Doubao) streaming ASR.
+// VolcengineConfig configures Volcengine (Doubao), which serves both
+// streaming ASR and streaming TTS from the same console API key.
 type VolcengineConfig struct {
 	// APIKey is the console's API key, sent as X-Api-Key. The older
 	// app-id-plus-access-token pair does not work against these resources.
@@ -369,6 +370,19 @@ type VolcengineConfig struct {
 	// EndWindowMs is the silence that ends an utterance, the same knob as
 	// [deepgram] endpointing. Empty uses 300.
 	EndWindowMs int `toml:"end_window_ms"`
+
+	// TTSResourceID selects the synthesis entitlement, kept separate from
+	// ResourceID because one [volcengine] section can drive both directions.
+	// Empty uses seed-tts-2.0; the 1.0 resource is activated separately.
+	TTSResourceID string `toml:"tts_resource_id"`
+	// Speaker is the synthesis voice. Voices belong to a model generation —
+	// the 2.0 resource takes the `_uranus_bigtts` voices and refuses the
+	// older `_moon_` / `_mars_` / `_jupiter_` ones — so change this and
+	// TTSResourceID together.
+	Speaker string `toml:"speaker"`
+	// TTSURL overrides the synthesis endpoint. Empty uses the bidirectional
+	// streaming one.
+	TTSURL string `toml:"tts_url"`
 }
 
 // Load reads configuration from a TOML file. It tries the given path first,

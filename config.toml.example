@@ -45,7 +45,7 @@ provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, openai, vibev
 provider = "openai"     # Supported: openai, ollama, agent
 
 [tts]
-provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice
+provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice, volcengine
 
 # Provider credentials
 
@@ -179,7 +179,8 @@ voice = ""              # TTS. Optional; defaults to longxiaochun_v2. Voices are
                         # change tts_model and voice together
 url = ""                # Optional; defaults to wss://dashscope.aliyuncs.com/api-ws/v1/inference
 
-# Volcengine (Doubao) streaming ASR. Used when stt.provider = "volcengine".
+# Volcengine (Doubao). One console API key serves both streaming ASR
+# (stt.provider = "volcengine") and streaming TTS (tts.provider = "volcengine").
 # Useful where Deepgram is slow to reach or its Mandarin is not good enough;
 # the console gives a free hourly allowance to start with.
 [volcengine]
@@ -189,8 +190,16 @@ resource_id = ""        # Optional; defaults to volc.seedasr.sauc.duration (hour
                         # volc.seedasr.sauc.concurrent bills by concurrency instead
 model = ""              # Optional; defaults to bigmodel
 url = ""                # Optional; defaults to wss://openspeech.bytedance.com/api/v3/sauc/bigmodel
-end_window_ms = 0       # Optional; silence (ms) that settles an utterance, defaults to 800.
+end_window_ms = 0       # STT. Optional; silence (ms) that settles an utterance, defaults to 800.
                         # Same role as [deepgram] endpointing
+tts_resource_id = ""    # TTS. Optional; defaults to seed-tts-2.0. The 1.0 resource
+                        # (volc.service_type.10029) is a separate entitlement and answers 403
+                        # until it is activated
+speaker = ""            # TTS. Optional; defaults to zh_female_vv_uranus_bigtts. Voices belong to a
+                        # model generation — the 2.0 resource takes the `_uranus_bigtts` voices and
+                        # refuses the older `_moon_` / `_mars_` / `_jupiter_` ones, so change
+                        # speaker and tts_resource_id together
+tts_url = ""            # Optional; defaults to wss://openspeech.bytedance.com/api/v3/tts/bidirection
 
 # Vision (used by the vision-analyze plugin)
 # The plugin reads OPENAI_API_KEY from the environment (same key as [openai]).
