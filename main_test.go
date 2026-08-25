@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -224,5 +226,82 @@ func TestDebugServerRejectsPublicBindWithoutAcknowledgement(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "debug.allow_public = true") {
 		t.Fatalf("error = %q, want allow_public guidance", err)
+	}
+}
+
+// failingListener returns a permanent Accept error, the shape of a listener
+// that has died under a running server. net/http retries temporary errors, so
+// a plain error is what actually terminates Serve.
+type failingListener struct {
+	addr net.Addr
+	err  error
+}
+
+func (l *failingListener) Accept() (net.Conn, error) { return nil, l.err }
+func (l *failingListener) Close() error              { return nil }
+func (l *failingListener) Addr() net.Addr            { return l.addr }
+
+// A dead pprof listener must not take the process down with it.
+//
+// This is the whole point of the change: log.Fatalf is os.Exit(1), which skips
+// sm.CloseAll() and both graceful shutdowns, so an accept error on an optional
+// profiling socket would drop every live WebRTC call. The assertion is that
+// serveDebug *returns* — under the old code this test does not fail, it kills
+// the test binary, which is exactly the failure mode being fixed.
+func TestServeDebugSurvivesAFailedListener(t *testing.T) {
+	addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:6060")
+	if err != nil {
+		t.Fatalf("resolve addr: %v", err)
+	}
+	srv := &http.Server{Addr: addr.String(), Handler: newDebugMux()}
+	listener := &failingListener{addr: addr, err: errors.New("accept: bad file descriptor")}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		serveDebug(srv, listener)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("serveDebug did not return after a permanent Accept error")
+	}
+}
+
+// The main pipeline keeps serving after pprof dies.
+//
+// The previous test proves serveDebug returns; on its own that is satisfied by
+// a serveDebug nobody calls. This one drives the real startDebugServer path,
+// kills the pprof listener underneath it, and then requires the public mux to
+// still answer /health — the observable claim an operator cares about.
+func TestPublicMuxStillServesAfterTheDebugListenerDies(t *testing.T) {
+	debugSrv, err := startDebugServer(config.DebugConfig{Bind: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatalf("startDebugServer: %v", err)
+	}
+	if debugSrv == nil {
+		t.Fatal("startDebugServer returned no server for a non-empty bind")
+	}
+
+	public := httptest.NewServer(newPublicMux(func(http.ResponseWriter, *http.Request) {}, nil))
+	t.Cleanup(public.Close)
+
+	// Close the debug server out from under its own Serve loop. Serve then
+	// returns ErrServerClosed, the same return path a fatal accept error takes.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := debugSrv.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown debug server: %v", err)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(public.URL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health after the debug listener stopped: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 }
