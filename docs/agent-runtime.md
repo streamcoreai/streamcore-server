@@ -144,13 +144,20 @@ table = "documents"
 
 ### Ingesting documents
 
-The server handles query-time retrieval only. Populate your vector store with `streamcore-cli`, a separate Go binary that reads this server's `config.toml`.
-
-> **`streamcore-cli` is not public yet.** `github.com/streamcoreai/streamcore-cli` currently returns 404, so the clone below will fail. The flags and behaviour documented here are accurate for when it ships — until then, ask in [Discord](https://discord.gg/xKGFaGWawT) if you need document ingestion.
+The server handles query-time retrieval only. Populate your vector store with [`streamcore-cli`](https://github.com/streamcoreai/streamcore-cli), a separate Go binary. It stays separate so the PDF, docx and xlsx parsers never end up in the server image.
 
 ```bash
+go install github.com/streamcoreai/streamcore-cli@latest
+
+# or from source
 git clone https://github.com/streamcoreai/streamcore-cli
 cd streamcore-cli && go build -o streamcore-cli .
+```
+
+`streamcore-cli setup` asks for your provider, OpenAI key and credentials, then writes `~/.streamcore/config.toml`. If you already have a server `config.toml`, skip it — the CLI reads the same format and falls back to the server's file, so nothing is configured twice.
+
+```bash
+streamcore-cli setup
 
 # Supports .txt, .md, .csv, .pdf, .docx, .xlsx
 streamcore-cli ingest docs/faq.pdf product-catalog.xlsx notes.md
@@ -158,11 +165,15 @@ streamcore-cli ingest --provider supabase --config ../server/config.toml data.cs
 streamcore-cli ingest --chunk-size 256 --chunk-overlap 32 manual.docx
 ```
 
-The CLI reads your server's `config.toml` for provider credentials, so nothing is configured twice.
+Config is looked up in order: `--config`, `~/.streamcore/config.toml`, `./config.toml`, `../server/config.toml`.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--config` | auto-detected | Path to server `config.toml` |
+| `--config` | `~/.streamcore/config.toml` | Path to config file |
 | `--provider` | from config | Override RAG provider (`pgvector`, `supabase`) |
 | `--chunk-size` | 512 | Target chunk size in words |
 | `--chunk-overlap` | 64 | Overlap between chunks in words |
+
+Ingest and query must use the same `embedding_model`. Vectors written by one model and searched by another are not comparable, and the result is bad retrieval rather than an error — so if you change the model, re-ingest.
+
+Full command reference, supported formats and database DDL: [streamcore-cli README](https://github.com/streamcoreai/streamcore-cli#readme).

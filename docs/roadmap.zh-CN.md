@@ -33,7 +33,7 @@
 
 - [ ] **更多示例**，以印证产品定位：实时翻译、AI 主持的语音房间、浏览器副驾、嵌入式设备、SIP 应用，以及一个完全不含 LLM 的纯音频处理应用。
 - [ ] **嵌入式客户端加固。** [`esp32`](https://github.com/streamcoreai/esp32) 中的 ESP32-S3 固件已能通过 WHIP 连接，但尚未达到生产可用。
-- [ ] **`streamcore-cli` 发布。** RAG 的文档入库文档所依赖的二进制程序尚未公开 —— 见[智能体运行时 → 文档入库](./agent-runtime.zh-CN.md#文档入库)。
+- [x] **`streamcore-cli` 发布。** 已发布为 [`streamcoreai/streamcore-cli`](https://github.com/streamcoreai/streamcore-cli) —— 提供 RAG 文档入库，见[智能体运行时 → 文档入库](./agent-runtime.zh-CN.md#文档入库)。打 tag 的预编译二进制仍在计划中。
 - [ ] **React Native SDK 发布到 npm。** `@streamcore/react-native-sdk` 已完成、可从源码使用，但尚未发布。
 
 ---

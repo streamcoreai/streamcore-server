@@ -144,13 +144,20 @@ table = "documents"
 
 ### 文档入库
 
-服务端只负责查询时的检索。向量库的内容由 `streamcore-cli` 填充 —— 那是一个独立的 Go 二进制，会读取本服务的 `config.toml`。
-
-> **`streamcore-cli` 尚未公开。** `github.com/streamcoreai/streamcore-cli` 目前返回 404，因此下面的 clone 会失败。这里记录的参数与行为在它发布时是准确的 —— 在那之前，如果你需要文档入库，请在 [Discord](https://discord.gg/xKGFaGWawT) 里问一声。
+服务端只负责查询时的检索。向量库的内容由 [`streamcore-cli`](https://github.com/streamcoreai/streamcore-cli) 填充 —— 那是一个独立的 Go 二进制。之所以独立，是为了让 PDF、docx、xlsx 的解析依赖不会进到服务端镜像里。
 
 ```bash
+go install github.com/streamcoreai/streamcore-cli@latest
+
+# 或者从源码构建
 git clone https://github.com/streamcoreai/streamcore-cli
 cd streamcore-cli && go build -o streamcore-cli .
+```
+
+`streamcore-cli setup` 会依次询问服务商、OpenAI key 和凭据，然后写入 `~/.streamcore/config.toml`。如果你已经有服务端的 `config.toml`，可以跳过这一步 —— CLI 读的是同一种格式，会回退到服务端那份文件，因此没有任何东西需要配置两遍。
+
+```bash
+streamcore-cli setup
 
 # 支持 .txt、.md、.csv、.pdf、.docx、.xlsx
 streamcore-cli ingest docs/faq.pdf product-catalog.xlsx notes.md
@@ -158,11 +165,15 @@ streamcore-cli ingest --provider supabase --config ../server/config.toml data.cs
 streamcore-cli ingest --chunk-size 256 --chunk-overlap 32 manual.docx
 ```
 
-CLI 会从服务端的 `config.toml` 读取服务商凭据，因此没有任何东西需要配置两遍。
+配置文件的查找顺序：`--config`、`~/.streamcore/config.toml`、`./config.toml`、`../server/config.toml`。
 
 | 参数 | 默认值 | 说明 |
 |------|---------|-------------|
-| `--config` | 自动探测 | 服务端 `config.toml` 的路径 |
+| `--config` | `~/.streamcore/config.toml` | 配置文件路径 |
 | `--provider` | 取自配置 | 覆盖 RAG 服务商（`pgvector`、`supabase`） |
 | `--chunk-size` | 512 | 目标分块大小（词数） |
 | `--chunk-overlap` | 64 | 分块之间的重叠（词数） |
+
+入库和查询必须使用同一个 `embedding_model`。用一个模型写入、用另一个模型检索出来的向量之间没有可比性，而且不会报错，只会让召回变差 —— 所以换了模型就重新入库一遍。
+
+完整的命令说明、支持的格式和建表 SQL：[streamcore-cli README](https://github.com/streamcoreai/streamcore-cli/blob/main/README.zh-CN.md)。
