@@ -14,16 +14,19 @@ import (
 type embeddingClient struct {
 	apiKey string
 	model  string
+	dims   int // expected output width, 0 for models not in modelDimensions
 	client *http.Client
 }
 
 func newEmbeddingClient(apiKey, model string) *embeddingClient {
 	if model == "" {
-		model = "text-embedding-3-small"
+		model = defaultEmbeddingModel
 	}
+	dims, _ := dimensionsFor(model)
 	return &embeddingClient{
 		apiKey: apiKey,
 		model:  model,
+		dims:   dims,
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -76,5 +79,10 @@ func (e *embeddingClient) Embed(ctx context.Context, text string) ([]float32, er
 		return nil, fmt.Errorf("embedding API returned no data")
 	}
 
-	return result.Data[0].Embedding, nil
+	vec := result.Data[0].Embedding
+	if e.dims > 0 && len(vec) != e.dims {
+		return nil, fmt.Errorf("embedding model %q returned %d dimensions, expected %d", e.model, len(vec), e.dims)
+	}
+
+	return vec, nil
 }

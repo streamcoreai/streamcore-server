@@ -58,6 +58,16 @@ the README badge always reflects the real state of `main`. The Go toolchain
 version comes from `go.mod` via `go-version-file`, so bumping the `go` directive
 is all it takes to move CI with it.
 
+The RAG store tests skip unless there is a database to run against. If you are
+touching `internal/rag`, give them one — they are what keeps the schema in this
+repo and the one `streamcore-cli` writes from drifting apart:
+
+```bash
+docker run -d --name pgvector-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=ragtest \
+    -p 55433:5432 pgvector/pgvector:pg16
+STREAMCORE_TEST_PG=postgres://postgres:test@localhost:55433/ragtest go test -race ./internal/rag/
+```
+
 Formatting and vet failures are the single most common reason a PR sits.
 
 ## Where things live

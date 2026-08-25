@@ -78,10 +78,16 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE documents (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
-    embedding vector(1536),
-    source TEXT
+    embedding vector(1536) NOT NULL,
+    embedding_model TEXT NOT NULL,
+    source TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS documents_embedding_model_idx ON documents (embedding_model);
 ```
+
+`streamcore-cli setup` creates all of this for you; the SQL is here for anyone who would rather run it themselves.
 
 ```toml
 [rag]
@@ -99,10 +105,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE documents (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
-    embedding vector(1536),
+    embedding vector(1536) NOT NULL,
+    embedding_model TEXT NOT NULL,
     source TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS documents_embedding_model_idx ON documents (embedding_model);
 
 CREATE OR REPLACE FUNCTION match_documents(
     query_embedding vector(1536),
@@ -142,9 +151,36 @@ function = "match_documents"
 table = "documents"
 ```
 
+### Embedding model and vector width
+
+Every row records the model that embedded it, and the vector column is sized for that model. Both halves are checked when the server boots, and a store it cannot use is a startup failure rather than retrieval that quietly returns the wrong chunks.
+
+| `embedding_model` | Column type |
+|---|---|
+| `text-embedding-3-small` (default) | `vector(1536)` |
+| `text-embedding-ada-002` | `vector(1536)` |
+| `text-embedding-3-large` | `vector(3072)` |
+
+The width alone is not enough. `ada-002` and `3-small` are both 1536 wide, so vectors written by one and searched with the other produce no error at all — just answers drawn from the wrong chunks. That is what `embedding_model` is for: the server looks for a single row disagreeing with `rag.embedding_model` and refuses to start if it finds one.
+
+For `pgvector` the width comes from the column definition and the model check is one indexed query. For Supabase there is no catalog to read over PostgREST, so both come from rows: an empty table stays unverified until something has been ingested, and a project that is unreachable at boot logs a warning instead of blocking startup.
+
+If you ingested before `embedding_model` existed, the server will tell you so and print this migration:
+
+```sql
+ALTER TABLE documents ADD COLUMN embedding_model TEXT;
+UPDATE documents SET embedding_model = '<the model you ingested with>';
+ALTER TABLE documents ALTER COLUMN embedding_model SET NOT NULL;
+CREATE INDEX IF NOT EXISTS documents_embedding_model_idx ON documents (embedding_model);
+```
+
+Only you know which model those rows came from, which is why the backfill is a placeholder. If you no longer know, re-ingest.
+
 ### Ingesting documents
 
 The server handles query-time retrieval only. Populate your vector store with [`streamcore-cli`](https://github.com/streamcoreai/streamcore-cli), a separate Go binary. It stays separate so the PDF, docx and xlsx parsers never end up in the server image.
+
+Prebuilt binaries for macOS and Linux, both architectures, are on the [releases page](https://github.com/streamcoreai/streamcore-cli/releases). With a Go toolchain:
 
 ```bash
 go install github.com/streamcoreai/streamcore-cli@latest
@@ -154,7 +190,9 @@ git clone https://github.com/streamcoreai/streamcore-cli
 cd streamcore-cli && go build -o streamcore-cli .
 ```
 
-`streamcore-cli setup` asks for your provider, OpenAI key and credentials, then writes `~/.streamcore/config.toml`. If you already have a server `config.toml`, skip it — the CLI reads the same format and falls back to the server's file, so nothing is configured twice.
+`streamcore-cli setup` asks for your provider, OpenAI key and credentials, writes `~/.streamcore/config.toml`, and creates the table with the vector width your chosen model needs. For Supabase it asks for the project's direct Postgres connection string, since PostgREST can insert rows but cannot run DDL; leave that blank and it prints the SQL for the dashboard's editor instead.
+
+If you already have a server `config.toml`, the CLI reads the same format and falls back to the server's file, so credentials are never configured twice.
 
 ```bash
 streamcore-cli setup
@@ -174,6 +212,43 @@ Config is looked up in order: `--config`, `~/.streamcore/config.toml`, `./config
 | `--chunk-size` | 512 | Target chunk size in words |
 | `--chunk-overlap` | 64 | Overlap between chunks in words |
 
-Ingest and query must use the same `embedding_model`. Vectors written by one model and searched by another are not comparable, and the result is bad retrieval rather than an error — so if you change the model, re-ingest.
+Ingest and query must use the same `embedding_model` — see [Embedding model and vector width](#embedding-model-and-vector-width) for which column each model needs. `ingest` checks the store against the configured model before it writes anything, so a mismatch costs one query rather than a table full of unusable vectors.
 
 Full command reference, supported formats and database DDL: [streamcore-cli README](https://github.com/streamcoreai/streamcore-cli#readme).
+
+### End to end
+
+Pick something the model cannot already know. A PDF of your own release notes works; so does a text file you write on the spot.
+
+```bash
+cat > closing-hours.md <<'EOF'
+The Wellington workshop closes at 3pm on the last Friday of every month
+for maintenance. All other Fridays it closes at 6pm.
+EOF
+
+streamcore-cli setup                    # provider, key, model, and the table
+streamcore-cli ingest closing-hours.md
+```
+
+```
+Using config: /Users/you/.streamcore/config.toml
+Processing closing-hours.md ...
+  Extracted 1 chunks
+  Uploaded 1/1 chunks
+Done. 1 chunks uploaded to supabase (text-embedding-3-small).
+```
+
+Point the server at the same config and start it. It reads the table at boot and says nothing if the contract holds:
+
+```
+RAG enabled — provider: supabase
+Voice agent server listening on :8080
+```
+
+Then connect a client and ask *"when does the Wellington workshop close on the last Friday of the month?"* The answer should be 3pm. Ask before ingesting, or against a store built with a different model, and you get a generic non-answer instead — which is the failure this contract exists to make loud.
+
+### Why ingestion is a separate binary
+
+The parsers are the reason. PDF, docx and xlsx pull in dependencies that the server has no use for at query time, and the server image is something people deploy; the ingestion tool is something they run once from a laptop. Keeping them apart means the server image never carries a document parser it will never call.
+
+The cost is a second artifact with its own config, which is why the CLI reads the server's `config.toml` and falls back to it — one set of credentials, two binaries. If that stops holding, the argument for the split is worth revisiting.

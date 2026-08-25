@@ -209,6 +209,9 @@ tts_url = ""            # Optional; defaults to wss://openspeech.bytedance.com/a
 provider = "supabase"   # or "pgvector", or omit entirely to disable
 top_k = 3
 embedding_model = "text-embedding-3-small"  # optional, this is the default
+# The model fixes the column width: text-embedding-3-small and -ada-002 need
+# vector(1536), text-embedding-3-large needs vector(3072). The server checks
+# this against the store at startup and refuses to boot on a mismatch.
 
 [supabase]
 url = "https://xxx.supabase.co"
