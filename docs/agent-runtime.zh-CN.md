@@ -78,10 +78,16 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE documents (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
-    embedding vector(1536),
-    source TEXT
+    embedding vector(1536) NOT NULL,
+    embedding_model TEXT NOT NULL,
+    source TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS documents_embedding_model_idx ON documents (embedding_model);
 ```
+
+`streamcore-cli setup` 会替你建好这一切；这段 SQL 是留给想自己动手的人的。
 
 ```toml
 [rag]
@@ -99,10 +105,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE documents (
     id SERIAL PRIMARY KEY,
     content TEXT NOT NULL,
-    embedding vector(1536),
+    embedding vector(1536) NOT NULL,
+    embedding_model TEXT NOT NULL,
     source TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS documents_embedding_model_idx ON documents (embedding_model);
 
 CREATE OR REPLACE FUNCTION match_documents(
     query_embedding vector(1536),
@@ -142,9 +151,36 @@ function = "match_documents"
 table = "documents"
 ```
 
+### 嵌入模型与向量宽度
+
+每一行都记录了给它做 embedding 的模型，而向量列的宽度也是按那个模型定的。服务端启动时两边都会检查，用不了的向量库会直接导致启动失败，而不是让检索悄悄返回错误的片段。
+
+| `embedding_model` | 列类型 |
+|---|---|
+| `text-embedding-3-small`（默认） | `vector(1536)` |
+| `text-embedding-ada-002` | `vector(1536)` |
+| `text-embedding-3-large` | `vector(3072)` |
+
+光看宽度是不够的。`ada-002` 和 `3-small` 都是 1536 维，用一个写入、用另一个检索，不会报任何错，只会从错误的片段里给出答案。`embedding_model` 就是为此存在的：服务端会去找一行与 `rag.embedding_model` 不一致的记录，找到就拒绝启动。
+
+`pgvector` 的宽度取自列定义，模型检查是一次走索引的查询。Supabase 那边没有可以通过 PostgREST 读到的系统目录，所以两项都靠取行来判断：空表在入库之前无法校验，启动时连不上的项目只记一条警告，不会阻塞启动。
+
+如果你是在 `embedding_model` 这一列出现之前入的库，服务端会告诉你，并打印出这段迁移 SQL：
+
+```sql
+ALTER TABLE documents ADD COLUMN embedding_model TEXT;
+UPDATE documents SET embedding_model = '<你当初入库用的模型>';
+ALTER TABLE documents ALTER COLUMN embedding_model SET NOT NULL;
+CREATE INDEX IF NOT EXISTS documents_embedding_model_idx ON documents (embedding_model);
+```
+
+那些行到底来自哪个模型，只有你自己知道，所以回填的值留成了占位符。要是已经想不起来了，就重新入库一遍。
+
 ### 文档入库
 
 服务端只负责查询时的检索。向量库的内容由 [`streamcore-cli`](https://github.com/streamcoreai/streamcore-cli) 填充 —— 那是一个独立的 Go 二进制。之所以独立，是为了让 PDF、docx、xlsx 的解析依赖不会进到服务端镜像里。
+
+macOS 和 Linux 两种架构的预编译二进制都在[发布页](https://github.com/streamcoreai/streamcore-cli/releases)。如果本机有 Go 工具链：
 
 ```bash
 go install github.com/streamcoreai/streamcore-cli@latest
@@ -154,7 +190,9 @@ git clone https://github.com/streamcoreai/streamcore-cli
 cd streamcore-cli && go build -o streamcore-cli .
 ```
 
-`streamcore-cli setup` 会依次询问服务商、OpenAI key 和凭据，然后写入 `~/.streamcore/config.toml`。如果你已经有服务端的 `config.toml`，可以跳过这一步 —— CLI 读的是同一种格式，会回退到服务端那份文件，因此没有任何东西需要配置两遍。
+`streamcore-cli setup` 会依次询问服务商、OpenAI key 和凭据，写入 `~/.streamcore/config.toml`，并按你选的模型所需的向量宽度把表建好。Supabase 会额外问一个项目的 Postgres 直连串 —— PostgREST 能插入数据，但跑不了 DDL；这一项留空，它就把 SQL 打印出来给你贴到控制台的 SQL 编辑器里。
+
+如果你已经有服务端的 `config.toml`，CLI 读的是同一种格式，会回退到服务端那份文件，因此凭据不需要配置两遍。
 
 ```bash
 streamcore-cli setup
@@ -174,6 +212,43 @@ streamcore-cli ingest --chunk-size 256 --chunk-overlap 32 manual.docx
 | `--chunk-size` | 512 | 目标分块大小（词数） |
 | `--chunk-overlap` | 64 | 分块之间的重叠（词数） |
 
-入库和查询必须使用同一个 `embedding_model`。用一个模型写入、用另一个模型检索出来的向量之间没有可比性，而且不会报错，只会让召回变差 —— 所以换了模型就重新入库一遍。
+入库和查询必须使用同一个 `embedding_model` —— 每个模型对应哪种列，见[嵌入模型与向量宽度](#嵌入模型与向量宽度)。`ingest` 在写入任何数据之前，会先拿配置里的模型去校验向量库，所以对不上的代价是一次查询，而不是一整张写满了用不了的向量的表。
 
 完整的命令说明、支持的格式和建表 SQL：[streamcore-cli README](https://github.com/streamcoreai/streamcore-cli/blob/main/README.zh-CN.md)。
+
+### 端到端跑一遍
+
+挑一份模型不可能已经知道的内容。你自己的发布说明 PDF 可以，现写一个文本文件也可以。
+
+```bash
+cat > closing-hours.md <<'EOF'
+惠灵顿工坊每月最后一个周五下午 3 点闭店做维护。
+其余的周五都是 6 点闭店。
+EOF
+
+streamcore-cli setup                    # 服务商、key、模型，以及建表
+streamcore-cli ingest closing-hours.md
+```
+
+```
+Using config: /Users/you/.streamcore/config.toml
+Processing closing-hours.md ...
+  Extracted 1 chunks
+  Uploaded 1/1 chunks
+Done. 1 chunks uploaded to supabase (text-embedding-3-small).
+```
+
+让服务端指向同一份配置并启动。它会在启动时读一遍这张表，契约没问题就什么都不说：
+
+```
+RAG enabled — provider: supabase
+Voice agent server listening on :8080
+```
+
+然后接一个客户端上去，问「惠灵顿工坊每月最后一个周五几点闭店？」，答案应该是下午 3 点。入库之前问，或者对着用另一个模型建起来的库问，得到的就是一句没有信息量的场面话 —— 而这正是这套契约要让它变响的那种失败。
+
+### 为什么入库是一个单独的二进制
+
+原因在解析器。PDF、docx、xlsx 会拖进一堆依赖，而服务端在查询时根本用不上它们；服务端镜像是要部署出去的东西，入库工具则是在自己笔记本上跑一次的东西。分开之后，服务端镜像里就不会带着一个永远不会被调用的文档解析器。
+
+代价是多了一个带自己配置的产物 —— 所以 CLI 会去读服务端的 `config.toml` 并回退到它：一份凭据，两个二进制。哪天这一点不再成立了，这个拆分就值得重新讨论。

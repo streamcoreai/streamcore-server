@@ -33,7 +33,7 @@ Want one of these? Say so in [Discord](https://discord.gg/xKGFaGWawT) or open an
 
 - [ ] **Broader examples** proving the positioning: realtime translator, AI-hosted voice room, browser copilot, embedded device, SIP application, and a raw audio-processing app with no LLM at all.
 - [ ] **Embedded client hardening.** The ESP32-S3 firmware in [`esp32`](https://github.com/streamcoreai/esp32) connects over WHIP but is not production-ready.
-- [x] **`streamcore-cli` release.** Shipped as [`streamcoreai/streamcore-cli`](https://github.com/streamcoreai/streamcore-cli) — RAG document ingestion, see [Agent runtime → Ingesting documents](./agent-runtime.md#ingesting-documents). Tagged releases with prebuilt binaries remain open.
+- [x] **`streamcore-cli` release.** Shipped as [`streamcoreai/streamcore-cli`](https://github.com/streamcoreai/streamcore-cli) — RAG document ingestion, see [Agent runtime → Ingesting documents](./agent-runtime.md#ingesting-documents). Tagging a version publishes prebuilt binaries for macOS and Linux on both architectures.
 - [ ] **React Native SDK on npm.** `@streamcore/react-native-sdk` is built and usable from source, but unpublished.
 
 ---

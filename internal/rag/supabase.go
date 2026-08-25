@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/streamcoreai/streamcore-server/internal/config"
@@ -59,14 +62,113 @@ func NewSupabaseClient(cfg *config.Config) (Client, error) {
 		topK = 3
 	}
 
+	table := cfg.Supabase.Table
+	if table == "" {
+		table = "documents"
+	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	if err := verifySupabaseStore(httpClient, cfg.Supabase.URL, cfg.Supabase.APIKey, table, cfg.RAG.EmbeddingModel); err != nil {
+		return nil, fmt.Errorf("supabase: %w", err)
+	}
+
 	return &supabaseClient{
 		url:      cfg.Supabase.URL,
 		apiKey:   cfg.Supabase.APIKey,
 		function: fn,
 		embedder: newEmbeddingClient(cfg.OpenAI.APIKey, cfg.RAG.EmbeddingModel),
 		topK:     topK,
-		client:   &http.Client{Timeout: 10 * time.Second},
+		client:   httpClient,
 	}, nil
+}
+
+// verifySupabaseStore runs the same two checks as the pgvector client, against
+// the only surface PostgREST offers: rows. There is no catalog to introspect,
+// so the width comes from a sampled embedding and the model check is a filter
+// that asks the database for one disagreeing row. A project that is down or
+// still empty leaves the store unverified rather than blocking startup; a
+// mismatch, or a table predating the embedding_model column, is fatal.
+func verifySupabaseStore(client *http.Client, baseURL, apiKey, table, model string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	base := strings.TrimSuffix(baseURL, "/") + "/rest/v1/" + url.PathEscape(table)
+	want := normalizeModel(model)
+
+	// A row whose model differs, or is null. PostgREST's neq skips nulls, so the
+	// null arm has to be spelled out.
+	query := fmt.Sprintf("?select=embedding,embedding_model&or=(embedding_model.neq.%s,embedding_model.is.null)&limit=1",
+		url.QueryEscape(want))
+	rows, err := supabaseSelect(ctx, client, base+query, apiKey)
+	if err != nil {
+		if isMissingColumn(err) {
+			return missingModelColumn(table)
+		}
+		log.Printf("Warning: RAG store check skipped — %s: %v", table, err)
+		return nil
+	}
+	if len(rows) > 0 {
+		return modelMismatch(table, want, rows[0].EmbeddingModel)
+	}
+
+	// Every row agrees on the model, so any row will do for the width.
+	rows, err = supabaseSelect(ctx, client, base+"?select=embedding,embedding_model&limit=1", apiKey)
+	if err != nil {
+		log.Printf("Warning: RAG dimension check skipped — %s: %v", table, err)
+		return nil
+	}
+	if len(rows) == 0 {
+		return nil // nothing ingested yet
+	}
+
+	wantDims, known := dimensionsFor(model)
+	got, ok := vectorWidth(rows[0].Embedding)
+	if !known || !ok {
+		return nil
+	}
+	if got != wantDims {
+		return dimensionMismatch(table, model, wantDims, got)
+	}
+	return nil
+}
+
+type supabaseRow struct {
+	Embedding      json.RawMessage `json:"embedding"`
+	EmbeddingModel string          `json:"embedding_model"`
+}
+
+func supabaseSelect(ctx context.Context, client *http.Client, endpoint, apiKey string) ([]supabaseRow, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("apikey", apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var rows []supabaseRow
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return rows, nil
+}
+
+// isMissingColumn separates "your table predates embedding_model" from every
+// other reason a select can fail. PostgREST reports it as 42703 in the body.
+func isMissingColumn(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "42703") ||
+		(strings.Contains(msg, "embedding_model") && strings.Contains(msg, "does not exist"))
 }
 
 type supabaseRPCRequest struct {
@@ -114,6 +216,9 @@ func (c *supabaseClient) Search(ctx context.Context, query string, topK int) ([]
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
+		if strings.Contains(string(respBody), "dimensions") {
+			return nil, fmt.Errorf("supabase rpc returned %d: %s — %s stores vectors of a different width than embedding_model %q produces; re-ingest with streamcore-cli or change the model back", resp.StatusCode, string(respBody), c.function, c.embedder.model)
+		}
 		return nil, fmt.Errorf("supabase rpc returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
