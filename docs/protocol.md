@@ -20,6 +20,16 @@ The client creates an SDP offer, gathers ICE candidates, and `POST`s it to `/whi
 
 This implementation aligns with the core WHIP flow: `POST` with `application/sdp`, `201 Created` with the answer, `Location` for the session URL, `ETag` for the ICE session, `PATCH` for ICE restart, `DELETE` for teardown, `OPTIONS` with `Accept-Post`, and full ICE gathering on both sides. Audio is `sendrecv`, with a DataChannel for bidirectional events.
 
+### Optional query parameters on `POST /whip`
+
+| Parameter | Values | Meaning |
+|---|---|---|
+| `resume` | a resume token | Reattach this offer to an existing conversation — see [Session resume](#session-resume) |
+| `direction` | `inbound`, `outbound` | Which way a telephony call was placed. Selects `pipeline.greeting_outgoing` for outbound calls |
+| `aec` | `none` | Nothing upstream of the server cancels echo on this path, so the agent's own voice comes back to it. Turns on the barge-in echo bound for this session under the default `pipeline.echo_guard = "auto"` |
+
+All are optional and unknown values are ignored. Omitting `aec` means echo cancellation ran upstream, which is true of every browser, so a client only sends it when running on a raw path — `sip-server` sends it on every call.
+
 ### ICE restart
 
 A transient network event — a phone moving between Wi-Fi and cellular, a laptop changing networks, a NAT rebinding after an idle gap — breaks connectivity without ending the call. Recovering by `POST`ing a fresh offer would allocate a new session, a new pipeline, and a new LLM client, so the conversation history and the rolling summary would be gone and the greeting would replay. `PATCH` recovers the *same* connection instead: new ICE credentials and candidates, but the same `PeerConnection`, the same DTLS association, the same tracks, and the same running pipeline.

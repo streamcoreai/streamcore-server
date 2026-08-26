@@ -109,7 +109,11 @@ func NewSession(id string, cfg *config.Config, pluginMgr *plugin.Manager, ragCli
 // AddPeer creates a new Pion peer and launches a goroutine that waits for
 // the remote audio track to arrive, then builds and starts the channel-based
 // pipeline. Event messages are delivered via the peer's DataChannel.
-func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
+// PeerOptions is re-exported so the signalling layer, which already depends on
+// this package, does not need to reach into pipeline for it.
+type PeerOptions = pipeline.PeerOptions
+
+func (s *Session) AddPeer(peerID string, opts PeerOptions) (*peer.Peer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -164,7 +168,7 @@ func (s *Session) AddPeer(peerID string, direction string) (*peer.Peer, error) {
 				return
 			}
 
-			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, s.ragClient, direction, conv, resumed)
+			pl, err = pipeline.New(p.Context(), s.cfg, remoteTrack, p.LocalTrack(), p.SendEvent, s.pluginMgr, s.ragClient, opts, conv, resumed)
 			if err != nil {
 				log.Printf("[session:%s] pipeline create error: %v", s.ID, err)
 				p.Close()

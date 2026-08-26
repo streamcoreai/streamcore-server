@@ -80,6 +80,7 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 - Opus decode → PCM → pipeline → PCM → Opus encode → RTP
 - Energy-based VAD with configurable onset/offset frame counts, adapting to each call's noise floor so a quiet caller on a clean line and a caller beside a road both register
 - Barge-in on a faster VAD profile: agent audio ducks while the caller talks over it and recovers if the interruption turns out to be a backchannel
+- Echo reference for paths with no AEC, such as SIP/PCMU telephony: the barge-in threshold is bounded by the RMS the server just sent, so the agent stops interrupting itself on its own returning voice. Applied per session from a client hint, so one instance serves browsers and phone calls without either compromising the other
 - Turn debounce that merges consecutive final transcripts, so "I want to… um… book a table" is answered once, not twice
 - Sentence-boundary chunking so TTS starts before the LLM finishes, and chunk-level streaming so audio plays before a sentence is fully synthesized
 - Optional per-utterance delivery tags — the model may prefix a sentence with `[warm]`, `[empathetic]`, `[calm]`, or `[excited]`, which map to provider voice controls and are never spoken aloud

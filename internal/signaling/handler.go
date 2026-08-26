@@ -119,6 +119,19 @@ func NewWHIPHandler(sm *session.Manager) http.HandlerFunc {
 	}
 }
 
+// peerOptionsFrom reads the optional per-peer metadata a client appends to the
+// WHIP URL. aec=none is how a client on a raw path (sip-server on a carrier
+// leg) says the agent's own voice comes back to it uncancelled, which the
+// barge-in VAD cannot work out for itself. Anything else, including absent,
+// means echo cancellation ran upstream, as it does in every browser.
+func peerOptionsFrom(r *http.Request) session.PeerOptions {
+	q := r.URL.Query()
+	return session.PeerOptions{
+		Direction: q.Get("direction"),
+		AECAbsent: q.Get("aec") == "none",
+	}
+}
+
 // handleWHIPPost implements RFC 9725 §4.2 Ingest Session Setup.
 // A new sessionId (UUID) is generated for each POST.
 func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager) {
@@ -140,8 +153,7 @@ func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager)
 		return
 	}
 
-	// Read optional metadata from query parameters.
-	direction := r.URL.Query().Get("direction")
+	peerOpts := peerOptionsFrom(r)
 
 	// A resume token reattaches this offer to a conversation whose transport
 	// died — the case ICE restart cannot cover, because by the time the client
@@ -191,7 +203,7 @@ func handleWHIPPost(w http.ResponseWriter, r *http.Request, sm *session.Manager)
 
 	sessionID := ses.ID
 	peerID := sessionID
-	p, err := ses.AddPeer(peerID, direction)
+	p, err := ses.AddPeer(peerID, peerOpts)
 	if err != nil {
 		log.Printf("[whip] add peer error: %v", err)
 		http.Error(w, "failed to create peer", http.StatusInternalServerError)

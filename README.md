@@ -75,7 +75,7 @@ Docker, TURN ports, and production notes: [Quick start guide](./docs/quickstart.
 | **Transport** | WebRTC audio over WHIP ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) — one HTTP POST, no signaling socket. Opus/RTP both ways |
 | **Connectivity** | Built-in Pion STUN/TURN on UDP *and* TCP 3478 — no external coturn. A network handover or NAT rebind is recovered by ICE restart on the same session, so the conversation survives it |
 | **Turn-taking** | Adaptive VAD that tracks each call's noise floor, plus a debounce that merges mid-sentence pauses into one turn |
-| **Interruption** | Barge-in that ducks agent audio, filters backchannels ("mm-hm"), and cancels in-flight LLM and TTS on a confirmed interrupt |
+| **Interruption** | Barge-in that ducks agent audio, filters backchannels ("mm-hm"), and cancels in-flight LLM and TTS on a confirmed interrupt. On paths with no echo cancellation, such as telephony, the threshold is bounded by what the agent just sent so it never interrupts itself |
 | **Streaming** | Streaming STT → streaming LLM → chunk-streaming TTS, so audio starts before synthesis finishes |
 | **Sessions & events** | Server-generated session IDs, multi-peer sessions, DataChannel events for transcript, response, state, and per-turn latency |
 | **Reach** | Browser, mobile, backend, CLI, [SIP telephony](https://github.com/streamcoreai/sip-server), and [ESP32](https://github.com/streamcoreai/esp32) endpoints |

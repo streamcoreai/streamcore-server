@@ -26,6 +26,10 @@ user_speech_quiet_ms = 600           # Quiet period after the caller stops befor
 turn_merge_ms = 350                  # Debounce window for merging finals into one turn
 # rag_prefetch = false               # Start retrieval during the merge window instead of after it
 # readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
+# echo_guard = "auto"                # auto | always | off. Auto follows each client's aec hint
+# echo_guard_gain = 0.6              # Echo cannot exceed this fraction of what produced it
+# echo_guard_margin = 1.8            # How far inbound must clear the echo bound to count as the caller
+# echo_guard_window_ms = 400         # How long sent audio stays in the reference window
 
 # Speech-to-speech. When set, replaces [stt], [llm], and [tts] entirely.
 [realtime]
@@ -152,6 +156,18 @@ voice = "en-Emma_woman"
 - `pipeline.user_speech_quiet_ms` 是用户需要安静多久，智能体才开始说话。
 - `pipeline.rag_prefetch` 让检索与轮次合并窗口重叠。默认关闭；它会发出一次推测性的 embedding + 检索，若该轮文本发生变化则丢弃。
 - `pipeline.readback_bargein_guard_enabled` 可避免弱纠正与回应词打断智能体的确认复述。只有明确的命令（stop、cancel、hang up）才会打断。默认关闭。
+- `pipeline.echo_guard` 防止智能体被自己的声音打断。浏览器会在音频到达服务器之前先做 AEC，因此 VAD 根本看不到智能体自己的输出绕回来；而在电话线路上整条链路没有任何 AEC，回声虽然衰减了，但结构上和语音完全一样，单靠能量判据无法与真人区分。该开关会维护一个滚动窗口，记录服务器实际发出音频的 RMS，只有当上行音频超过 `已发送 RMS x echo_guard_gain x echo_guard_margin` 时才算作打断。智能体沉默时该下限为零，判定重新交回自适应阈值，因此干净线路上说话轻的来电者不受影响。
+
+  这个判断是按会话而不是按服务器做的：同一个实例通常同时服务浏览器和 SIP 通话，而两者需要相反的答案。客户端通过在 WHIP URL 上加 `aec=none` 来声明自己处在没有 AEC 的链路上，`sip-server` 每通电话都会带上它；浏览器什么都不发，会被视为已经做过回声消除。
+
+  | `echo_guard` | 行为 |
+  | --- | --- |
+  | `"auto"`（默认） | 对发送了 `aec=none` 的会话开启，其余关闭 |
+  | `"always"` | 对所有会话开启。用于无法改动、又发不出该提示的裸链路客户端 |
+  | `"off"` | 始终关闭 |
+
+  除非你有一个无法修改、又跑在无 AEC 链路上的客户端，否则请保持 `"auto"`。在同时服务浏览器的服务器上设为 `"always"`，会让浏览器端真实的插话必须先盖过智能体自身的输出电平，而按会话判断的默认值正是为了避免这种回退。
+- `pipeline.echo_guard_gain`、`pipeline.echo_guard_margin` 和 `pipeline.echo_guard_window_ms` 用于调节这个下限（仅对开启了该判定的会话生效）。gain 是回声相对于产生它的音频最多能有多响，margin 用于区分双讲与回声，window 应覆盖线路回声的往返时间。默认值（0.6、1.8、400ms）是在 8kHz µ-law 链路上实测得到的；只有拿到你自己链路的录音再去重新调参。该下限会自动跟随打断时的音量压低，因为它采样的是经过衰减后真正发到线路上的信号。
 - `deepgram.endpointing` 与 `deepgram.utterance_end_ms` 调节上游认定一轮结束的时机；轮次合并去抖运行在它们之上。
 - `deepgram.tts_model` 选择 Aura 音色；STT（`model`）与 TTS（`tts_model`）共用同一个 API key。音色命名规则为 `[family]-[voice]-[language]` —— 见 [Deepgram 音色列表](https://developers.deepgram.com/docs/tts-models)。
 - `cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致 —— Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。

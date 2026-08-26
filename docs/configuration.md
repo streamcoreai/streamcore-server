@@ -32,6 +32,10 @@ user_speech_quiet_ms = 600           # Quiet period after the caller stops befor
 turn_merge_ms = 350                  # Debounce window for merging finals into one turn
 # rag_prefetch = false               # Start retrieval during the merge window instead of after it
 # readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
+# echo_guard = "auto"                # auto | always | off. Auto follows each client's aec hint
+# echo_guard_gain = 0.6              # Echo cannot exceed this fraction of what produced it
+# echo_guard_margin = 1.8            # How far inbound must clear the echo bound to count as the caller
+# echo_guard_window_ms = 400         # How long sent audio stays in the reference window
 
 # Speech-to-speech. When set, replaces [stt], [llm], and [tts] entirely.
 [realtime]
@@ -160,6 +164,18 @@ Notes:
 - `pipeline.user_speech_quiet_ms` is how long the caller must be quiet before the agent starts speaking.
 - `pipeline.rag_prefetch` overlaps retrieval with the turn-merge window. Off by default; it issues a speculative embedding + search that is discarded if the turn text changes.
 - `pipeline.readback_bargein_guard_enabled` keeps weak corrections and backchannels from cutting off a confirmation readback. Only explicit commands (stop, cancel, hang up) interrupt. Off by default.
+- `pipeline.echo_guard` stops the agent barging in on its own voice. A browser runs AEC before audio reaches the server, so the VAD never sees the agent's output come back; over a carrier there is no AEC anywhere in the path, the returning audio is attenuated but structurally identical to speech, and an energy test cannot tell it from a caller. The guard keeps a rolling window of the RMS the server actually sent and requires inbound to clear `sent_rms x echo_guard_gain x echo_guard_margin` before it counts as an interruption. While the agent is silent that bound is zero and the ordinary adaptive threshold governs, so a quiet caller on a clean line is unaffected.
+
+  The decision is per session, because one instance usually serves browsers and SIP calls at once and the two need opposite answers. A client declares a raw path by adding `aec=none` to the WHIP URL, which `sip-server` sends on every call; browsers send nothing and are read as already cancelled.
+
+  | `echo_guard` | Effect |
+  | --- | --- |
+  | `"auto"` (default) | On for peers that sent `aec=none`, off for everyone else |
+  | `"always"` | On for every peer. For a raw-path client you cannot change to send the hint |
+  | `"off"` | Never on |
+
+  Leave it on `"auto"` unless you have a client on a path with no AEC that you cannot modify. Setting `"always"` on a server that also hosts browsers makes genuine browser barge-ins clear the agent's own output level first, which is the regression the per-session default exists to avoid.
+- `pipeline.echo_guard_gain`, `pipeline.echo_guard_margin`, and `pipeline.echo_guard_window_ms` tune that bound, for the sessions it applies to. The gain is how loud echo can be relative to the audio that produced it, the margin is what separates double-talk from echo, and the window should cover the round trip of the carrier's echo. The defaults (0.6, 1.8, 400ms) were measured on an 8kHz mu-law path; retune only against recordings of your own. The bound follows the barge-in duck on its own, since it is sampled from what goes on the wire after attenuation.
 - `deepgram.endpointing` and `deepgram.utterance_end_ms` tune when a turn is considered finished upstream; the turn-merge debounce runs on top of them.
 - `deepgram.tts_model` picks the Aura voice; STT (`model`) and TTS (`tts_model`) share the one API key. Voices are named `[family]-[voice]-[language]` — see [Deepgram's voice list](https://developers.deepgram.com/docs/tts-models).
 - `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.

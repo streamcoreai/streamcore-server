@@ -432,3 +432,74 @@ func TestValidateRealtimeRejectsTooManyKeyterms(t *testing.T) {
 		t.Error("101 keyterms accepted; the documented maximum is 100")
 	}
 }
+
+// A single instance commonly serves browsers and SIP calls at once, so the
+// echo bound has to be decided per peer rather than per server.
+func TestEchoGuardFor(t *testing.T) {
+	cases := []struct {
+		mode      string
+		aecAbsent bool
+		want      bool
+	}{
+		{EchoGuardAuto, true, true},    // SIP leg declares aec=none
+		{EchoGuardAuto, false, false},  // browser, AEC ran in getUserMedia
+		{EchoGuardAlways, false, true}, // client that cannot send the hint
+		{EchoGuardAlways, true, true},
+		{EchoGuardOff, true, false},
+		{EchoGuardOff, false, false},
+	}
+	for _, c := range cases {
+		cfg := &Config{}
+		cfg.Pipeline.EchoGuard = c.mode
+		if got := cfg.EchoGuardFor(c.aecAbsent); got != c.want {
+			t.Errorf("mode %q aecAbsent=%v: got %v, want %v", c.mode, c.aecAbsent, got, c.want)
+		}
+	}
+}
+
+// An unset echo_guard must behave as "auto", so an upgrade fixes SIP without
+// touching browser sessions and without anyone editing a config.
+func TestEchoGuardDefaultsToAuto(t *testing.T) {
+	cfg := &Config{}
+	if cfg.EchoGuardFor(true) {
+		t.Error("zero-value config must not enable the guard before defaults are applied")
+	}
+	cfg.Pipeline.EchoGuard = EchoGuardAuto
+	if !cfg.EchoGuardFor(true) || cfg.EchoGuardFor(false) {
+		t.Error("auto must follow the peer's aec hint")
+	}
+}
+
+func TestEchoGuardRejectsUnknownMode(t *testing.T) {
+	cfg := &Config{}
+	cfg.Pipeline.EchoGuard = "yes"
+	if err := cfg.validateEchoGuard(); err == nil {
+		t.Error("expected an error for an unknown echo_guard mode")
+	}
+}
+
+func TestLoadDefaultsEchoGuardToAuto(t *testing.T) {
+	path := writeConfig(t, "[pipeline]\nbarge_in = true\n")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("config rejected: %v", err)
+	}
+	if cfg.Pipeline.EchoGuard != EchoGuardAuto {
+		t.Errorf("echo_guard = %q, want the default %q", cfg.Pipeline.EchoGuard, EchoGuardAuto)
+	}
+	if !cfg.EchoGuardFor(true) {
+		t.Error("a SIP peer declaring aec=none should get the guard by default")
+	}
+	if cfg.EchoGuardFor(false) {
+		t.Error("a browser peer must not get the guard by default")
+	}
+}
+
+func TestLoadRejectsBadEchoGuardMode(t *testing.T) {
+	path := writeConfig(t, "[pipeline]\necho_guard = \"on\"\n")
+
+	if _, err := Load(path); err == nil {
+		t.Error("Load accepted an unknown echo_guard mode")
+	}
+}

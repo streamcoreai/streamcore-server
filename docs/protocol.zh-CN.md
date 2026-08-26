@@ -20,6 +20,16 @@
 
 本实现与 WHIP 的核心流程一致：以 `application/sdp` 发起 `POST`，用 `201 Created` 返回 answer，用 `Location` 给出会话 URL，用 `ETag` 标识 ICE 会话，用 `PATCH` 做 ICE 重启，用 `DELETE` 销毁，用 `OPTIONS` 返回 `Accept-Post`，并在双端做完整 ICE 收集。音频为 `sendrecv`，并带一个用于双向事件的 DataChannel。
 
+### `POST /whip` 的可选查询参数
+
+| 参数 | 取值 | 含义 |
+|---|---|---|
+| `resume` | 恢复令牌 | 把本次 offer 重新挂到既有会话上，见[会话恢复](#会话恢复session-resume) |
+| `direction` | `inbound`、`outbound` | 电话呼叫的方向。呼出通话会据此选用 `pipeline.greeting_outgoing` |
+| `aec` | `none` | 服务器上游没有任何环节做回声消除，智能体自己的声音会绕回来。在默认的 `pipeline.echo_guard = "auto"` 下，该会话会启用打断回声下限 |
+
+以上都是可选的，无法识别的取值会被忽略。不带 `aec` 表示上游已经做过回声消除，浏览器都属于这种情况，因此只有跑在裸链路上的客户端才需要发送它 —— `sip-server` 每通电话都会带上。
+
 ### ICE 重启
 
 短暂的网络事件 —— 手机在 Wi-Fi 与蜂窝之间切换、笔记本更换网络、空闲后 NAT 重新绑定 —— 会中断连通性，但通话本身并未结束。若用重新 `POST` offer 的方式恢复，会分配新的会话、新的流水线和新的 LLM 客户端，对话历史与滚动摘要随之丢失，开场白也会重播。`PATCH` 恢复的是*同一条*连接：ICE 凭据与候选是新的，但 `PeerConnection`、DTLS 关联、媒体轨道以及正在运行的流水线都保持不变。
