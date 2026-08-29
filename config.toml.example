@@ -98,6 +98,7 @@ keyterms = []           # Bias the decoder toward domain words
 [openai]
 api_key = ""            # Required for LLM, and for OpenAI STT if selected
 model = "gpt-4o-mini"
+stt_model = "whisper-1" # STT model: whisper-1, gpt-4o-transcribe, or gpt-4o-mini-transcribe
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 base_url = ""           # Optional. Any endpoint speaking OpenAI's protocol — DeepSeek
                         # (https://api.deepseek.com/v1, model deepseek-chat), Moonshot

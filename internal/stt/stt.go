@@ -35,7 +35,7 @@ func NewClient(ctx context.Context, cfg *config.Config, onResult func(Transcript
 		if cfg.OpenAI.APIKey == "" {
 			return nil, fmt.Errorf("stt provider %q requires [openai] api_key to be set", cfg.STT.Provider)
 		}
-		return NewOpenAIClient(ctx, cfg.OpenAI.APIKey, onResult)
+		return NewOpenAIClient(ctx, cfg.OpenAI.APIKey, cfg.OpenAI.STTModel, onResult)
 	case "assemblyai":
 		if cfg.AssemblyAI.APIKey == "" {
 			return nil, fmt.Errorf("stt provider %q requires [assemblyai] api_key to be set", cfg.STT.Provider)

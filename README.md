@@ -115,6 +115,8 @@ Details and code: [Bring your own agent](./docs/bring-your-own-agent.md) · [Age
 
 Providers: Deepgram, AssemblyAI, OpenAI, Cartesia, ElevenLabs, MiniMax, Speechify, Ollama, VibeVoice (local), xAI Grok Voice (speech-to-speech), pgvector/Supabase for retrieval. See [Providers](./docs/providers.md).
 
+OpenAI STT supports `whisper-1`, `gpt-4o-transcribe`, and `gpt-4o-mini-transcribe` through the independent `openai.stt_model` setting.
+
 ## Documentation
 
 | Page | What's in it |

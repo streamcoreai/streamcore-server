@@ -217,6 +217,33 @@ api_key = "file-key"
 	}
 }
 
+func TestLoadOpenAISTTModel(t *testing.T) {
+	clearEnvOverrides(t)
+
+	t.Run("defaults to whisper-1", func(t *testing.T) {
+		cfg, err := Load(writeConfig(t, ""))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.OpenAI.STTModel != "whisper-1" {
+			t.Errorf("OpenAI.STTModel = %q, want %q", cfg.OpenAI.STTModel, "whisper-1")
+		}
+	})
+
+	t.Run("reads an explicit transcription model", func(t *testing.T) {
+		cfg, err := Load(writeConfig(t, `
+[openai]
+stt_model = "gpt-4o-transcribe"
+`))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.OpenAI.STTModel != "gpt-4o-transcribe" {
+			t.Errorf("OpenAI.STTModel = %q, want %q", cfg.OpenAI.STTModel, "gpt-4o-transcribe")
+		}
+	})
+}
+
 func TestLoadWarnsAboutUnknownKeys(t *testing.T) {
 	clearEnvOverrides(t)
 	logs := captureLogs(t)

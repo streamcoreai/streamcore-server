@@ -12,7 +12,7 @@
 
 Notes:
 
-- `stt.provider = "openai"` uses Whisper-style final transcription instead of streaming partials.
+- `stt.provider = "openai"` uses batch final transcription instead of streaming partials; choose `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` with `openai.stt_model`.
 - `llm.provider = "ollama"` targets any Ollama-compatible endpoint via `base_url` — local or on your own infrastructure.
 - `llm.provider = "agent"` POSTs each turn to an HTTP endpoint you host; your agent owns memory, prompting, and tools, and replies stream back as SSE, chunked text, or JSON. See [Bring your own agent](./bring-your-own-agent.md).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.

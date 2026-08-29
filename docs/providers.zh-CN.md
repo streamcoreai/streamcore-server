@@ -12,7 +12,7 @@
 
 注意：
 
-- `stt.provider = "openai"` 使用 Whisper 式的最终转写，而不是流式中间结果。
+- `stt.provider = "openai"` 使用批量最终转写而不是流式中间结果；可通过 `openai.stt_model` 选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
 - `llm.provider = "ollama"` 通过 `base_url` 指向任何兼容 Ollama 的端点 —— 本地或你自己的基础设施均可。
 - `llm.provider = "agent"` 把每一轮对话 POST 到你托管的 HTTP 端点；记忆、提示词与工具都由你的智能体掌控，回复以 SSE、分块文本或 JSON 流式返回。见[接入你自己的智能体](./bring-your-own-agent.zh-CN.md)。
 - `stt.provider = "vibevoice"` 与 `tts.provider = "vibevoice"` 使用本地模型；请先启动 Python 边车进程。

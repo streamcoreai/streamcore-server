@@ -84,6 +84,7 @@ utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes
 [openai]
 api_key = ""
 model = "gpt-4o-mini"
+stt_model = "whisper-1"             # whisper-1 | gpt-4o-transcribe | gpt-4o-mini-transcribe
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [ollama]
@@ -154,6 +155,7 @@ voice = "en-Emma_woman"
 - `pipeline.readback_bargein_guard_enabled` 可避免弱纠正与回应词打断智能体的确认复述。只有明确的命令（stop、cancel、hang up）才会打断。默认关闭。
 - `deepgram.endpointing` 与 `deepgram.utterance_end_ms` 调节上游认定一轮结束的时机；轮次合并去抖运行在它们之上。
 - `deepgram.tts_model` 选择 Aura 音色；STT（`model`）与 TTS（`tts_model`）共用同一个 API key。音色命名规则为 `[family]-[voice]-[language]` —— 见 [Deepgram 音色列表](https://developers.deepgram.com/docs/tts-models)。
+- `openai.stt_model` 独立于对话 `model` 选择批量转写模型，默认值为 `whisper-1`。
 - `cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致 —— Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。
 - `minimax.base_url` 用于选择区域。留空即使用全球端点；中国大陆账号必须指向 `https://api.minimaxi.com/v1`，因为两个平台的 key 不通用。
 - `minimax.model` 必须与你的套餐匹配：Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型走按量计费，余额为零时报错 `2056`。
