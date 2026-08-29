@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	whisperModel   = "whisper-1"
-	sampleRate     = 16000
-	numChannels    = 1
-	bitsPerSample  = 16
-	bytesPerSample = bitsPerSample / 8
+	defaultOpenAISTTModel = "whisper-1"
+	sampleRate            = 16000
+	numChannels           = 1
+	bitsPerSample         = 16
+	bytesPerSample        = bitsPerSample / 8
 
 	// VAD parameters
 	speechEnergyThreshold = 500.0                  // RMS threshold to detect speech
@@ -27,12 +27,13 @@ const (
 	minSpeechDuration     = 200 * time.Millisecond // Ignore very short bursts
 )
 
-// openaiClient implements STT using the OpenAI Whisper API.
-// Since Whisper is a batch API, audio is buffered and sent for transcription
+// openaiClient implements STT using the OpenAI transcription API.
+// Since the API is batch-oriented, audio is buffered and sent for transcription
 // when silence is detected after speech (simple energy-based VAD).
 // Unlike Deepgram, only final transcripts are produced (no partials).
 type openaiClient struct {
 	client   *openai.Client
+	model    string
 	ctx      context.Context
 	cancel   context.CancelFunc
 	mu       sync.Mutex
@@ -49,11 +50,15 @@ type openaiClient struct {
 	done        chan struct{}
 }
 
-func NewOpenAIClient(ctx context.Context, apiKey string, onResult func(TranscriptResult)) (*openaiClient, error) {
+func NewOpenAIClient(ctx context.Context, apiKey, model string, onResult func(TranscriptResult)) (*openaiClient, error) {
 	sttCtx, cancel := context.WithCancel(ctx)
+	if model == "" {
+		model = defaultOpenAISTTModel
+	}
 
 	c := &openaiClient{
 		client:   openai.NewClient(apiKey),
+		model:    model,
 		ctx:      sttCtx,
 		cancel:   cancel,
 		onResult: onResult,
@@ -63,11 +68,11 @@ func NewOpenAIClient(ctx context.Context, apiKey string, onResult func(Transcrip
 	c.vadTicker = time.NewTicker(100 * time.Millisecond)
 	go c.vadLoop()
 
-	log.Println("[stt] OpenAI Whisper client ready")
+	log.Printf("[stt] OpenAI transcription client ready (model=%s)", model)
 	return c, nil
 }
 
-// vadLoop periodically checks if we should flush buffered speech to Whisper.
+// vadLoop periodically checks if we should flush buffered speech to OpenAI.
 func (c *openaiClient) vadLoop() {
 	defer close(c.done)
 	for {
@@ -138,7 +143,7 @@ func (c *openaiClient) SendAudio(data []byte) error {
 		if !c.speaking {
 			c.speaking = true
 			c.speechStart = time.Now()
-			log.Println("[stt:whisper] speech started")
+			log.Println("[stt:openai] speech started")
 		}
 		c.lastSpeech = time.Now()
 	}
@@ -155,13 +160,13 @@ func (c *openaiClient) transcribe(pcmData []byte) {
 	wavData := encodeWAV(pcmData, sampleRate, numChannels, bitsPerSample)
 
 	resp, err := c.client.CreateTranscription(c.ctx, openai.AudioRequest{
-		Model:    whisperModel,
+		Model:    c.model,
 		Reader:   bytes.NewReader(wavData),
 		FilePath: "audio.wav",
 	})
 	if err != nil {
 		if c.ctx.Err() == nil {
-			log.Printf("[stt:whisper] transcription error: %v", err)
+			log.Printf("[stt:openai] transcription error: %v", err)
 		}
 		return
 	}
@@ -171,7 +176,7 @@ func (c *openaiClient) transcribe(pcmData []byte) {
 		return
 	}
 
-	log.Printf("[stt:whisper] transcript: %s", text)
+	log.Printf("[stt:openai] transcript: %s", text)
 	c.onResult(TranscriptResult{
 		Text:    text,
 		IsFinal: true,
@@ -182,7 +187,7 @@ func (c *openaiClient) Close() {
 	c.cancel()
 	c.vadTicker.Stop()
 	<-c.done // Wait for vadLoop to finish
-	log.Println("[stt:whisper] closed")
+	log.Println("[stt:openai] closed")
 }
 
 // rmsEnergy calculates the root-mean-square energy of linear16 PCM samples.
