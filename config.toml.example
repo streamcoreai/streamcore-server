@@ -144,8 +144,9 @@ model = ""              # Optional; defaults to simba-3.2
 
 [telnyx]
 api_key = ""            # Required if tts.provider = "telnyx"
-voice = "Telnyx.Bayan.Amanda"  # Any catalog voice from GET /v2/text-to-speech/voices. Availability varies by
-                         # account; a voice your key is not provisioned for fails the dial with HTTP 403
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"  # Any catalog voice from GET /v2/text-to-speech/voices
+                          # (Qwen3TTS voices use UUID ids). Availability varies by account; a voice your
+                          # key is not provisioned for fails the dial with HTTP 403
 voice_speed = 1.0       # Playback-rate multiplier, clamped to 0.8-1.2 like the per-utterance delivery tags
 
 [mimo]

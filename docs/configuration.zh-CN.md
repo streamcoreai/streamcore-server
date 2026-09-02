@@ -115,7 +115,7 @@ model = ""
 
 [telnyx]                             # Telnyx 托管合成，当 tts.provider = "telnyx" 时使用
 api_key = ""
-voice = "Telnyx.Bayan.Amanda"        # GET /v2/text-to-speech/voices 目录中的任意音色；可用性因账号而异
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # GET /v2/text-to-speech/voices 目录中的任意音色；可用性因账号而异
 voice_speed = 1.0                    # 播放速率倍数，限制在 0.8-1.2
 
 [minimax]

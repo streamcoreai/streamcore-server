@@ -20,7 +20,7 @@ const (
 	// availability varies by account, so this is a starting point rather
 	// than a guarantee: the catalog lives at
 	// GET /v2/text-to-speech/voices.
-	defaultTelnyxVoice = "Telnyx.Bayan.Amanda"
+	defaultTelnyxVoice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"
 )
 
 // TelnyxClient implements the Client interface against Telnyx's streaming
@@ -41,7 +41,7 @@ type TelnyxClient struct {
 }
 
 // NewTelnyxClient creates a Telnyx TTS client. Empty voice defaults to
-// Telnyx.Bayan.Amanda; zero voiceSpeed defaults to 1.0.
+// the Qwen3TTS voice Delta; zero voiceSpeed defaults to 1.0.
 func NewTelnyxClient(apiKey, voice string, voiceSpeed float64) Client {
 	if voice == "" {
 		voice = defaultTelnyxVoice

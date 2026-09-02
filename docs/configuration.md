@@ -121,7 +121,7 @@ model = ""
 
 [telnyx]                             # Telnyx hosted synthesis, used when tts.provider = "telnyx"
 api_key = ""
-voice = "Telnyx.Bayan.Amanda"        # Any catalog voice from GET /v2/text-to-speech/voices; availability varies by account
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # Any catalog voice from GET /v2/text-to-speech/voices; availability varies by account
 voice_speed = 1.0                    # Playback-rate multiplier, clamped to 0.8-1.2
 
 [minimax]

@@ -136,14 +136,14 @@ provider = "telnyx"
 
 [telnyx]
 api_key = ""
-voice = "Telnyx.Bayan.Amanda"
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"
 voice_speed = 1.0
 ```
 
 有三件事必须弄对：
 
 - **每个话语一条 WebSocket 连接。** 协议没有逐话语的完成标记：只有客户端发出空文本 teardown 后，服务端才会发 `isFinal`，因此客户端为每个话语新建一条连接：init、文本、teardown、收齐音频直到 final 帧、服务端关闭。与常驻连接相比，这在实时链路上没有代价：合成速度约为播放的 2.4 倍，拨号后不到一秒就有首个音频到达。
-- **音色因账号而异。** `voice` 是 `GET /v2/text-to-speech/voices` 目录中的任意名称，可用性因账号而异：你的 key 未开通的音色会在 WebSocket 握手阶段就返回 HTTP 403，而不是在通话中途报错。配置默认值（`Telnyx.Bayan.Amanda`）是一个已验证的 en-US 女声，并不对每个 key 都保证可用。
+- **音色因账号而异。** `voice` 是 `GET /v2/text-to-speech/voices` 目录中的任意名称，可用性因账号而异：你的 key 未开通的音色会在 WebSocket 握手阶段就返回 HTTP 403，而不是在通话中途报错。配置默认值（`Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03`）是一个已验证的 Qwen3TTS 音色（目录中名为 Delta，女声），并不对每个 key 都保证可用。
 - **Telnyx 的 LLM 无需新增服务商。** `openai.base_url = "https://api.telnyx.com/v2/ai"` 即可让现有的 `openai` LLM 服务商直连 Telnyx 推理（例如模型 `glm-5.3`），零代码改动。
 
 表达标签映射到 `voice_speed`（限制在 0.8–1.2，与 Cartesia 相同的对话档位），配置里的 `voice_speed` 则是未打标签句子的基准语速。

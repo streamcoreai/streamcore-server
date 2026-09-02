@@ -136,14 +136,14 @@ provider = "telnyx"
 
 [telnyx]
 api_key = ""
-voice = "Telnyx.Bayan.Amanda"
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"
 voice_speed = 1.0
 ```
 
 Three things to know:
 
 - **One WebSocket per utterance.** The protocol has no per-utterance completion marker; `isFinal` arrives only after the client sends an empty-text teardown, so the client dials a fresh connection for each utterance: init, text, teardown, collect audio until the final frame, server closes. Measured against a persistent connection this costs nothing on the live path: synthesis outpaces playback (~2.4x) and first audio arrives well under a second after dial.
-- **Voices are per-account.** `voice` is any catalog name from `GET /v2/text-to-speech/voices`, and availability varies by account; a voice your key is not provisioned for fails the WebSocket handshake with HTTP 403 rather than erroring mid-call. The config default (`Telnyx.Bayan.Amanda`) is a verified en-US female voice, not a guarantee for every key.
+- **Voices are per-account.** `voice` is any catalog name from `GET /v2/text-to-speech/voices`, and availability varies by account; a voice your key is not provisioned for fails the WebSocket handshake with HTTP 403 rather than erroring mid-call. The config default (`Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03`) is a verified Qwen3TTS voice (Delta, female in the catalog); not a guarantee for every key.
 - **Telnyx LLMs need no new provider.** `openai.base_url = "https://api.telnyx.com/v2/ai"` points the existing `openai` LLM provider at Telnyx inference (e.g. model `glm-5.3`) with zero code.
 
 Delivery tags map onto `voice_speed` (clamped to 0.8–1.2, the same conversational band as Cartesia), and `voice_speed` in config sets the baseline pace for untagged sentences.

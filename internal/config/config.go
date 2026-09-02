@@ -298,7 +298,7 @@ type SpeechifyConfig struct {
 type TelnyxConfig struct {
 	APIKey string `toml:"api_key"`
 	// Voice is a catalog voice from GET /v2/text-to-speech/voices. Empty
-	// defaults to Telnyx.Bayan.Amanda. Availability varies by account, and
+	// defaults to the Qwen3TTS voice Delta (Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03). Availability varies by account, and
 	// a voice the account is not provisioned for fails the WebSocket
 	// handshake with HTTP 403.
 	Voice string `toml:"voice"`
