@@ -39,6 +39,7 @@ type Config struct {
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
 	Speechify  SpeechifyConfig  `toml:"speechify"`
+	Telnyx     TelnyxConfig     `toml:"telnyx"`
 	MiniMax    MiniMaxConfig    `toml:"minimax"`
 	MiMo       MiMoConfig       `toml:"mimo"`
 	Pgvector   PgvectorConfig   `toml:"pgvector"`
@@ -292,6 +293,20 @@ type SpeechifyConfig struct {
 	Model   string `toml:"model"`
 }
 
+// TelnyxConfig configures Telnyx hosted speech synthesis, used when
+// tts.provider = "telnyx".
+type TelnyxConfig struct {
+	APIKey string `toml:"api_key"`
+	// Voice is a catalog voice from GET /v2/text-to-speech/voices. Empty
+	// defaults to Telnyx.Bayan.Amanda. Availability varies by account, and
+	// a voice the account is not provisioned for fails the WebSocket
+	// handshake with HTTP 403.
+	Voice string `toml:"voice"`
+	// VoiceSpeed is a playback-rate multiplier (1.0 = normal), clamped to
+	// the 0.8-1.2 conversational band. Zero defaults to 1.0.
+	VoiceSpeed float64 `toml:"voice_speed"`
+}
+
 type MiMoConfig struct {
 	APIKey string `toml:"api_key"`
 	// Voice is a built-in voice name, passed through verbatim — the Chinese
@@ -434,6 +449,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Cartesia.MaxConcurrency == 0 {
 		cfg.Cartesia.MaxConcurrency = 3
 	}
+	if cfg.Telnyx.VoiceSpeed == 0 {
+		cfg.Telnyx.VoiceSpeed = 1.0
+	}
 	setDefault(&cfg.LLM.Provider, "openai")
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")
@@ -549,6 +567,7 @@ var envOverrides = []struct {
 	{"CARTESIA_API_KEY", func(c *Config) *string { return &c.Cartesia.APIKey }},
 	{"ELEVENLABS_API_KEY", func(c *Config) *string { return &c.ElevenLabs.APIKey }},
 	{"SPEECHIFY_API_KEY", func(c *Config) *string { return &c.Speechify.APIKey }},
+	{"TELNYX_API_KEY", func(c *Config) *string { return &c.Telnyx.APIKey }},
 	{"MINIMAX_API_KEY", func(c *Config) *string { return &c.MiniMax.APIKey }},
 	{"MIMO_API_KEY", func(c *Config) *string { return &c.MiMo.APIKey }},
 	{"SUPABASE_API_KEY", func(c *Config) *string { return &c.Supabase.APIKey }},

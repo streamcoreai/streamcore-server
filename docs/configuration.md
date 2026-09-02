@@ -44,7 +44,7 @@ provider = "deepgram"                # aliyun | assemblyai | deepgram | openai |
 provider = "openai"                  # openai | ollama | agent
 
 [tts]
-provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | vibevoice
+provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | telnyx | vibevoice
 
 # [grok]                             # Used when realtime.provider = "grok"
 # api_key = ""
@@ -118,6 +118,11 @@ model = ""
 api_key = ""
 voice_id = ""
 model = ""
+
+[telnyx]                             # Telnyx hosted synthesis, used when tts.provider = "telnyx"
+api_key = ""
+voice = "Telnyx.Bayan.Amanda"        # Any catalog voice from GET /v2/text-to-speech/voices; availability varies by account
+voice_speed = 1.0                    # Playback-rate multiplier, clamped to 0.8-1.2
 
 [minimax]
 api_key = ""
@@ -198,6 +203,7 @@ Provider keys use each provider's conventional variable name; secrets owned by t
 | `CARTESIA_API_KEY` | `cartesia.api_key` |
 | `ELEVENLABS_API_KEY` | `elevenlabs.api_key` |
 | `SPEECHIFY_API_KEY` | `speechify.api_key` |
+| `TELNYX_API_KEY` | `telnyx.api_key` |
 | `MINIMAX_API_KEY` | `minimax.api_key` |
 | `MIMO_API_KEY` | `mimo.api_key` |
 | `SUPABASE_API_KEY` | `supabase.api_key` |

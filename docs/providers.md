@@ -6,7 +6,7 @@
 |------|-----------|----------------------|
 | STT | `aliyun`, `assemblyai`, `deepgram`, `openai`, `vibevoice`, `volcengine` | Matching provider API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama`, `agent` | OpenAI API key, an Ollama instance you control, or your own HTTP agent endpoint |
-| TTS | `cartesia`, `deepgram`, `elevenlabs`, `mimo`, `minimax`, `speechify`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
+| TTS | `cartesia`, `deepgram`, `elevenlabs`, `mimo`, `minimax`, `speechify`, `telnyx`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | Speech-to-speech | `grok` | xAI API key — replaces STT, LLM, and TTS together |
 | RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
 
@@ -17,6 +17,7 @@ Notes:
 - `llm.provider = "agent"` POSTs each turn to an HTTP endpoint you host; your agent owns memory, prompting, and tools, and replies stream back as SSE, chunked text, or JSON. See [Bring your own agent](./bring-your-own-agent.md).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.
 - `tts.provider = "minimax"` covers 40+ languages and is the strongest option for Mandarin. See [MiniMax TTS](#minimax-tts) for the region and model-plan caveats.
+- `tts.provider = "telnyx"` is Telnyx hosted synthesis over a per-utterance WebSocket; voice availability varies by account. See [Telnyx TTS](#telnyx-tts) for the connection model and the voice catalog.
 - `tts.provider = "mimo"` is Xiaomi's MiMo TTS, with Chinese and English voices and optional voice cloning on the paid models.
 - `stt.provider = "aliyun"` is Alibaba Cloud Model Studio (DashScope) streaming ASR; `vocabulary_id` biases it toward domain terms.
 - `stt.provider = "volcengine"` is Doubao streaming ASR — useful where Deepgram is slow to reach or its Mandarin is not good enough. The console gives a free hourly allowance.
@@ -124,6 +125,28 @@ Three things to get right:
 - **Errors arrive as HTTP 200.** MiniMax reports auth and quota failures in a `base_resp.status_code` field inside a 200 response. The client checks it, so these surface as real errors instead of silent empty audio.
 
 Delivery tags map onto MiniMax's emotion enum: `[warm]` and `[excited]` become `happy`, `[calm]` and `[empathetic]` become `calm`. `[empathetic]` deliberately lands on `calm` rather than `sad`, which overshoots into sounding upset on apologies and bad news. Tags with no emotion mapping still take effect through speed, which is clamped to MiniMax's 0.5–2.0 range.
+
+## Telnyx TTS
+
+Telnyx hosted speech synthesis over WebSocket, streaming linear16 at the pipeline's native 16 kHz so the audio path never resamples.
+
+```toml
+[tts]
+provider = "telnyx"
+
+[telnyx]
+api_key = ""
+voice = "Telnyx.Bayan.Amanda"
+voice_speed = 1.0
+```
+
+Three things to know:
+
+- **One WebSocket per utterance.** The protocol has no per-utterance completion marker; `isFinal` arrives only after the client sends an empty-text teardown, so the client dials a fresh connection for each utterance: init, text, teardown, collect audio until the final frame, server closes. Measured against a persistent connection this costs nothing on the live path: synthesis outpaces playback (~2.4x) and first audio arrives well under a second after dial.
+- **Voices are per-account.** `voice` is any catalog name from `GET /v2/text-to-speech/voices`, and availability varies by account; a voice your key is not provisioned for fails the WebSocket handshake with HTTP 403 rather than erroring mid-call. The config default (`Telnyx.Bayan.Amanda`) is a verified en-US female voice, not a guarantee for every key.
+- **Telnyx LLMs need no new provider.** `openai.base_url = "https://api.telnyx.com/v2/ai"` points the existing `openai` LLM provider at Telnyx inference (e.g. model `glm-5.3`) with zero code.
+
+Delivery tags map onto `voice_speed` (clamped to 0.8–1.2, the same conversational band as Cartesia), and `voice_speed` in config sets the baseline pace for untagged sentences.
 
 ## Local VibeVoice setup
 
