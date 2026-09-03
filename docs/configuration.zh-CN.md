@@ -38,7 +38,7 @@ provider = "deepgram"                # aliyun | assemblyai | deepgram | openai |
 provider = "openai"                  # openai | ollama | agent
 
 [tts]
-provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | vibevoice
+provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | telnyx | vibevoice
 
 # [grok]                             # Used when realtime.provider = "grok"
 # api_key = ""
@@ -113,6 +113,11 @@ api_key = ""
 voice_id = ""
 model = ""
 
+[telnyx]                             # Telnyx 托管合成，当 tts.provider = "telnyx" 时使用
+api_key = ""
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # GET /v2/text-to-speech/voices 目录中的任意音色；可用性因账号而异
+voice_speed = 1.0                    # 播放速率倍数，限制在 0.8-1.2
+
 [minimax]
 api_key = ""
 voice_id = ""                        # Defaults to English_Graceful_Lady; 40+ languages available
@@ -181,6 +186,7 @@ voice = "en-Emma_woman"
 | `CARTESIA_API_KEY` | `cartesia.api_key` |
 | `ELEVENLABS_API_KEY` | `elevenlabs.api_key` |
 | `SPEECHIFY_API_KEY` | `speechify.api_key` |
+| `TELNYX_API_KEY` | `telnyx.api_key` |
 | `MINIMAX_API_KEY` | `minimax.api_key` |
 | `MIMO_API_KEY` | `mimo.api_key` |
 | `SUPABASE_API_KEY` | `supabase.api_key` |

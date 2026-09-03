@@ -113,7 +113,7 @@ StreamCore 位于「提示词 + 工具」类框架的下一层：媒体链路。
 
 详情与代码：[接入你自己的智能体](./docs/bring-your-own-agent.zh-CN.md) · [智能体运行时](./docs/agent-runtime.zh-CN.md)。
 
-服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Ollama、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见[服务商](./docs/providers.zh-CN.md)。
+服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Telnyx、Ollama、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见[服务商](./docs/providers.zh-CN.md)。
 
 OpenAI STT 可通过独立的 `openai.stt_model` 配置选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
 

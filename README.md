@@ -113,7 +113,7 @@ StreamCore starts one layer below prompt-and-tool frameworks: the media path. Yo
 
 Details and code: [Bring your own agent](./docs/bring-your-own-agent.md) · [Agent runtime](./docs/agent-runtime.md).
 
-Providers: Deepgram, AssemblyAI, OpenAI, Cartesia, ElevenLabs, MiniMax, Speechify, Ollama, VibeVoice (local), xAI Grok Voice (speech-to-speech), pgvector/Supabase for retrieval. See [Providers](./docs/providers.md).
+Providers: Deepgram, AssemblyAI, OpenAI, Cartesia, ElevenLabs, MiniMax, Speechify, Telnyx, Ollama, VibeVoice (local), xAI Grok Voice (speech-to-speech), pgvector/Supabase for retrieval. See [Providers](./docs/providers.md).
 
 OpenAI STT supports `whisper-1`, `gpt-4o-transcribe`, and `gpt-4o-mini-transcribe` through the independent `openai.stt_model` setting.
 
