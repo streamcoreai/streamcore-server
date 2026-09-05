@@ -2,12 +2,10 @@ package pipeline
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -18,7 +16,6 @@ import (
 	"github.com/streamcoreai/streamcore-server/internal/plugin"
 	"github.com/streamcoreai/streamcore-server/internal/rag"
 	"github.com/streamcoreai/streamcore-server/internal/realtime"
-	"github.com/streamcoreai/streamcore-server/internal/tools"
 	"github.com/streamcoreai/streamcore-server/internal/tts"
 	"github.com/streamcoreai/streamcore-server/internal/vad"
 )
@@ -68,6 +65,11 @@ type Pipeline struct {
 	// realtimeTurn merges the transcription fragments a provider emits for
 	// one spoken turn, so the client renders a single message.
 	realtimeTurn realtimeUserTurn
+	// realtime lifecycle state. The provider owns response cancellation; these
+	// only snapshot settled text without changing realtime audio handling.
+	realtimeUserText    atomic.Value // string — final user turn for display events
+	realtimeCurrentGen  atomic.Uint64
+	realtimeInterrupted atomic.Bool
 
 	// Plugins
 	pluginMgr *plugin.Manager
@@ -87,6 +89,12 @@ type Pipeline struct {
 
 	// DataChannel messaging
 	sendEvent func(interface{}) error
+
+	// One-shot model for plugins that ask the server for a completion. Built
+	// on demand because realtime mode has no conversation client to borrow.
+	oneShotOnce sync.Once
+	oneShotLLM  llm.Client
+	oneShotErr  error
 
 	// Agent state
 	speaking atomic.Bool
@@ -155,6 +163,11 @@ type Pipeline struct {
 	// Interruption tracking
 	lastAgentText   atomic.Value // string — accumulates current response text
 	interruptedText atomic.Value // string — what agent was saying when interrupted
+	// lifecycleEmittedGen guarantees one completion event per response
+	// generation; latestLifecycleTurn rejects late plugin output from an older
+	// turn when a newer turn has already completed.
+	lifecycleEmittedGen atomic.Uint64
+	latestLifecycleTurn atomic.Uint64
 
 	// Vision
 	imageRecv *imageReceiver
@@ -195,7 +208,7 @@ func New(
 	if conv == nil {
 		// No identity here: a Session always builds the conversation itself and
 		// passes it in, so reaching this means there is no session.
-		if conv, err = NewConversationState(cfg, ""); err != nil {
+		if conv, err = NewConversationState(cfg, "", ""); err != nil {
 			return nil, err
 		}
 	}
@@ -264,6 +277,7 @@ func New(
 	if cfg.RealtimeEnabled() {
 		p.lastAgentText.Store("")
 		p.interruptedText.Store("")
+		p.realtimeUserText.Store("")
 		return p, nil
 	}
 
@@ -285,25 +299,27 @@ func New(
 				if call.Name == visionToolName {
 					return p.handleVisionToolCall(call)
 				}
-				// Intercept movement.* — translate to a data-channel command for the
-				// firmware's motor controller. No subprocess plugin involved.
-				if strings.HasPrefix(call.Name, "movement.") {
-					return p.handleMovementToolCall(call)
-				}
-				// Intercept bot.* — arm and head poses for a rigged client.
-				if strings.HasPrefix(call.Name, "bot.") {
-					return p.handleBotToolCall(call)
-				}
 				tool, ok := pluginMgr.GetTool(call.Name)
 				if !ok {
 					return "", fmt.Errorf("unknown tool: %s", call.Name)
+				}
+
+				// A tool that declares confirmation_required does not run on
+				// the first call: the model gets a challenge to read out and
+				// must call again with the token the user's yes authorised.
+				args, challenge, err := p.gateToolCall(tool, call.Arguments)
+				if err != nil {
+					return "", err
+				}
+				if challenge != "" {
+					return challenge, nil
 				}
 
 				// Play a soft thinking tone while the tool runs (opt-in via plugin.yaml).
 				if tool.ThinkingSound() {
 					done := make(chan struct{})
 					go func() { defer p.recoverKeepAlive("playThinkingSound"); p.playThinkingSound(done) }()
-					result, err := tool.Execute(call.Arguments)
+					result, err := p.runTool(callCtx, tool, args)
 					close(done)
 					if err == nil {
 						p.playSentSound()
@@ -311,7 +327,7 @@ func New(
 					return result, err
 				}
 
-				return tool.Execute(call.Arguments)
+				return p.runTool(callCtx, tool, args)
 			})
 			log.Printf("[pipeline] registered %d tools with LLM", len(defs))
 		}
@@ -371,6 +387,16 @@ func (p *Pipeline) recoverKeepAlive(name string) {
 func (p *Pipeline) Start() {
 	var wg sync.WaitGroup
 
+	// Plugins reach a live conversation through the manager, which outlives
+	// any one session. Binding here is what lets a plugin push a packet or ask
+	// for a completion without holding a reference to this Pipeline.
+	if p.pluginMgr != nil {
+		if id := p.sessionID(); id != "" {
+			p.pluginMgr.BindSession(id, p)
+			defer p.pluginMgr.UnbindSession(id)
+		}
+	}
+
 	if p.cfg.RealtimeEnabled() {
 		wg.Add(3)
 		go func() { defer wg.Done(); defer p.recoverPanic("runReader"); p.runReader() }()
@@ -415,177 +441,6 @@ type dcDataPacket struct {
 	Type    string `json:"type"`    // always "data"
 	Topic   string `json:"topic"`   // e.g. "movement.command"
 	Payload string `json:"payload"` // base64-encoded JSON
-}
-
-// movementCommandPayload is the JSON the firmware decodes inside the data
-// packet for a "movement.command" topic.
-type movementCommandPayload struct {
-	Action       string `json:"action"`
-	DurationMs   uint32 `json:"duration_ms,omitempty"`
-	SpeedPercent uint8  `json:"speed_percent,omitempty"`
-	// Continuous means "keep going until stopped" rather than for a duration.
-	// Omitted unless asked for, so firmware that has never heard of it — which
-	// is all of it — carries on reading the duration exactly as before.
-	Continuous bool `json:"continuous,omitempty"`
-}
-
-// handleMovementToolCall turns a "movement.*" LLM tool invocation into a topic-
-// addressed data-channel packet that the firmware's `on_data` handler
-// will dispatch to its MotorController. Returns a short spoken-friendly
-// confirmation for the LLM to read back.
-func (p *Pipeline) handleMovementToolCall(call llm.ToolCall) (string, error) {
-	action := strings.TrimPrefix(call.Name, "movement.")
-
-	var args struct {
-		DurationMs   *uint32 `json:"duration_ms,omitempty"`
-		SpeedPercent *uint8  `json:"speed_percent,omitempty"`
-		Continuous   *bool   `json:"continuous,omitempty"`
-	}
-	if len(call.Arguments) > 0 {
-		_ = json.Unmarshal(call.Arguments, &args)
-	}
-
-	payload := movementCommandPayload{Action: action}
-	if args.DurationMs != nil {
-		payload.DurationMs = clampU32(*args.DurationMs, tools.MinMovementMs, tools.MaxMovementMs)
-	}
-	if args.SpeedPercent != nil {
-		payload.SpeedPercent = clampU8(*args.SpeedPercent, 0, 100)
-	}
-	if args.Continuous != nil {
-		payload.Continuous = *args.Continuous
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal movement payload: %w", err)
-	}
-
-	if err := p.sendEvent(dcDataPacket{
-		Type:    "data",
-		Topic:   tools.MovementCommandTopic,
-		Payload: base64.StdEncoding.EncodeToString(body),
-	}); err != nil {
-		return "", fmt.Errorf("send movement command: %w", err)
-	}
-
-	log.Printf("[movement] dispatched action=%s duration_ms=%d speed=%d%%",
-		payload.Action, payload.DurationMs, payload.SpeedPercent)
-
-	return movementAck(payload), nil
-}
-
-// botGesturePayload is the JSON a rigged client decodes inside the data
-// packet for a "bot.gesture" topic.
-type botGesturePayload struct {
-	Action     string `json:"action"`
-	DurationMs uint32 `json:"duration_ms,omitempty"`
-}
-
-// handleBotToolCall turns a "bot.*" LLM tool invocation into a topic-
-// addressed data-channel packet. Same fire-and-forget shape as the car
-// commands: the client is not asked to confirm, and the spoken
-// acknowledgement is synthesized here.
-func (p *Pipeline) handleBotToolCall(call llm.ToolCall) (string, error) {
-	action := strings.TrimPrefix(call.Name, "bot.")
-
-	var args struct {
-		DurationMs *uint32 `json:"duration_ms,omitempty"`
-	}
-	if len(call.Arguments) > 0 {
-		_ = json.Unmarshal(call.Arguments, &args)
-	}
-
-	payload := botGesturePayload{Action: action}
-	if args.DurationMs != nil {
-		payload.DurationMs = clampU32(*args.DurationMs, tools.MinGestureMs, tools.MaxGestureMs)
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("marshal bot payload: %w", err)
-	}
-
-	if err := p.sendEvent(dcDataPacket{
-		Type:    "data",
-		Topic:   tools.BotGestureTopic,
-		Payload: base64.StdEncoding.EncodeToString(body),
-	}); err != nil {
-		return "", fmt.Errorf("send bot gesture: %w", err)
-	}
-
-	log.Printf("[bot] dispatched gesture=%s duration_ms=%d", payload.Action, payload.DurationMs)
-
-	return botAck(payload.Action), nil
-}
-
-func botAck(action string) string {
-	switch action {
-	case "wave":
-		return "Waving."
-	case "raise_arms":
-		return "Arms up!"
-	case "nod":
-		return "Nodding."
-	case "shake_head":
-		return "Shaking my head."
-	case "rest":
-		return "Alright, back to normal."
-	case "point_left", "point_right":
-		return "Pointing."
-	default:
-		return "OK, " + strings.ReplaceAll(action, "_", " ") + "."
-	}
-}
-
-// movementAck is what the model reads back, so it stays device-neutral: the same
-// tools drive a car and walk a rigged bot, and "driving forward" out of a
-// walking character is the sort of thing a user notices immediately.
-func movementAck(p movementCommandPayload) string {
-	switch p.Action {
-	case "stop":
-		return "Stopping."
-	case "fancy":
-		return "Fancy moves!"
-	case "shake":
-		return "Shaking."
-	case "forward":
-		if p.Continuous {
-			return "On my way — say stop when you want me to halt."
-		}
-		return "Moving forward."
-	case "backward":
-		if p.Continuous {
-			return "Heading back — say stop when you want me to halt."
-		}
-		return "Backing up."
-	case "turn_left":
-		return "Turning left."
-	case "turn_right":
-		return "Turning right."
-	default:
-		return "OK, " + strings.ReplaceAll(p.Action, "_", " ") + "."
-	}
-}
-
-func clampU32(v, lo, hi uint32) uint32 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func clampU8(v, lo, hi uint8) uint8 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
 }
 
 // handleVisionToolCall intercepts the vision.analyze tool call, captures an

@@ -23,6 +23,37 @@ mutex_profile_fraction = 0      # 1 records every mutex contention event; 0 disa
 [plugins]
 directory = "./plugins"
 
+# Per-plugin settings, keyed by the name in the plugin's manifest.
+# [plugins.config.developer]
+# enabled = true
+
+[display]
+enabled = false                         # Optional display.card projection; disabled by default
+plugin = "display-projector"
+
+[display.projector]
+timeout_ms = 3000                       # Bound for one post-response projection model call
+fast_path_max_chars = 80                # Short simple answers are projected without another model call
+
+# Developer agent: GitHub App + the Codex harness. Both disabled by default.
+[github]
+enabled = false
+app_id = ""                 # App ID or client ID; used as the JWT `iss`
+installation_id = ""        # From the installation URL, or GET /repos/{owner}/{repo}/installation
+private_key_path = ""       # PEM downloaded when the app was created
+repositories = []           # Allowlist, as owner/name
+# api_base_url = ""         # GitHub Enterprise Server API root
+
+# Codex authenticates with your ChatGPT subscription. There is no api_key here.
+[codex]
+enabled = false
+binary = "codex"
+model_provider = "openai"
+model = "gpt-5.6-terra"
+workspace_root = "/var/lib/streamcore/codex"
+turn_timeout_ms = 600000
+# network_access = false    # Open the task sandbox to the network
+
 [pipeline]
 barge_in = true
 greeting = ""
@@ -153,6 +184,13 @@ Notes:
 - `debug.bind` enables Go's pprof handlers on a separate listener. Keep it on loopback and reach it through an SSH tunnel; a non-loopback address is rejected unless `debug.allow_public = true` explicitly acknowledges that profiles expose process data and CPU profiles consume resources. The public server never serves `/debug/pprof/`.
 - `debug.block_profile_rate` and `debug.mutex_profile_fraction` enable the corresponding runtime profiles while the debug listener is active. Both default to `0` (off); set either to `1` to record every event while diagnosing contention.
 - `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
+- `plugins.config.<name>` is handed to that plugin at startup, so a plugin's credentials live in this file rather than in a dotenv beside its source. Quote a name containing a dot: `[plugins.config."weather.get"]`. Two keys are read by the server rather than passed through — `enabled` turns a plugin off without deleting it, and `timeout_ms` overrides the manifest's.
+- `display.*`, `github.*` and `codex.*` configure features that now ship as plugins. The server forwards these sections to them, so an existing deployment keeps working unchanged; an explicit `[plugins.config.<name>]` takes precedence when you move over.
+- `github.*` turns on the GitHub App integration: CI failure investigation, repository reads, and confirmation-gated pull request creation. It needs an App private key, not a personal access token. See [Developer agent](./developer-agent.md).
+- `github.repositories` is an allowlist. A repository must be listed **and** reachable by the App installation before any call is made; either alone is not enough.
+- `codex.*` turns on the Codex developer agent. Codex authenticates with your ChatGPT subscription through the official sign-in flow — there is no API key setting and `OPENAI_API_KEY` is never used.
+- `codex.model_provider` and `codex.model` are pinned on the Codex command line. Without them a `~/.codex/config.toml` pointing at another provider would quietly take over, and your ChatGPT plan would never be touched.
+- `codex.workspace_root` is the only place Codex can write. Each developer task gets its own git worktree under it; the live server checkout is never one of them.
 - `pipeline.barge_in` lets users interrupt the agent while it is speaking. Agent audio ducks as soon as the caller starts talking over it and recovers if the interruption turns out to be a backchannel.
 - `pipeline.greeting` plays when a session connects. `pipeline.greeting_outgoing` is used for outbound SIP calls when present.
 - `pipeline.debug = true` emits timing events over the DataChannel and logs a per-turn latency breakdown.

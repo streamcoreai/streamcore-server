@@ -82,7 +82,7 @@ Formatting and vet failures are the single most common reason a PR sits.
 | `internal/pipeline` | Turn-taking, barge-in, response generation, transcript |
 | `internal/stt`, `internal/tts`, `internal/llm` | Provider adapters |
 | `internal/realtime` | Speech-to-speech providers |
-| `internal/plugin`, `internal/tools` | Plugin runtime, native tools, skills |
+| `internal/plugin` | Plugin host: discovery, the stdio protocol, dispatch tools, skills |
 | `internal/rag` | Retrieval and embeddings |
 | `internal/turn` | Built-in STUN/TURN server |
 | `internal/config` | TOML config schema and validation |

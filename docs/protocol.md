@@ -142,10 +142,55 @@ The client must create a DataChannel labeled `events` before generating the offe
 | `state` | `{ "type": "state", "state": "listening" \| "thinking" \| "speaking" }` | Agent turn state, for UI indicators |
 | `timing` | `{ "type": "timing", "stage": string, "ms": number }` | Latency timings when `pipeline.debug = true` |
 | `connection` | `{ "type": "connection", "state": "reconnecting" \| "connected" }` | Transport dropped and is recovering, or has recovered |
+| `display.card` | `{ "type": "display.card", "version": 1, ... }` | Optional persistent-display projection; sent only when `[display] enabled = true` |
 
 Timing stages today: `llm_first_token`, `tts_first_byte`.
 
 Messages the client sends on the same channel are routed into the pipeline — currently used for camera image chunks consumed by the `vision.analyze` plugin.
+
+### Display cards
+
+`display.card` is a small, versioned semantic payload for slow persistent displays such as e-ink. It is additive and disabled by default. Unknown clients should ignore it, just as the NOTE4C ignores realtime `transcript`, `response`, and `state` events for persistent rendering.
+
+```json
+{
+  "type": "display.card",
+  "version": 1,
+  "session_id": "9d2f...",
+  "turn_id": "turn_123",
+  "turn_seq": 123,
+  "card": {
+    "layout": "hero",
+    "title": "Auckland · Tomorrow",
+    "primary": "17°C",
+    "secondary": "Rain after lunch",
+    "detail": "Mostly cloudy · light winds"
+  }
+}
+```
+
+`turn_seq` is a positive integer that increases within `session_id`; `turn_id` is its human-readable counterpart. A device with a slow display should keep only the newest valid card, not a FIFO. Reject a card whose `turn_seq` is not newer than the latest accepted card from the same session. A changed `session_id` starts a new sequence.
+
+The server validates and truncates all fields before sending:
+
+| Field | Layouts | Limit |
+|---|---|---|
+| `title` | all | 32 characters |
+| `primary` | `hero`, `status` | 24 characters |
+| `secondary` | `hero`, `status` | 48 characters |
+| `detail` | `hero` | 80 characters |
+| `body` | `text` | 180 characters |
+| `items` | `list` | 4 items |
+| each `items[]` | `list` | 40 characters |
+
+Layout semantics:
+
+- **hero** — one dominant fact (`title`, required `primary`, optional `secondary`/`detail`).
+- **text** — a compact explanation (`title`, required `body`).
+- **list** — at most four short entries (`title`, required non-empty `items`).
+- **status** — a completed action or confirmation (`title`, required `primary`, optional `secondary`).
+
+The payload contains semantics only. StreamCore does not send coordinates, fonts, colours, framebuffers, PNGs, or device-specific rendering instructions. The client chooses typography, wrapping, colour use, and when a refresh is affordable. A recommended device policy is: store latest-wins, wait until assistant playback and the next-user check have gone idle, debounce for 1–3 seconds, then spend one refresh.
 
 ## Auth
 

@@ -18,7 +18,7 @@
 - 插件调用 API、数据库、日历、CRM、工作流与内部工具
 - 技能定义语气、性格、护栏、品牌调性与流程引导
 
-插件以 Python、TypeScript 或 JavaScript 进程的形式运行，通过 JSON-RPC 通信。技能是注入系统提示词的 Markdown 文件。示例插件与技能在 [`plugins/`](../plugins/) 下。若想完全避免 IPC，可以用 `pluginMgr.RegisterNative(...)` 注册原生 Go 工具。
+插件以进程的形式运行，通过 JSON-RPC 通信——Python、TypeScript、JavaScript、Go 或任何其他语言，因为清单给出的是 argv 而不是语言。技能是注入系统提示词的 Markdown 文件。示例插件与技能在 [`plugins/`](../plugins/) 下。若某个工具只是把参数转成一个发给客户端的数据包，它完全不需要进程：在清单里声明 `dispatch:` 块，由服务端直接发送。参见[插件开发](https://github.com/streamcoreai/streamcore-server/blob/main/docs/plugins.md)。
 
 ### 插件清单字段参考
 
@@ -30,7 +30,7 @@
 | `language` | string | 是 | `python`、`typescript` 或 `javascript` |
 | `entrypoint` | string | 是 | 要运行的文件（如 `main.py`、`index.ts`） |
 | `parameters` | object | 是 | 描述工具参数的 JSON Schema |
-| `confirmation_required` | bool | 否 | 执行前让智能体先向用户确认（默认 `false`） |
+| `confirmation_required` | bool | 否 | 让工具在口头确认后才执行 —— 第一次调用返回提示语与一次性令牌，只有携带该令牌的第二次调用才会运行（默认 `false`） |
 | `thinking_sound` | bool | 否 | 工具运行期间播放轻柔的循环提示音，有 500 毫秒宽限期（默认 `false`） |
 
 ### 内置插件

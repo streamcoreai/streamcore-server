@@ -198,6 +198,7 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 	// Channel decouples LLM sentence production from TTS synthesis so the
 	// LLM stream isn't blocked while waiting for audio.
 	sentences := make(chan string, 8)
+	var responseText strings.Builder
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -227,6 +228,7 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 				acc = prev + chunk
 			}
 			p.lastAgentText.Store(tts.StripVoiceTags(acc))
+			responseText.WriteString(chunk)
 			p.sendEvent(responseMsg{
 				Type: "response",
 				Text: chunk,
@@ -251,6 +253,9 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 		if txt, _ := p.lastAgentText.Load().(string); txt != "" {
 			p.transcriptLog.Add("agent", txt)
 		}
+	}
+	if err == nil {
+		p.emitAssistantResponseCompleted(gen, userText, tts.StripVoiceTags(responseText.String()))
 	}
 	if p.cfg.Pipeline.Debug {
 		timing.Log()

@@ -1,0 +1,288 @@
+name: movement
+description: "Locomotion for whatever client is connected — a two-wheel desktop car, a rigged character in a browser, anything that can go forward and turn. Nothing here names a drivetrain: the server never learns which is on the other end."
+version: 1
+
+tools:
+  - name: movement.forward
+    description: "Move the robot forward. Use when the user asks it to go, move, walk, drive, advance, or come closer."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: forward
+      omit_zero: true
+      speak: "Moving forward."
+      speak_when:
+        - when:
+            continuous: true
+          speak: "On my way — say stop when you want me to halt."
+    parameters:
+      type: object
+      properties:
+        continuous:
+          type: "boolean"
+          description: "Set true when the user asks the robot to keep going until told to stop — 'keep walking', 'go until I say stop', 'keep driving'. It then moves until it runs out of room or movement.stop arrives, and duration_ms is ignored. Leave unset for a normal single move."
+          default: false
+        duration_ms:
+          type: "integer"
+          description: "How long to keep moving, in milliseconds. Ignored when continuous is true. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.backward
+    description: "Move the robot backward. Use when the user asks it to back up, reverse, or move away."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: backward
+      omit_zero: true
+      speak: "Backing up."
+      speak_when:
+        - when:
+            continuous: true
+          speak: "Heading back — say stop when you want me to halt."
+    parameters:
+      type: object
+      properties:
+        continuous:
+          type: "boolean"
+          description: "Set true when the user asks the robot to keep going until told to stop — 'keep walking', 'go until I say stop', 'keep driving'. It then moves until it runs out of room or movement.stop arrives, and duration_ms is ignored. Leave unset for a normal single move."
+          default: false
+        duration_ms:
+          type: "integer"
+          description: "How long to keep moving, in milliseconds. Ignored when continuous is true. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.turn_left
+    description: "Turn the robot in place to its own left (counter-clockwise). Use when the user asks it to turn left."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: turn_left
+      omit_zero: true
+      speak: "Turning left."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to keep turning, in milliseconds. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.turn_right
+    description: "Turn the robot in place to its own right (clockwise). Use when the user asks it to turn right."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: turn_right
+      omit_zero: true
+      speak: "Turning right."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to keep turning, in milliseconds. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.pivot_forward_left
+    description: "Curve forward and to the left instead of turning on the spot. Gentler than a turn-in-place."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: pivot_forward_left
+      omit_zero: true
+      speak: "OK, pivot forward left."
+    parameters:
+      type: object
+      properties:
+        continuous:
+          type: "boolean"
+          description: "Set true when the user asks the robot to keep going until told to stop — 'keep walking', 'go until I say stop', 'keep driving'. It then moves until it runs out of room or movement.stop arrives, and duration_ms is ignored. Leave unset for a normal single move."
+          default: false
+        duration_ms:
+          type: "integer"
+          description: "How long to keep moving, in milliseconds. Ignored when continuous is true. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.pivot_forward_right
+    description: "Curve forward and to the right instead of turning on the spot. Gentler than a turn-in-place."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: pivot_forward_right
+      omit_zero: true
+      speak: "OK, pivot forward right."
+    parameters:
+      type: object
+      properties:
+        continuous:
+          type: "boolean"
+          description: "Set true when the user asks the robot to keep going until told to stop — 'keep walking', 'go until I say stop', 'keep driving'. It then moves until it runs out of room or movement.stop arrives, and duration_ms is ignored. Leave unset for a normal single move."
+          default: false
+        duration_ms:
+          type: "integer"
+          description: "How long to keep moving, in milliseconds. Ignored when continuous is true. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.pivot_back_left
+    description: "Curve backward and to the left instead of turning on the spot."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: pivot_back_left
+      omit_zero: true
+      speak: "OK, pivot back left."
+    parameters:
+      type: object
+      properties:
+        continuous:
+          type: "boolean"
+          description: "Set true when the user asks the robot to keep going until told to stop — 'keep walking', 'go until I say stop', 'keep driving'. It then moves until it runs out of room or movement.stop arrives, and duration_ms is ignored. Leave unset for a normal single move."
+          default: false
+        duration_ms:
+          type: "integer"
+          description: "How long to keep moving, in milliseconds. Ignored when continuous is true. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.pivot_back_right
+    description: "Curve backward and to the right instead of turning on the spot."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: pivot_back_right
+      omit_zero: true
+      speak: "OK, pivot back right."
+    parameters:
+      type: object
+      properties:
+        continuous:
+          type: "boolean"
+          description: "Set true when the user asks the robot to keep going until told to stop — 'keep walking', 'go until I say stop', 'keep driving'. It then moves until it runs out of room or movement.stop arrives, and duration_ms is ignored. Leave unset for a normal single move."
+          default: false
+        duration_ms:
+          type: "integer"
+          description: "How long to keep moving, in milliseconds. Ignored when continuous is true. Clamped to 100..10000."
+          default: 1500
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.stop
+    description: "Stop moving immediately. Use when the user asks the robot to stop, halt, freeze, or wait."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: stop
+      omit_zero: true
+      speak: "Stopping."
+    parameters:
+      type: object
+      properties: {}
+
+  - name: movement.fancy
+    description: "Play a short choreographed sequence of fancy moves — alternating pivots and wiggles. Use when the user asks the robot to do fancy moves, show off, dance, party, celebrate, do tricks, or otherwise put on a little show."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: fancy
+      omit_zero: true
+      speak: "Fancy moves!"
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "Total length of the fancy-moves routine in milliseconds. Clamped to 100..10000."
+          default: 3000
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 80 if omitted."
+          default: 80
+          minimum: 0
+          maximum: 100
+
+  - name: movement.shake
+    description: "Quick left-right wiggle in place. Use when the user asks the robot to shake, wiggle, or nod no."
+    dispatch:
+      topic: movement.command
+      payload:
+        action: shake
+      omit_zero: true
+      speak: "Shaking."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to keep shaking, in milliseconds. Clamped to 100..10000."
+          default: 1200
+          minimum: 100
+          maximum: 10000
+        speed_percent:
+          type: "integer"
+          description: "How hard to move, 0..100. Defaults to 90 if omitted."
+          default: 90
+          minimum: 0
+          maximum: 100

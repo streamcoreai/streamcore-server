@@ -17,6 +17,29 @@ port = "8080"
 [plugins]
 directory = "./plugins"
 
+# 各插件自己的配置，按插件清单里的 name 索引。
+# [plugins.config.developer]
+# enabled = true
+
+# Developer agent: GitHub App + the Codex harness. Both disabled by default.
+[github]
+enabled = false
+app_id = ""                 # App ID or client ID; used as the JWT `iss`
+installation_id = ""        # From the installation URL, or GET /repos/{owner}/{repo}/installation
+private_key_path = ""       # PEM downloaded when the app was created
+repositories = []           # Allowlist, as owner/name
+# api_base_url = ""         # GitHub Enterprise Server API root
+
+# Codex authenticates with your ChatGPT subscription. There is no api_key here.
+[codex]
+enabled = false
+binary = "codex"
+model_provider = "openai"
+model = "gpt-5.6-terra"
+workspace_root = "/var/lib/streamcore/codex"
+turn_timeout_ms = 600000
+# network_access = false    # Open the task sandbox to the network
+
 [pipeline]
 barge_in = true
 greeting = ""
@@ -145,6 +168,13 @@ voice = "en-Emma_woman"
 - `server.public_ip` 加上 `server.turn_secret` 会启用内置的 Pion STUN/TURN 服务，取代外部 coturn 容器。TURN 监听 UDP 与 TCP 3478，并在 UDP 50001–60000 上中转媒体。
 - `server.max_sessions` 用于限制分布式客户端的破坏半径：按 IP 的限流做不到这一点，而每个会话都在消耗 CPU 和服务商费用。超过上限后 `POST /whip` 返回 503 并带 `Retry-After`；会话恢复（resume）不受限制，因为它重新接入的会话已被计数。请按单实例实际能承载的量来设置。
 - `plugins.directory` 是插件与技能加载的必要条件；不设置则跳过发现流程。
+- `plugins.config.<name>` 会在启动时交给对应插件，因此插件的凭证放在这个文件里，而不是放在源码旁边的 dotenv 中。名字里含点号时需要加引号：`[plugins.config."weather.get"]`。其中两个键由服务端自己读取而不透传——`enabled` 可以在不删除插件的前提下关掉它，`timeout_ms` 覆盖清单里的设置。
+- `display.*`、`github.*` 与 `codex.*` 配置的功能现在都以插件形式发布。服务端会把这些段落转发给它们，因此现有部署无需改动即可继续工作；迁移时显式写出的 `[plugins.config.<name>]` 优先。
+- `github.*` 启用 GitHub App 集成：CI 失败排查、仓库读取，以及需确认的 Pull Request 创建。它需要 App 私钥，而不是个人访问令牌。见[开发者智能体](./developer-agent.zh-CN.md)。
+- `github.repositories` 是白名单。仓库必须**同时**列在其中且 App 安装可以访问，任何一项单独成立都不够。
+- `codex.*` 启用 Codex 开发者智能体。Codex 通过官方登录流程使用你的 ChatGPT 订阅认证 —— 没有 API key 配置项，也永远不会使用 `OPENAI_API_KEY`。
+- `codex.model_provider` 与 `codex.model` 会固定写在 Codex 命令行上。否则 `~/.codex/config.toml` 里指向其他供应商的默认值会悄悄接管，你的 ChatGPT 套餐将完全不会被使用。
+- `codex.workspace_root` 是 Codex 唯一可以写入的位置。每个开发任务在其下获得独立的 git worktree；服务器自身的工作副本永远不在其中。
 - `pipeline.barge_in` 允许用户在智能体说话时打断。用户一开口抢话，智能体音量立即压低；若判定只是回应词则恢复。
 - `pipeline.greeting` 在会话连接时播放。存在 `pipeline.greeting_outgoing` 时，它用于 SIP 外呼。
 - `pipeline.debug = true` 会通过 DataChannel 发出时延事件，并在日志中记录每轮的时延分解。

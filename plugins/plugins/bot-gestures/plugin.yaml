@@ -1,0 +1,250 @@
+name: bot-gestures
+description: "Arm and head poses for a rigged client. Separate from movement because a two-wheel drivetrain has neither, and a device receiving these can ignore the topic wholesale rather than having to know which actions it cannot do."
+version: 1
+
+tools:
+  - name: bot.wave
+    description: "Wave hello or goodbye with one hand. Use when the user greets the robot, says hi or bye, waves at it, or asks it to wave."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: wave
+      omit_zero: true
+      speak: "Waving."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to keep going in milliseconds. Clamped to 200..10000."
+          default: 1800
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.raise_arms
+    description: "Throw BOTH arms up in the air at once. Only when the user means both — 'hands up', 'both arms up', 'cheer', 'celebrate'. If they name one hand, use the single-arm tool instead."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: raise_arms
+      omit_zero: true
+      speak: "Arms up!"
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.raise_left_arm
+    description: "Raise only the arm on the robot's own LEFT side. Use for 'put your left hand up', 'raise your left arm', 'lift your left hand'."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: raise_left_arm
+      omit_zero: true
+      speak: "OK, raise left arm."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.raise_right_arm
+    description: "Raise only the arm on the robot's own RIGHT side. Use for 'put your right hand up', 'raise your right arm', 'lift your right hand'."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: raise_right_arm
+      omit_zero: true
+      speak: "OK, raise right arm."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.point_left
+    description: "Point with the arm on the robot's own left side. Use when the user asks it to point left, or at something on its left."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: point_left
+      omit_zero: true
+      speak: "Pointing."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.point_right
+    description: "Point with the arm on the robot's own right side. Use when the user asks it to point right, or at something on its right."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: point_right
+      omit_zero: true
+      speak: "Pointing."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.look_left
+    description: "Turn the head to the robot's own left without moving its feet. Use for 'look left', 'look over there'."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: look_left
+      omit_zero: true
+      speak: "OK, look left."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.look_right
+    description: "Turn the head to the robot's own right without moving its feet. Use for 'look right'."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: look_right
+      omit_zero: true
+      speak: "OK, look right."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.look_up
+    description: "Tilt the head up. Use for 'look up', 'look at the ceiling'."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: look_up
+      omit_zero: true
+      speak: "OK, look up."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.look_down
+    description: "Tilt the head down. Use for 'look down', 'look at the floor'."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: look_down
+      omit_zero: true
+      speak: "OK, look down."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to hold the pose in milliseconds. Clamped to 200..10000."
+          default: 2500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.look_around
+    description: "Sweep the head from side to side, as if taking in the room. Use for 'look around', 'spin your head', 'have a look about', 'what can you see', 'scan the room'."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: look_around
+      omit_zero: true
+      speak: "OK, look around."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to keep looking around in milliseconds. Clamped to 200..10000."
+          default: 4500
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.nod
+    description: "Nod the head yes. Use when agreeing, confirming, or when the user asks the robot to nod."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: nod
+      omit_zero: true
+      speak: "Nodding."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to keep going in milliseconds. Clamped to 200..10000."
+          default: 1800
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.shake_head
+    description: "Shake the head no. Use when disagreeing, declining, or when the user asks the robot to shake its head."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: shake_head
+      omit_zero: true
+      speak: "Shaking my head."
+    parameters:
+      type: object
+      properties:
+        duration_ms:
+          type: "integer"
+          description: "How long to keep going in milliseconds. Clamped to 200..10000."
+          default: 1800
+          minimum: 200
+          maximum: 10000
+
+  - name: bot.rest
+    description: "Drop the arms and face front again. Use when the user asks it to relax, put its arms down, stop pointing, or look forward."
+    dispatch:
+      topic: bot.gesture
+      payload:
+        action: rest
+      omit_zero: true
+      speak: "Alright, back to normal."
+    parameters:
+      type: object
+      properties: {}

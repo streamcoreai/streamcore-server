@@ -156,7 +156,11 @@ func (p *Pipeline) realtimeHandlers() realtime.Handlers {
 		// The provider has decided to answer, so the caller's turn is over
 		// however many fragments it arrived in.
 		OnResponseStarted: func() {
+			gen := p.responseGen.Add(1)
+			p.realtimeCurrentGen.Store(gen)
+			p.realtimeInterrupted.Store(false)
 			text := p.realtimeTurn.close()
+			p.realtimeUserText.Store(text)
 			if text == "" {
 				return
 			}
@@ -185,6 +189,9 @@ func (p *Pipeline) realtimeHandlers() realtime.Handlers {
 			// interruption and play afterwards. Discarding an empty queue
 			// costs nothing.
 			wasSpeaking := p.speaking.Swap(false)
+			p.realtimeInterrupted.Store(true)
+			p.responseGen.Add(1)
+			p.realtimeCurrentGen.Store(0)
 			p.realtimeAudio.discard()
 			p.drainOutbound()
 			if wasSpeaking {
@@ -198,12 +205,18 @@ func (p *Pipeline) realtimeHandlers() realtime.Handlers {
 		},
 
 		OnResponseDone: func() {
+			gen := p.realtimeCurrentGen.Load()
+			response, _ := p.lastAgentText.Load().(string)
 			if txt, _ := p.lastAgentText.Load().(string); txt != "" {
 				log.Printf("[realtime] agent: %s", txt)
 				if p.transcriptLog != nil {
 					p.transcriptLog.Add("assistant", txt)
 				}
 				p.lastAgentText.Store("")
+			}
+			if gen != 0 && !p.realtimeInterrupted.Load() {
+				userText, _ := p.realtimeUserText.Load().(string)
+				p.emitAssistantResponseCompleted(gen, userText, response)
 			}
 			// The model has finished generating, but playback is still
 			// catching up. The outbound pump reports "listening" once the
@@ -265,10 +278,6 @@ func (p *Pipeline) handleRealtimeToolCall(ctx context.Context, name string, args
 		return p.realtimeRAGSearch(ctx, args)
 	case name == visionToolName:
 		return p.handleVisionToolCall(llm.ToolCall{Name: name, Arguments: args})
-	case strings.HasPrefix(name, "movement."):
-		return p.handleMovementToolCall(llm.ToolCall{Name: name, Arguments: args})
-	case strings.HasPrefix(name, "bot."):
-		return p.handleBotToolCall(llm.ToolCall{Name: name, Arguments: args})
 	}
 
 	if p.pluginMgr == nil {
@@ -290,7 +299,15 @@ func (p *Pipeline) handleRealtimeToolCall(ctx context.Context, name string, args
 		log.Printf("[realtime] tool %q requests a thinking sound; not supported in realtime mode", name)
 	}
 
-	return tool.Execute(args)
+	gated, challenge, err := p.gateToolCall(tool, args)
+	if err != nil {
+		return "", err
+	}
+	if challenge != "" {
+		return challenge, nil
+	}
+
+	return p.runTool(ctx, tool, gated)
 }
 
 // realtimeRAGSearch runs a knowledge-base lookup on the model's behalf and

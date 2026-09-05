@@ -3,6 +3,8 @@ package plugin
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,11 +17,26 @@ import (
 
 // Manager discovers, loads, and manages all plugins and skills.
 type Manager struct {
-	mu      sync.RWMutex
-	plugins map[string]Tool
-	skills  []Skill
-	dir     string
-	sdkDir  string // set via PLUGIN_SDK_DIR env var (dev only)
+	mu            sync.RWMutex
+	plugins       map[string]Tool
+	eventHandlers map[string]EventHandler
+	hosts         []*ExternalPlugin
+	skills        []Skill
+	dir           string
+	sdkDir        string // set via PLUGIN_SDK_DIR env var (dev only)
+	confirmations *ConfirmationStore
+
+	// settings are the per-plugin tables from config.toml, keyed by plugin
+	// name and handed over at initialize.
+	settings map[string]json.RawMessage
+
+	// sinks route a plugin's callbacks to the conversation they concern. The
+	// manager outlives any one session, so a plugin reaches a session through
+	// here rather than holding one.
+	sinkMu sync.RWMutex
+	sinks  map[string]SessionSink
+
+	closeOnce sync.Once
 }
 
 // NewManager creates a plugin manager that scans the given directory.
@@ -34,10 +51,21 @@ func NewManager(pluginDir string) *Manager {
 		}
 	}
 	return &Manager{
-		plugins: make(map[string]Tool),
-		dir:     pluginDir,
-		sdkDir:  sdkDir,
+		plugins:       make(map[string]Tool),
+		eventHandlers: make(map[string]EventHandler),
+		dir:           pluginDir,
+		sdkDir:        sdkDir,
+		confirmations: NewConfirmationStore(0),
+		settings:      make(map[string]json.RawMessage),
+		sinks:         make(map[string]SessionSink),
 	}
+}
+
+// Confirmations returns the store backing the two-call gate for tools that
+// declare ConfirmationRequired. It is shared by every session; tokens are
+// bound to the session that was issued them.
+func (m *Manager) Confirmations() *ConfirmationStore {
+	return m.confirmations
 }
 
 // LoadAll discovers and starts all plugins and skills in the configured directory.
@@ -75,12 +103,31 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 	return nil
 }
 
-// RegisterNative adds a Go-native tool to the manager.
-func (m *Manager) RegisterNative(tool Tool) {
+// RegisterTool adds an in-process tool.
+//
+// This is not how plugins are written — every plugin is a subprocess with a
+// manifest, in whatever language its author likes. It exists so the host and
+// the pipeline can be tested against a tool that answers immediately, without
+// starting a process to do it.
+func (m *Manager) RegisterTool(tool Tool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.plugins[tool.Name()] = tool
-	log.Printf("[plugins] registered native plugin: %s", tool.Name())
+	if handler, ok := tool.(EventHandler); ok {
+		m.eventHandlers[tool.Name()] = handler
+	}
+}
+
+// RegisterEventHandler adds an in-process event handler. It is not returned by
+// Tools and therefore never becomes a model-callable function. Same purpose as
+// RegisterTool: a test seam, not a plugin authoring path.
+func (m *Manager) RegisterEventHandler(name string, handler EventHandler) {
+	if handler == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventHandlers[name] = handler
 }
 
 // Tools returns all registered tools (both external and native).
@@ -100,6 +147,35 @@ func (m *Manager) GetTool(name string) (Tool, bool) {
 	defer m.mu.RUnlock()
 	t, ok := m.plugins[name]
 	return t, ok
+}
+
+// DispatchEvent delivers a lifecycle event to every handler that subscribed to
+// its type. All matching handlers run even when one fails; errors are joined so
+// a broken observer cannot suppress the output of a healthy one.
+func (m *Manager) DispatchEvent(ctx context.Context, event PluginEvent) ([]OutboundEvent, error) {
+	m.mu.RLock()
+	handlers := make([]EventHandler, 0, len(m.eventHandlers))
+	for _, handler := range m.eventHandlers {
+		for _, eventType := range handler.Events() {
+			if eventType == event.Type {
+				handlers = append(handlers, handler)
+				break
+			}
+		}
+	}
+	m.mu.RUnlock()
+
+	var outputs []OutboundEvent
+	var errs []error
+	for _, handler := range handlers {
+		out, err := handler.HandleEvent(ctx, event)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		outputs = append(outputs, out...)
+	}
+	return outputs, errors.Join(errs...)
 }
 
 // Skills returns all loaded skills.
@@ -135,19 +211,37 @@ func (m *Manager) SkillsPrompt() string {
 	return b.String()
 }
 
-// Close stops all external plugin processes.
+// Close stops every plugin process.
+//
+// Plugins are stopped concurrently: each gets a grace period to exit cleanly,
+// and running those in series would multiply the wait by the number of plugins
+// while the server's shutdown deadline stays fixed.
+//
+// It is safe to call more than once, so a deferred Close cannot double-stop
+// plugins an explicit shutdown already dealt with.
 func (m *Manager) Close() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for name, t := range m.plugins {
-		if ep, ok := t.(*ExternalPlugin); ok {
-			ep.Stop()
-			log.Printf("[plugins] stopped plugin: %s", name)
+	m.closeOnce.Do(func() {
+		m.mu.Lock()
+		hosts := append([]*ExternalPlugin(nil), m.hosts...)
+		m.mu.Unlock()
+
+		var wg sync.WaitGroup
+		for _, host := range hosts {
+			wg.Add(1)
+			go func(host *ExternalPlugin) {
+				defer wg.Done()
+				host.Stop()
+				log.Printf("[plugins] stopped plugin: %s", host.manifest.Name)
+			}(host)
 		}
-	}
+		wg.Wait()
+	})
 }
 
 // loadPlugins scans the plugins directory for plugin.yaml manifests.
+//
+// A plugin that fails to load is skipped with a log line rather than failing
+// startup. One broken plugin folder must not take a voice deployment down.
 func (m *Manager) loadPlugins(ctx context.Context, dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -179,31 +273,81 @@ func (m *Manager) loadPlugins(ctx context.Context, dir string) error {
 			log.Printf("[plugins] invalid manifest in %s: %v", entry.Name(), err)
 			continue
 		}
-
-		if manifest.Name == "" {
-			log.Printf("[plugins] skipping %s: manifest missing name", entry.Name())
-			continue
+		manifest.Normalize()
+		if err := m.load(ctx, manifest, pluginDir); err != nil {
+			log.Printf("[plugins] skipping %s: %v", entry.Name(), err)
 		}
-
-		if manifest.Entrypoint == "" {
-			log.Printf("[plugins] skipping %s: manifest missing entrypoint", entry.Name())
-			continue
-		}
-
-		plugin := NewExternalPlugin(manifest, pluginDir, m.sdkDir)
-		if err := plugin.Start(ctx); err != nil {
-			log.Printf("[plugins] failed to start %s: %v", manifest.Name, err)
-			continue
-		}
-
-		m.mu.Lock()
-		m.plugins[manifest.Name] = plugin
-		m.mu.Unlock()
-
-		log.Printf("[plugins] loaded: %s (lang=%s, v%d)", manifest.Name, manifest.Language, manifest.Version)
 	}
 
 	return nil
+}
+
+// load brings one manifest up: dispatch tools need nothing started, and
+// anything else gets a process whose tools are registered once it answers.
+func (m *Manager) load(ctx context.Context, manifest Manifest, dir string) error {
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+
+	m.mu.RLock()
+	manifest.config = m.settings[manifest.Name]
+	m.mu.RUnlock()
+
+	if !manifest.IsEnabled() {
+		log.Printf("[plugins] %s is disabled", manifest.Name)
+		return nil
+	}
+
+	if !manifest.NeedsProcess() {
+		for _, spec := range manifest.Tools {
+			tool, err := NewDispatchTool(spec)
+			if err != nil {
+				return err
+			}
+			m.register(tool)
+		}
+		log.Printf("[plugins] loaded: %s (%d dispatch tools, v%d)",
+			manifest.Name, len(manifest.Tools), manifest.Version)
+		return nil
+	}
+
+	host := NewExternalPlugin(manifest, dir, m.sdkDir)
+	host.SetCallbacks(m.callbacks())
+	if err := host.Start(ctx); err != nil {
+		return err
+	}
+
+	specs := host.ToolSpecs()
+	for _, spec := range specs {
+		if spec.Dispatch != nil {
+			// A dispatch block short-circuits the process even inside a plugin
+			// that has one: no reason to pay a round trip for a packet the
+			// manifest already describes in full.
+			tool, err := NewDispatchTool(spec)
+			if err != nil {
+				return err
+			}
+			m.register(tool)
+			continue
+		}
+		m.register(&externalTool{host: host, spec: spec})
+	}
+
+	m.mu.Lock()
+	m.hosts = append(m.hosts, host)
+	if len(manifest.Events) > 0 {
+		m.eventHandlers[manifest.Name] = host
+	}
+	m.mu.Unlock()
+
+	log.Printf("[plugins] loaded: %s (%d tools, v%d)", manifest.Name, len(specs), manifest.Version)
+	return nil
+}
+
+func (m *Manager) register(tool Tool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.plugins[tool.Name()] = tool
 }
 
 // loadSkills scans the skills directory for SKILL.md files with YAML frontmatter.

@@ -17,6 +17,57 @@ mutex_profile_fraction = 0      # Sample 1 in this many mutex contention events;
 
 [plugins]
 directory = "./plugins"     # Required if you want plugins and skills loaded
+# config = {}               # Per-plugin settings, keyed by the name in the plugin's manifest
+
+# Each plugin's own settings are handed to it at startup. They belong here
+# rather than in a dotenv next to the plugin's source, so one file holds the
+# whole deployment's configuration. Quote a name that contains a dot:
+# [plugins.config."weather.get"].
+#
+# [plugins.config.github]
+# app_id = "123456"
+# installation_id = "78901234"
+
+# Persistent display projection over the existing events DataChannel.
+# Disabled by default; existing deployments send no new events unless enabled.
+[display]
+enabled = false
+plugin = "display-projector"
+
+[display.projector]
+timeout_ms = 3000          # Maximum time for one post-response model projection
+fast_path_max_chars = 80   # Larger simple answers use this threshold before a model call
+
+# Developer agent — GitHub App plus the Codex harness. Both are disabled by
+# default; with them off the server behaves exactly as it did before.
+#
+# GitHub authenticates as a GitHub App: the private key below is exchanged for
+# short-lived installation tokens, scoped per repository and per operation. No
+# personal access token is involved. The key stays server-side and never reaches
+# the model, a tool result, the DataChannel, or a log line.
+[github]
+enabled = false
+app_id = ""                 # App ID or client ID from the app's settings page. Used as the JWT `iss`; GitHub recommends the client ID.
+installation_id = ""        # From the installation URL, or GET /repos/{owner}/{repo}/installation
+private_key_path = ""       # PEM downloaded when the app was created, e.g. /run/secrets/streamcore-github-app.pem
+repositories = []           # Allowlist, as owner/name. A repository must be listed here AND reachable by the installation.
+api_base_url = ""           # Override for GitHub Enterprise Server, e.g. https://ghe.example.com/api/v3
+
+# Codex authenticates with the operator's ChatGPT subscription, through the
+# official "Sign in with ChatGPT" flow. Run `codex login` once as the same OS
+# user that runs StreamCore; Codex owns that credential state from then on.
+#
+# There is deliberately no api_key here. OPENAI_API_KEY is not required and is
+# never used as a fallback: an API-key account is reported as unauthenticated.
+[codex]
+enabled = false
+binary = "codex"                            # Codex CLI to launch as an app-server. Tested against 0.144.1.
+model_provider = "openai"                   # Pinned on the command line so a third-party default in ~/.codex/config.toml cannot silently take over
+model = "gpt-5.6-terra"                     # Must be a model your ChatGPT plan allows; the gpt-5.1-codex family is not one of them
+workspace_root = "/var/lib/streamcore/codex" # Isolated worktrees live here. Codex can write here and nowhere else.
+turn_timeout_ms = 600000                    # One Codex turn before it is interrupted
+network_access = false                      # Open the task sandbox to the network. Only needed when the repo's tests fetch dependencies.
+config = []                                 # Extra `-c key=value` overrides passed to the app-server
 
 [pipeline]
 barge_in = true

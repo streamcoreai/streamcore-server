@@ -22,7 +22,6 @@ import (
 	"github.com/streamcoreai/streamcore-server/internal/rag"
 	"github.com/streamcoreai/streamcore-server/internal/session"
 	"github.com/streamcoreai/streamcore-server/internal/signaling"
-	"github.com/streamcoreai/streamcore-server/internal/tools"
 	turnserver "github.com/streamcoreai/streamcore-server/internal/turn"
 )
 
@@ -45,24 +44,14 @@ func main() {
 		log.Printf("Providers — STT: %s, LLM: %s, TTS: %s", cfg.STT.Provider, cfg.LLM.Provider, cfg.TTS.Provider)
 	}
 
-	// Initialize plugin manager
+	// Initialize plugin manager. Settings go in before discovery, since each
+	// plugin is handed its own table from config.toml during the handshake.
 	pluginMgr := plugin.NewManager(cfg.Plugins.Directory)
+	pluginMgr.SetPluginSettings(pluginSettings(cfg))
 	if err := pluginMgr.LoadAll(context.Background()); err != nil {
 		log.Printf("Warning: plugin loading: %v", err)
 	}
 	defer pluginMgr.Close()
-
-	// Native locomotion tools, and arm/head gestures for a rigged client.
-	// Both are metadata-only — the pipeline intercepts "movement.*" and
-	// "bot.*" calls and writes a data-channel command directly to the device.
-	// Neither names a device: the same tools drive the ESP32 car and walk the
-	// browser bot, and the server never learns which is connected.
-	for _, t := range tools.Movement() {
-		pluginMgr.RegisterNative(t)
-	}
-	for _, t := range tools.Gestures() {
-		pluginMgr.RegisterNative(t)
-	}
 
 	// Initialize RAG client (nil if disabled)
 	ragClient, err := rag.NewClient(cfg)
@@ -127,6 +116,11 @@ func main() {
 		log.Println("Shutdown timed out, forcing exit")
 		os.Exit(1)
 	}()
+
+	// Plugins first: a plugin that supervises children of its own — the Codex
+	// App Server, say — must take them with it, and the force-exit safety net
+	// above is only five seconds away.
+	pluginMgr.Close()
 
 	sm.CloseAll()
 
@@ -330,5 +324,82 @@ func jwtMiddleware(secret string, next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		next(w, r)
+	}
+}
+
+// pluginSettings is what each plugin is handed at startup.
+//
+// It folds the [display], [github] and [codex] sections into the settings for
+// the plugins those features moved into, so a deployment that configured them
+// before they left the binary keeps working without being edited. An explicit
+// [plugins.config.<name>] always wins, so the new form is available to anyone
+// who wants it.
+func pluginSettings(cfg *config.Config) map[string]map[string]any {
+	settings := map[string]map[string]any{}
+	for name, table := range cfg.Plugins.Config {
+		settings[name] = table
+	}
+	withLegacyDisplaySettings(cfg, settings)
+	withLegacyDeveloperSettings(cfg, settings)
+	return settings
+}
+
+// withLegacyDisplaySettings maps the [display] section onto the projector
+// plugin named by display.plugin.
+func withLegacyDisplaySettings(cfg *config.Config, settings map[string]map[string]any) {
+
+	name := cfg.Display.Plugin
+	if name == "" {
+		name = "display-projector"
+	}
+	if _, explicit := settings[name]; explicit {
+		return
+	}
+
+	legacy := map[string]any{"enabled": cfg.Display.Enabled}
+	if cfg.Display.Projector.TimeoutMs > 0 {
+		legacy["timeout_ms"] = cfg.Display.Projector.TimeoutMs
+	}
+	if cfg.Display.Projector.FastPathMaxChars > 0 {
+		legacy["fast_path_max_chars"] = cfg.Display.Projector.FastPathMaxChars
+	}
+	settings[name] = legacy
+}
+
+// withLegacyDeveloperSettings maps the [github] and [codex] sections onto the
+// developer plugin, which is where both now live.
+//
+// The plugin is enabled when either half was: it declares only the tools whose
+// credentials are actually present, so turning it on with GitHub alone gives
+// exactly the GitHub tools, as it did before.
+func withLegacyDeveloperSettings(cfg *config.Config, settings map[string]map[string]any) {
+	const name = "developer"
+	if _, explicit := settings[name]; explicit {
+		return
+	}
+	if !cfg.GitHub.Enabled && !cfg.Codex.Enabled {
+		return
+	}
+
+	settings[name] = map[string]any{
+		"enabled": true,
+		"github": map[string]any{
+			"enabled":          cfg.GitHub.Enabled,
+			"app_id":           cfg.GitHub.AppID,
+			"installation_id":  cfg.GitHub.InstallationID,
+			"private_key_path": cfg.GitHub.PrivateKeyPath,
+			"repositories":     cfg.GitHub.Repositories,
+			"api_base_url":     cfg.GitHub.APIBaseURL,
+		},
+		"codex": map[string]any{
+			"enabled":         cfg.Codex.Enabled,
+			"binary":          cfg.Codex.Binary,
+			"model_provider":  cfg.Codex.ModelProvider,
+			"model":           cfg.Codex.Model,
+			"workspace_root":  cfg.Codex.WorkspaceRoot,
+			"turn_timeout_ms": cfg.Codex.TurnTimeoutMs,
+			"network_access":  cfg.Codex.NetworkAccess,
+			"config":          cfg.Codex.Config,
+		},
 	}
 }

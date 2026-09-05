@@ -305,3 +305,111 @@ func TestPublicMuxStillServesAfterTheDebugListenerDies(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 }
+
+// Display projection moved out of the binary into a plugin. A deployment that
+// configured it through [display] must keep working without being edited.
+func TestLegacyDisplayConfigReachesTheProjectorPlugin(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Display.Enabled = true
+	cfg.Display.Plugin = "display-projector"
+	cfg.Display.Projector.TimeoutMs = 2500
+	cfg.Display.Projector.FastPathMaxChars = 60
+
+	settings := pluginSettings(cfg)["display-projector"]
+	if settings["enabled"] != true {
+		t.Errorf("enabled = %v", settings["enabled"])
+	}
+	if settings["timeout_ms"] != 2500 {
+		t.Errorf("timeout_ms = %v", settings["timeout_ms"])
+	}
+	if settings["fast_path_max_chars"] != 60 {
+		t.Errorf("fast_path_max_chars = %v", settings["fast_path_max_chars"])
+	}
+}
+
+// A deployment that never asked for projection must not get it, which is what
+// keeps the plugin dormant even though it ships in the repo.
+func TestProjectorStaysOffWhenDisplayWasNeverEnabled(t *testing.T) {
+	cfg := &config.Config{}
+	settings := pluginSettings(cfg)["display-projector"]
+	if settings["enabled"] != false {
+		t.Errorf("enabled = %v, want false", settings["enabled"])
+	}
+}
+
+// The new form wins, so nobody is stuck with the legacy section once they move.
+func TestExplicitPluginConfigOverridesLegacyDisplaySection(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Display.Enabled = false
+	cfg.Plugins.Config = map[string]map[string]any{
+		"display-projector": {"enabled": true, "fast_path_max_chars": 120},
+	}
+
+	settings := pluginSettings(cfg)["display-projector"]
+	if settings["enabled"] != true || settings["fast_path_max_chars"] != 120 {
+		t.Errorf("settings = %+v", settings)
+	}
+}
+
+// display.plugin names which plugin receives the section, so an operator who
+// wrote their own projector still has it configured.
+func TestLegacyDisplaySectionFollowsDisplayPlugin(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Display.Enabled = true
+	cfg.Display.Plugin = "my-projector"
+
+	settings := pluginSettings(cfg)
+	if _, ok := settings["my-projector"]; !ok {
+		t.Fatalf("settings = %+v", settings)
+	}
+	if _, ok := settings["display-projector"]; ok {
+		t.Errorf("configured a plugin the operator did not name: %+v", settings)
+	}
+}
+
+// The developer agent moved out of the binary into a plugin. A deployment that
+// configured it through [github] and [codex] must keep working unedited.
+func TestLegacyDeveloperConfigReachesThePlugin(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.GitHub.Enabled = true
+	cfg.GitHub.AppID = "Iv1.abc"
+	cfg.GitHub.Repositories = []string{"acme/api"}
+	cfg.Codex.Enabled = true
+	cfg.Codex.Model = "gpt-5.6-terra"
+	cfg.Codex.TurnTimeoutMs = 600000
+
+	settings := pluginSettings(cfg)["developer"]
+	if settings["enabled"] != true {
+		t.Fatalf("developer plugin not enabled: %+v", settings)
+	}
+
+	gh := settings["github"].(map[string]any)
+	if gh["enabled"] != true || gh["app_id"] != "Iv1.abc" {
+		t.Errorf("github settings = %+v", gh)
+	}
+	codex := settings["codex"].(map[string]any)
+	if codex["enabled"] != true || codex["model"] != "gpt-5.6-terra" {
+		t.Errorf("codex settings = %+v", codex)
+	}
+}
+
+// GitHub without Codex was a supported combination and has to stay one.
+func TestGitHubAloneStillEnablesTheDeveloperPlugin(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.GitHub.Enabled = true
+
+	settings := pluginSettings(cfg)["developer"]
+	if settings["enabled"] != true {
+		t.Fatalf("developer plugin not enabled: %+v", settings)
+	}
+	if settings["codex"].(map[string]any)["enabled"] != false {
+		t.Errorf("codex was enabled without being asked for: %+v", settings["codex"])
+	}
+}
+
+// A deployment that asked for neither must not get a developer agent.
+func TestDeveloperPluginStaysOffWhenNeitherHalfWasEnabled(t *testing.T) {
+	if settings, ok := pluginSettings(&config.Config{})["developer"]; ok {
+		t.Errorf("developer configured unasked: %+v", settings)
+	}
+}

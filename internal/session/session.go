@@ -194,7 +194,7 @@ func (s *Session) conversation() (*pipeline.ConversationState, error) {
 	defer s.mu.Unlock()
 	if s.conv == nil {
 		// Read the field directly, not ResourceID() — the mutex is already held.
-		conv, err := pipeline.NewConversationState(s.cfg, s.resourceID)
+		conv, err := pipeline.NewConversationState(s.cfg, s.ID, s.resourceID)
 		if err != nil {
 			return nil, err
 		}

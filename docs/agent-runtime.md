@@ -18,7 +18,40 @@ Plugins give the agent **capabilities**. Skills shape its **behavior**.
 - Plugins call APIs, databases, calendars, CRMs, workflows, and internal tools
 - Skills define tone, personality, guardrails, brand voice, and workflow guidance
 
-Plugins run as Python, TypeScript, or JavaScript processes over JSON-RPC. Skills are Markdown files injected into the system prompt. Sample plugins and skills live under [`plugins/`](../plugins/). For zero-IPC extensions, register native Go tools with `pluginMgr.RegisterNative(...)`.
+Plugins run as processes over JSON-RPC — Python, TypeScript, JavaScript, Go, or anything else, since the manifest gives an argv rather than a language. Skills are Markdown files injected into the system prompt. Sample plugins and skills live under [`plugins/`](../plugins/). A tool that only turns its arguments into one packet for the client needs no process at all: it declares a `dispatch:` block and the server sends it directly. See [Plugin development](https://github.com/streamcoreai/streamcore-server/blob/main/docs/plugins.md).
+
+### Lifecycle event plugins
+
+Tool plugins are **called by the LLM**. Lifecycle plugins are **called by StreamCore** when a server event occurs. The two capabilities are deliberately separate: implementing one does not require implementing the other, and an event-only plugin is never advertised to the model as a callable tool.
+
+Native Go plugins can optionally implement:
+
+```go
+type EventHandler interface {
+    Events() []string
+    HandleEvent(context.Context, plugin.PluginEvent) ([]plugin.OutboundEvent, error)
+}
+```
+
+A plugin subscribes by listing event types under `events:` in its manifest. It receives each event as an `event` request and may answer with an envelope, so an observer can push something to the client without ever becoming a tool the model can see; an event-only plugin declares no tools and stays absent from `Tools()`.
+
+The first built-in lifecycle event is `assistant.response.completed`. It is emitted at most once for a settled logical assistant turn and includes the final user transcript, complete assistant response, and interruption flag. Interrupted, cancelled, superseded, streaming-token, partial-STT, and per-sentence events do not produce a completion event. Dispatch is asynchronous and bounded; a handler failure is logged and never blocks LLM streaming, TTS, playback, or barge-in.
+
+### Display projector
+
+The built-in `display-projector` lifecycle plugin subscribes to `assistant.response.completed` and converts the turn into a v1 `display.card` (see [protocol](./protocol.md#display-cards)). It uses the same LLM provider abstraction as the runtime through `OneShot`, has a conservative local fast path for very short answers, validates layout and field limits before sending, and returns its result through the existing session DataChannel callback. The feature is disabled unless configured:
+
+```toml
+[display]
+enabled = true
+plugin = "display-projector"
+
+[display.projector]
+timeout_ms = 3000
+fast_path_max_chars = 80
+```
+
+The projector is generic display semantics, not a NOTE4C plugin. It contains no hardware model, coordinates, fonts, or rendering choices.
 
 ### Plugin manifest reference
 
@@ -30,7 +63,7 @@ Plugins run as Python, TypeScript, or JavaScript processes over JSON-RPC. Skills
 | `language` | string | yes | `python`, `typescript`, or `javascript` |
 | `entrypoint` | string | yes | File to run (e.g. `main.py`, `index.ts`) |
 | `parameters` | object | yes | JSON Schema describing the tool's parameters |
-| `confirmation_required` | bool | no | Agent asks the user to confirm before executing (default `false`) |
+| `confirmation_required` | bool | no | Gate the tool behind a spoken confirmation — the first call returns a prompt and a single-use token, and only a second call carrying that token runs (default `false`) |
 | `thinking_sound` | bool | no | Plays a soft looping tone while the tool runs, after a 500 ms grace period (default `false`) |
 
 ### Included plugins
