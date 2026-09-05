@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 )
 
 // ProtocolVersion is what the server announces at initialize. A plugin can use
@@ -17,9 +18,18 @@ const ProtocolVersion = 2
 // another plugin, and asking the configured model a question were the three
 // things only Go code could reach.
 type Callbacks struct {
+	// Capture asks the conversation's client for something only it has — a
+	// camera frame, most often. Named capabilities rather than named tools, so
+	// the next plugin that needs a picture works without the server changing.
+	Capture  func(ctx context.Context, sessionID, capability string) (json.RawMessage, error)
 	Emit     func(ctx context.Context, sessionID string, emission Emission) error
 	CallTool func(ctx context.Context, sessionID, name string, args json.RawMessage) (string, error)
 	Complete func(ctx context.Context, sessionID string, req CompletionRequest) (string, error)
+
+	// Search queries the deployment's knowledge base, so a plugin can ground
+	// an answer in the same corpus the agent uses rather than standing up a
+	// second retrieval stack beside it.
+	Search func(ctx context.Context, sessionID, query string, limit int) ([]string, error)
 }
 
 // CompletionRequest asks the server's own model for a completion, so a plugin
@@ -90,6 +100,8 @@ func (p *ExternalPlugin) serve(ctx context.Context, req inboundMessage) (any, er
 		return p.serveToolCall(ctx, req.Params)
 	case "llm/complete":
 		return p.serveComplete(ctx, req.Params)
+	case "rag/search":
+		return p.serveSearch(ctx, req.Params)
 	default:
 		return nil, fmt.Errorf("unknown method %q", req.Method)
 	}
@@ -156,6 +168,24 @@ func (p *ExternalPlugin) serveComplete(ctx context.Context, raw json.RawMessage)
 		return nil, fmt.Errorf("llm/complete: prompt is required")
 	}
 	return p.callbacks.Complete(ctx, params.SessionID, params.CompletionRequest)
+}
+
+func (p *ExternalPlugin) serveSearch(ctx context.Context, raw json.RawMessage) (any, error) {
+	if p.callbacks.Search == nil {
+		return nil, fmt.Errorf("rag/search %w", errNoCallback)
+	}
+	var params struct {
+		Query     string `json:"query"`
+		Limit     int    `json:"limit,omitempty"`
+		SessionID string `json:"session_id,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return nil, fmt.Errorf("rag/search: %w", err)
+	}
+	if strings.TrimSpace(params.Query) == "" {
+		return nil, fmt.Errorf("rag/search: query is required")
+	}
+	return p.callbacks.Search(ctx, params.SessionID, params.Query, params.Limit)
 }
 
 func (p *ExternalPlugin) ownsTool(name string) bool {

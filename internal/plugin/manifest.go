@@ -20,6 +20,7 @@ type Manifest struct {
 	ParametersRaw        interface{}   `yaml:"parameters"`
 	ConfirmationRequired bool          `yaml:"confirmation_required"`
 	ThinkingSound        bool          `yaml:"thinking_sound"`
+	Requires             []string      `yaml:"requires"`
 	Dispatch             *DispatchSpec `yaml:"dispatch"`
 
 	// Multi-tool form.
@@ -65,6 +66,16 @@ type ToolSpec struct {
 	ParametersRaw        interface{} `yaml:"parameters"`
 	ConfirmationRequired bool        `yaml:"confirmation_required"`
 	ThinkingSound        bool        `yaml:"thinking_sound"`
+
+	// Requires names capabilities the server must supply before the call —
+	// things a plugin cannot obtain for itself because they come from the
+	// client on the other end of the conversation. The captured fields are
+	// merged into the arguments the tool receives.
+	//
+	// A camera frame is the motivating one: the plugin analysing it has no way
+	// to ask the device for a picture, and hardcoding one tool's name in the
+	// pipeline to do it for them is what this replaces.
+	Requires []string `yaml:"requires"`
 
 	// Internal keeps a tool out of the model's view while leaving it callable
 	// by other plugins. It is for the joins between plugins — one asking
@@ -138,19 +149,27 @@ func (m *Manifest) Normalize() {
 	// carries neither a schema nor a dispatch block is not offering a tool
 	// called after itself — it is an observer, or it will declare its tools at
 	// initialize.
-	if len(m.Tools) == 0 && m.Name != "" && (m.ParametersRaw != nil || m.Dispatch != nil) {
+	if len(m.Tools) == 0 && m.Name != "" && m.describesTool() {
 		m.Tools = []ToolSpec{{
 			Name:                 m.Name,
 			Description:          m.Description,
 			ParametersRaw:        m.ParametersRaw,
 			ConfirmationRequired: m.ConfirmationRequired,
 			ThinkingSound:        m.ThinkingSound,
+			Requires:             m.Requires,
 			Dispatch:             m.Dispatch,
 		}}
 	}
 	if len(m.Exec) == 0 && m.Entrypoint != "" {
 		m.Exec = expandLanguage(m.Language, m.Entrypoint)
 	}
+}
+
+// describesTool reports whether the top-level fields are describing a tool
+// rather than just naming the plugin. A schema, a dispatch block, or a declared
+// requirement all say "this is a tool"; a name on its own does not.
+func (m *Manifest) describesTool() bool {
+	return m.ParametersRaw != nil || m.Dispatch != nil || len(m.Requires) > 0
 }
 
 // expandLanguage turns the legacy language/entrypoint pair into an argv. An

@@ -26,14 +26,61 @@ func (t *externalTool) ConfirmationRequired() bool  { return t.spec.Confirmation
 func (t *externalTool) ThinkingSound() bool         { return t.spec.ThinkingSound }
 
 func (t *externalTool) Execute(params json.RawMessage) (string, error) {
-	return t.host.Execute(context.Background(), t.spec.Name, "", params)
+	return t.ExecuteInSession(context.Background(), "", params)
 }
 
 // ExecuteInSession hands the plugin the conversation the call belongs to, so a
 // plugin holding per-conversation state — an isolated worktree, a cart, a
 // draft — can keep two callers apart without the server knowing what it keeps.
 func (t *externalTool) ExecuteInSession(ctx context.Context, sessionID string, params json.RawMessage) (string, error) {
+	params, err := t.capture(ctx, sessionID, params)
+	if err != nil {
+		// A capture that fails is something to tell the user about, not a
+		// broken turn: the client may simply have no camera pointed at
+		// anything. The model reads this back and can ask them to try again.
+		return err.Error(), nil
+	}
 	return t.host.Execute(ctx, t.spec.Name, sessionID, params)
+}
+
+// capture fulfils the tool's declared requirements and merges what came back
+// into its arguments, so the plugin receives them as ordinary parameters.
+func (t *externalTool) capture(ctx context.Context, sessionID string, params json.RawMessage) (json.RawMessage, error) {
+	if len(t.spec.Requires) == 0 {
+		return params, nil
+	}
+	if t.host.callbacks.Capture == nil {
+		return nil, fmt.Errorf("%s needs %v, which this server cannot supply", t.spec.Name, t.spec.Requires)
+	}
+
+	fields := map[string]any{}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &fields); err != nil {
+			fields = map[string]any{}
+		}
+	}
+
+	for _, capability := range t.spec.Requires {
+		captured, err := t.host.callbacks.Capture(ctx, sessionID, capability)
+		if err != nil {
+			return nil, fmt.Errorf("Could not get %s: %v. Ask the user to try again.",
+				strings.ReplaceAll(capability, "_", " "), err)
+		}
+		var extra map[string]any
+		if err := json.Unmarshal(captured, &extra); err != nil {
+			return nil, fmt.Errorf("Could not read the %s. Ask the user to try again.",
+				strings.ReplaceAll(capability, "_", " "))
+		}
+		for key, value := range extra {
+			fields[key] = value
+		}
+	}
+
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return nil, fmt.Errorf("Could not prepare the request. Ask the user to try again.")
+	}
+	return merged, nil
 }
 
 // ConfirmationPrompt is what the agent reads out before a gated tool runs.

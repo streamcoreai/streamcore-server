@@ -105,6 +105,51 @@ func (p *Pipeline) Complete(ctx context.Context, req plugin.CompletionRequest) (
 	return client.OneShot(ctx, req.System, req.Prompt)
 }
 
+// Search satisfies plugin.SessionSink. A plugin grounds an answer in the same
+// corpus the agent uses, instead of standing up a second retrieval stack whose
+// contents can drift from this one's.
+func (p *Pipeline) Search(ctx context.Context, query string, limit int) ([]string, error) {
+	if p.ragClient == nil {
+		return nil, fmt.Errorf("no knowledge base is configured")
+	}
+	return p.ragClient.Search(ctx, query, limit)
+}
+
+// Capture satisfies plugin.SessionSink. It obtains something only the client
+// can supply and hands back the fields to merge into a tool's arguments.
+//
+// This is what replaced hardcoding one plugin's name in the tool handler to
+// fetch it a picture. A plugin declares `requires: [camera_frame]` and the next
+// one that needs a frame works without the pipeline learning its name.
+func (p *Pipeline) Capture(_ context.Context, capability string) (json.RawMessage, error) {
+	switch capability {
+	case CameraFrameCapability:
+		return p.captureCameraFrame()
+	default:
+		return nil, fmt.Errorf("this client cannot supply %q", capability)
+	}
+}
+
+// CameraFrameCapability is the name a plugin asks for a still image under.
+const CameraFrameCapability = "camera_frame"
+
+func (p *Pipeline) captureCameraFrame() (json.RawMessage, error) {
+	log.Printf("[vision] requesting a frame from the client")
+
+	res, err := p.imageRecv.requestAndWait(p.sendEvent)
+	if err != nil {
+		return nil, err
+	}
+
+	captured := map[string]string{"image_base64": res.Base64}
+	if res.Mime != "" {
+		captured["image_mime"] = res.Mime
+	}
+	log.Printf("[vision] captured %d bytes of base64", len(res.Base64))
+
+	return json.Marshal(captured)
+}
+
 // completionClient returns a client for one-shot work. In realtime mode there
 // is no conversation client to borrow, so one is built on demand and kept.
 func (p *Pipeline) completionClient() (llm.Client, error) {

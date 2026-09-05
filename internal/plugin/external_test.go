@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -537,5 +538,142 @@ def handle(req):
 
 	if _, err := host.Execute(context.Background(), "tidy", "s", nil); err == nil {
 		t.Fatal("a stopped plugin came back on its own")
+	}
+}
+
+// A plugin cannot ask the device for a picture itself. It declares what it
+// needs and the server supplies it, so the next plugin that wants a frame works
+// without the pipeline learning its name.
+func TestRequiredCapabilityIsMergedIntoArguments(t *testing.T) {
+	dir := fakePlugin(t, `
+def handle(req):
+    if req["method"] == "initialize":
+        send({"jsonrpc": "2.0", "result": "initialized", "id": req["id"]})
+    elif req["method"] == "execute":
+        send({"jsonrpc": "2.0", "result": json.dumps(req["params"], sort_keys=True), "id": req["id"]})
+`)
+	var asked []string
+	host := startPlugin(t, Manifest{
+		Name: "vision.analyze", Language: "python", Entrypoint: "main.py",
+		Requires:      []string{"camera_frame"},
+		ParametersRaw: map[string]any{"type": "object"},
+	}, dir, Callbacks{
+		Capture: func(_ context.Context, sessionID, capability string) (json.RawMessage, error) {
+			asked = append(asked, sessionID+"/"+capability)
+			return json.RawMessage(`{"image_base64":"AAAA","image_mime":"image/jpeg"}`), nil
+		},
+	})
+
+	tool := &externalTool{host: host, spec: host.ToolSpecs()[0]}
+	got, err := tool.ExecuteInSession(context.Background(), "s-7", json.RawMessage(`{"question":"what is this"}`))
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	if len(asked) != 1 || asked[0] != "s-7/camera_frame" {
+		t.Errorf("capture requests = %v", asked)
+	}
+	for _, want := range []string{`"question": "what is this"`, `"image_base64": "AAAA"`, `"image_mime": "image/jpeg"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("arguments missing %s: %s", want, got)
+		}
+	}
+}
+
+// A client with nothing to photograph is a thing to tell the user about, not a
+// broken turn. The model must get words it can read back.
+func TestFailedCaptureIsConversational(t *testing.T) {
+	dir := fakePlugin(t, `
+def handle(req):
+    if req["method"] == "initialize":
+        send({"jsonrpc": "2.0", "result": "initialized", "id": req["id"]})
+    elif req["method"] == "execute":
+        raise RuntimeError("the plugin should never have been reached")
+`)
+	host := startPlugin(t, Manifest{
+		Name: "vision.analyze", Language: "python", Entrypoint: "main.py",
+		Requires:      []string{"camera_frame"},
+		ParametersRaw: map[string]any{"type": "object"},
+	}, dir, Callbacks{
+		Capture: func(context.Context, string, string) (json.RawMessage, error) {
+			return nil, errors.New("no camera responded")
+		},
+	})
+
+	tool := &externalTool{host: host, spec: host.ToolSpecs()[0]}
+	got, err := tool.ExecuteInSession(context.Background(), "s-1", nil)
+	if err != nil {
+		t.Fatalf("a failed capture ended the turn: %v", err)
+	}
+	if !strings.Contains(got, "camera frame") || !strings.Contains(got, "no camera responded") {
+		t.Errorf("result does not explain itself: %q", got)
+	}
+}
+
+// A tool that requires nothing must not pay for the machinery.
+func TestToolsWithoutRequirementsSkipCapture(t *testing.T) {
+	dir := fakePlugin(t, `
+def handle(req):
+    if req["method"] == "initialize":
+        send({"jsonrpc": "2.0", "result": "initialized", "id": req["id"]})
+    elif req["method"] == "execute":
+        send({"jsonrpc": "2.0", "result": json.dumps(req["params"]), "id": req["id"]})
+`)
+	host := startPlugin(t, Manifest{
+		Name: "plain", Language: "python", Entrypoint: "main.py",
+		ParametersRaw: map[string]any{"type": "object"},
+	}, dir, Callbacks{
+		Capture: func(context.Context, string, string) (json.RawMessage, error) {
+			t.Error("capture was called for a tool that requires nothing")
+			return nil, nil
+		},
+	})
+
+	tool := &externalTool{host: host, spec: host.ToolSpecs()[0]}
+	if _, err := tool.ExecuteInSession(context.Background(), "s", json.RawMessage(`{"a":1}`)); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+}
+
+// A plugin can reach the deployment's knowledge base, rather than standing up a
+// second retrieval stack whose contents drift from this one's.
+func TestPluginCanSearchTheKnowledgeBase(t *testing.T) {
+	dir := fakePlugin(t, `
+pending = {}
+
+def handle(req):
+    if "method" not in req:
+        waiting = pending.pop("exec", None)
+        if waiting is not None:
+            send({"jsonrpc": "2.0", "result": " | ".join(req.get("result") or []), "id": waiting})
+        return
+    if req["method"] == "initialize":
+        send({"jsonrpc": "2.0", "result": "initialized", "id": req["id"]})
+    elif req["method"] == "execute":
+        pending["exec"] = req["id"]
+        send({"jsonrpc": "2.0", "method": "rag/search", "id": "s1", "params": {
+            "query": req["params"]["q"], "limit": 2, "session_id": req.get("session_id", ""),
+        }})
+`)
+	var asked string
+	host := startPlugin(t, Manifest{
+		Name: "grounded", Language: "python", Entrypoint: "main.py",
+		ParametersRaw: map[string]any{"type": "object"},
+	}, dir, Callbacks{
+		Search: func(_ context.Context, sessionID, query string, limit int) ([]string, error) {
+			asked = query
+			return []string{"chunk one", "chunk two"}, nil
+		},
+	})
+
+	got, err := host.Execute(context.Background(), "grounded", "s-1", json.RawMessage(`{"q":"refund policy"}`))
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if asked != "refund policy" {
+		t.Errorf("query = %q", asked)
+	}
+	if got != "chunk one | chunk two" {
+		t.Errorf("result = %q", got)
 	}
 }

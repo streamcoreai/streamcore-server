@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/streamcoreai/streamcore-server/internal/audio"
-	"github.com/streamcoreai/streamcore-server/internal/llm"
 	"github.com/streamcoreai/streamcore-server/internal/realtime"
 )
 
@@ -276,8 +275,6 @@ func (p *Pipeline) handleRealtimeToolCall(ctx context.Context, name string, args
 	switch {
 	case name == ragToolName:
 		return p.realtimeRAGSearch(ctx, args)
-	case name == visionToolName:
-		return p.handleVisionToolCall(llm.ToolCall{Name: name, Arguments: args})
 	}
 
 	if p.pluginMgr == nil {

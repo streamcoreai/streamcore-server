@@ -13,6 +13,13 @@ import (
 type SessionSink interface {
 	Emit(ctx context.Context, emission Emission) error
 	Complete(ctx context.Context, req CompletionRequest) (string, error)
+
+	// Capture obtains something only the client can supply, such as a frame
+	// from its camera, and returns the fields to merge into a tool's arguments.
+	Capture(ctx context.Context, capability string) (json.RawMessage, error)
+
+	// Search queries the deployment's knowledge base.
+	Search(ctx context.Context, query string, limit int) ([]string, error)
 }
 
 // BindSession registers a live conversation under its session id.
@@ -94,6 +101,20 @@ func (m *Manager) callbacks() Callbacks {
 			return sink.Emit(ctx, emission)
 		},
 		CallTool: m.CallTool,
+		Search: func(ctx context.Context, sessionID, query string, limit int) ([]string, error) {
+			sink, err := m.sink(sessionID)
+			if err != nil {
+				return nil, err
+			}
+			return sink.Search(ctx, query, limit)
+		},
+		Capture: func(ctx context.Context, sessionID, capability string) (json.RawMessage, error) {
+			sink, err := m.sink(sessionID)
+			if err != nil {
+				return nil, err
+			}
+			return sink.Capture(ctx, capability)
+		},
 		Complete: func(ctx context.Context, sessionID string, req CompletionRequest) (string, error) {
 			sink, err := m.sink(sessionID)
 			if err != nil {
