@@ -237,6 +237,47 @@ func (p *ExternalPlugin) Execute(ctx context.Context, tool, sessionID string, pa
 	return resultText(raw), nil
 }
 
+// Ready tells a plugin which tools the server ended up with, and gives it a
+// chance to revise its own list now that it can see its peers.
+//
+// It is a second pass on purpose. A plugin whose surface depends on another
+// plugin — a pull request tool that is only useful when something can produce a
+// branch — cannot answer that at initialize, because the other plugin may not
+// have loaded yet. Asking again once everything is up removes load order from
+// the question entirely.
+func (p *ExternalPlugin) Ready(ctx context.Context, available []string) ([]ToolSpec, error) {
+	if !p.running.Load() {
+		return nil, nil
+	}
+
+	params, err := json.Marshal(readyParams{Tools: available})
+	if err != nil {
+		return nil, fmt.Errorf("plugin %s: encode ready: %w", p.manifest.Name, err)
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	raw, err := p.call(callCtx, JSONRPCRequest{Method: "ready", Params: params})
+	if err != nil {
+		return nil, err
+	}
+
+	var declared struct {
+		Tools []ToolSpec `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &declared); err != nil || len(declared.Tools) == 0 {
+		// A plugin that has nothing to revise answers with anything at all,
+		// which is what every plugin written before this did.
+		return nil, nil
+	}
+
+	p.toolsMu.Lock()
+	p.tools = declared.Tools
+	p.toolsMu.Unlock()
+	return declared.Tools, nil
+}
+
 // HandleEvent delivers a lifecycle event and turns whatever the plugin sends
 // back into outbound events for the session's data channel.
 func (p *ExternalPlugin) HandleEvent(ctx context.Context, event PluginEvent) ([]OutboundEvent, error) {

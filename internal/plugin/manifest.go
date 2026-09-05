@@ -66,6 +66,12 @@ type ToolSpec struct {
 	ConfirmationRequired bool        `yaml:"confirmation_required"`
 	ThinkingSound        bool        `yaml:"thinking_sound"`
 
+	// Internal keeps a tool out of the model's view while leaving it callable
+	// by other plugins. It is for the joins between plugins — one asking
+	// another for a credential or a worktree — which the model has no business
+	// invoking and would only be confused by.
+	Internal bool `yaml:"internal"`
+
 	// ConfirmationPrompt is what the agent says out loud to ask permission.
 	// Without it a gated tool falls back to naming itself, which is accurate
 	// but rarely what you want read to a user.

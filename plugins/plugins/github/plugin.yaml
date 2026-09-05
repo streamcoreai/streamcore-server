@@ -1,0 +1,22 @@
+name: github
+description: "GitHub App integration: find why CI failed, read repository state, and open a pull request from a change a developer agent prepared."
+version: 1
+
+# Off unless an operator asks for it. It needs a GitHub App private key, and a
+# deployment that has not set one up must behave exactly as it did before this
+# plugin existed. Turn it on with:
+#
+#   [plugins.config.github]
+#   enabled = true
+#   app_id = "..."
+enabled: false
+
+build: ["go", "build", "-o", "github", "."]
+exec: ["./github"]
+
+# GitHub API calls are quick; each tool applies its own deadline underneath.
+timeout_ms: 60000
+
+# Tools are declared at startup rather than listed here, because which ones
+# exist depends on what is configured — and the pull request tool only appears
+# once something is loaded that can produce a branch to publish.

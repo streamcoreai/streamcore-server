@@ -1,0 +1,20 @@
+name: codex
+description: "Codex developer agent: investigate a problem in a repository, fix it in an isolated worktree, and run the tests."
+version: 1
+
+# Off unless an operator asks for it. Codex authenticates with the operator's
+# ChatGPT sign-in, so it cannot work on a machine where `codex login` has never
+# been run. Turn it on with:
+#
+#   [plugins.config.codex]
+#   enabled = true
+#   workspace_root = "/var/lib/streamcore/codex"
+enabled: false
+
+build: ["go", "build", "-o", "codex", "."]
+exec: ["./codex"]
+
+# A Codex turn thinks for minutes, and codex.analyze bounds itself at fifteen.
+# This is the backstop above those, not the working limit: every tool applies
+# its own deadline, and this only catches a wedged App Server.
+timeout_ms: 960000

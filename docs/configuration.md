@@ -24,7 +24,7 @@ mutex_profile_fraction = 0      # 1 records every mutex contention event; 0 disa
 directory = "./plugins"
 
 # Per-plugin settings, keyed by the name in the plugin's manifest.
-# [plugins.config.developer]
+# [plugins.config.github]
 # enabled = true
 
 [display]
@@ -185,7 +185,7 @@ Notes:
 - `debug.block_profile_rate` and `debug.mutex_profile_fraction` enable the corresponding runtime profiles while the debug listener is active. Both default to `0` (off); set either to `1` to record every event while diagnosing contention.
 - `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
 - `plugins.config.<name>` is handed to that plugin at startup, so a plugin's credentials live in this file rather than in a dotenv beside its source. Quote a name containing a dot: `[plugins.config."weather.get"]`. Two keys are read by the server rather than passed through — `enabled` turns a plugin off without deleting it, and `timeout_ms` overrides the manifest's.
-- `display.*`, `github.*` and `codex.*` configure features that now ship as plugins. The server forwards these sections to them, so an existing deployment keeps working unchanged; an explicit `[plugins.config.<name>]` takes precedence when you move over.
+- `display.*`, `github.*` and `codex.*` configure features that now ship as plugins — `display-projector`, `github` and `codex`. The server forwards each section to its plugin, so an existing deployment keeps working unchanged; an explicit `[plugins.config.<name>]` takes precedence when you move over. GitHub and Codex are separate plugins and are enabled independently, as the two sections always implied.
 - `github.*` turns on the GitHub App integration: CI failure investigation, repository reads, and confirmation-gated pull request creation. It needs an App private key, not a personal access token. See [Developer agent](./developer-agent.md).
 - `github.repositories` is an allowlist. A repository must be listed **and** reachable by the App installation before any call is made; either alone is not enough.
 - `codex.*` turns on the Codex developer agent. Codex authenticates with your ChatGPT subscription through the official sign-in flow — there is no API key setting and `OPENAI_API_KEY` is never used.

@@ -378,38 +378,39 @@ func TestLegacyDeveloperConfigReachesThePlugin(t *testing.T) {
 	cfg.Codex.Model = "gpt-5.6-terra"
 	cfg.Codex.TurnTimeoutMs = 600000
 
-	settings := pluginSettings(cfg)["developer"]
-	if settings["enabled"] != true {
-		t.Fatalf("developer plugin not enabled: %+v", settings)
-	}
+	settings := pluginSettings(cfg)
 
-	gh := settings["github"].(map[string]any)
+	gh := settings["github"]
 	if gh["enabled"] != true || gh["app_id"] != "Iv1.abc" {
 		t.Errorf("github settings = %+v", gh)
 	}
-	codex := settings["codex"].(map[string]any)
+	codex := settings["codex"]
 	if codex["enabled"] != true || codex["model"] != "gpt-5.6-terra" {
 		t.Errorf("codex settings = %+v", codex)
 	}
 }
 
-// GitHub without Codex was a supported combination and has to stay one.
-func TestGitHubAloneStillEnablesTheDeveloperPlugin(t *testing.T) {
+// GitHub without Codex was a supported combination and has to stay one. They
+// are separate plugins now, so enabling one must not drag in the other.
+func TestGitHubAloneDoesNotEnableCodex(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.GitHub.Enabled = true
 
-	settings := pluginSettings(cfg)["developer"]
-	if settings["enabled"] != true {
-		t.Fatalf("developer plugin not enabled: %+v", settings)
+	settings := pluginSettings(cfg)
+	if settings["github"]["enabled"] != true {
+		t.Fatalf("github not enabled: %+v", settings["github"])
 	}
-	if settings["codex"].(map[string]any)["enabled"] != false {
-		t.Errorf("codex was enabled without being asked for: %+v", settings["codex"])
+	if _, present := settings["codex"]; present {
+		t.Errorf("codex was configured without being asked for: %+v", settings["codex"])
 	}
 }
 
-// A deployment that asked for neither must not get a developer agent.
-func TestDeveloperPluginStaysOffWhenNeitherHalfWasEnabled(t *testing.T) {
-	if settings, ok := pluginSettings(&config.Config{})["developer"]; ok {
-		t.Errorf("developer configured unasked: %+v", settings)
+// A deployment that asked for neither must not get either.
+func TestDeveloperPluginsStayOffWhenNeitherWasEnabled(t *testing.T) {
+	settings := pluginSettings(&config.Config{})
+	for _, name := range []string{"github", "codex"} {
+		if configured, ok := settings[name]; ok {
+			t.Errorf("%s configured unasked: %+v", name, configured)
+		}
 	}
 }

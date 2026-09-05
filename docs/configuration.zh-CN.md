@@ -18,7 +18,7 @@ port = "8080"
 directory = "./plugins"
 
 # 各插件自己的配置，按插件清单里的 name 索引。
-# [plugins.config.developer]
+# [plugins.config.github]
 # enabled = true
 
 # Developer agent: GitHub App + the Codex harness. Both disabled by default.
@@ -169,7 +169,7 @@ voice = "en-Emma_woman"
 - `server.max_sessions` 用于限制分布式客户端的破坏半径：按 IP 的限流做不到这一点，而每个会话都在消耗 CPU 和服务商费用。超过上限后 `POST /whip` 返回 503 并带 `Retry-After`；会话恢复（resume）不受限制，因为它重新接入的会话已被计数。请按单实例实际能承载的量来设置。
 - `plugins.directory` 是插件与技能加载的必要条件；不设置则跳过发现流程。
 - `plugins.config.<name>` 会在启动时交给对应插件，因此插件的凭证放在这个文件里，而不是放在源码旁边的 dotenv 中。名字里含点号时需要加引号：`[plugins.config."weather.get"]`。其中两个键由服务端自己读取而不透传——`enabled` 可以在不删除插件的前提下关掉它，`timeout_ms` 覆盖清单里的设置。
-- `display.*`、`github.*` 与 `codex.*` 配置的功能现在都以插件形式发布。服务端会把这些段落转发给它们，因此现有部署无需改动即可继续工作；迁移时显式写出的 `[plugins.config.<name>]` 优先。
+- `display.*`、`github.*` 与 `codex.*` 配置的功能现在都以插件形式发布——分别是 `display-projector`、`github` 和 `codex`。服务端会把每个段落转发给对应插件，因此现有部署无需改动即可继续工作；迁移时显式写出的 `[plugins.config.<name>]` 优先。GitHub 与 Codex 是两个独立插件，各自独立启用，这也正是这两个配置段一直以来的含义。
 - `github.*` 启用 GitHub App 集成：CI 失败排查、仓库读取，以及需确认的 Pull Request 创建。它需要 App 私钥，而不是个人访问令牌。见[开发者智能体](./developer-agent.zh-CN.md)。
 - `github.repositories` 是白名单。仓库必须**同时**列在其中且 App 安装可以访问，任何一项单独成立都不够。
 - `codex.*` 启用 Codex 开发者智能体。Codex 通过官方登录流程使用你的 ChatGPT 订阅认证 —— 没有 API key 配置项，也永远不会使用 `OPENAI_API_KEY`。

@@ -39,6 +39,12 @@ type initializeParams struct {
 	Config   json.RawMessage `json:"config,omitempty"`
 }
 
+// readyParams tells a plugin what the server finished with, so it can decide
+// what to offer knowing which peers exist.
+type readyParams struct {
+	Tools []string `json:"tools"`
+}
+
 // eventParams delivers a lifecycle event to a subscribing plugin.
 type eventParams struct {
 	Type      string `json:"type"`

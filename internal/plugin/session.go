@@ -66,7 +66,7 @@ func (m *Manager) SetPluginSettings(settings map[string]map[string]any) {
 // spoken question to a user, and there is nobody to ask on this path; letting
 // it through would turn a deliberate checkpoint into a formality.
 func (m *Manager) CallTool(ctx context.Context, sessionID, name string, args json.RawMessage) (string, error) {
-	tool, ok := m.GetTool(name)
+	tool, ok := m.lookup(name)
 	if !ok {
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}

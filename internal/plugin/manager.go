@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -99,6 +100,8 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 		return fmt.Errorf("load skills: %w", err)
 	}
 
+	m.announceReady(ctx)
+
 	log.Printf("[plugins] loaded %d plugins, %d skills from %s", len(m.plugins), len(m.skills), absDir)
 	return nil
 }
@@ -130,23 +133,45 @@ func (m *Manager) RegisterEventHandler(name string, handler EventHandler) {
 	m.eventHandlers[name] = handler
 }
 
-// Tools returns all registered tools (both external and native).
+// Tools returns the tools the model may call. A tool marked internal is left
+// out: it exists for other plugins to reach, and offering it to the model would
+// only invite calls nobody wants.
 func (m *Manager) Tools() []Tool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	tools := make([]Tool, 0, len(m.plugins))
 	for _, t := range m.plugins {
+		if isInternal(t) {
+			continue
+		}
 		tools = append(tools, t)
 	}
 	return tools
 }
 
-// GetTool returns a tool by name.
+// GetTool returns a model-callable tool by name. Internal tools are not
+// reachable here, so a model that guesses one of their names gets the same
+// "unknown tool" it would get for anything else it invented.
 func (m *Manager) GetTool(name string) (Tool, bool) {
+	tool, ok := m.lookup(name)
+	if !ok || isInternal(tool) {
+		return nil, false
+	}
+	return tool, true
+}
+
+// lookup finds any registered tool, internal ones included. It backs the
+// plugin-to-plugin path, which is the only caller allowed to reach them.
+func (m *Manager) lookup(name string) (Tool, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	t, ok := m.plugins[name]
 	return t, ok
+}
+
+func isInternal(tool Tool) bool {
+	marked, ok := tool.(InternalTool)
+	return ok && marked.Internal()
 }
 
 // DispatchEvent delivers a lifecycle event to every handler that subscribed to
@@ -317,20 +342,8 @@ func (m *Manager) load(ctx context.Context, manifest Manifest, dir string) error
 		return err
 	}
 
-	specs := host.ToolSpecs()
-	for _, spec := range specs {
-		if spec.Dispatch != nil {
-			// A dispatch block short-circuits the process even inside a plugin
-			// that has one: no reason to pay a round trip for a packet the
-			// manifest already describes in full.
-			tool, err := NewDispatchTool(spec)
-			if err != nil {
-				return err
-			}
-			m.register(tool)
-			continue
-		}
-		m.register(&externalTool{host: host, spec: spec})
+	if err := m.registerHostTools(host, host.ToolSpecs()); err != nil {
+		return err
 	}
 
 	m.mu.Lock()
@@ -340,8 +353,73 @@ func (m *Manager) load(ctx context.Context, manifest Manifest, dir string) error
 	}
 	m.mu.Unlock()
 
-	log.Printf("[plugins] loaded: %s (%d tools, v%d)", manifest.Name, len(specs), manifest.Version)
+	log.Printf("[plugins] loaded: %s (%d tools, v%d)", manifest.Name, len(host.ToolSpecs()), manifest.Version)
 	return nil
+}
+
+// registerHostTools replaces everything a host had registered with the specs it
+// now advertises, so a revised list at ready does not leave the old one behind.
+func (m *Manager) registerHostTools(host *ExternalPlugin, specs []ToolSpec) error {
+	tools := make([]Tool, 0, len(specs))
+	for _, spec := range specs {
+		if spec.Dispatch != nil {
+			// A dispatch block short-circuits the process even inside a plugin
+			// that has one: no reason to pay a round trip for a packet the
+			// manifest already describes in full.
+			tool, err := NewDispatchTool(spec)
+			if err != nil {
+				return err
+			}
+			tools = append(tools, tool)
+			continue
+		}
+		tools = append(tools, &externalTool{host: host, spec: spec})
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name, existing := range m.plugins {
+		if owned, ok := existing.(*externalTool); ok && owned.host == host {
+			delete(m.plugins, name)
+		}
+	}
+	for _, tool := range tools {
+		m.plugins[tool.Name()] = tool
+	}
+	return nil
+}
+
+// announceReady runs the second declaration pass once every plugin is up.
+//
+// Until now a plugin could only describe itself in isolation. Here it learns
+// what else loaded and may revise what it offers, which is how one plugin
+// exposes a tool that only makes sense when another is present — without
+// either of them depending on load order.
+func (m *Manager) announceReady(ctx context.Context) {
+	m.mu.RLock()
+	hosts := append([]*ExternalPlugin(nil), m.hosts...)
+	available := make([]string, 0, len(m.plugins))
+	for name := range m.plugins {
+		available = append(available, name)
+	}
+	m.mu.RUnlock()
+	sort.Strings(available)
+
+	for _, host := range hosts {
+		revised, err := host.Ready(ctx, available)
+		if err != nil {
+			log.Printf("[plugins] %s failed its ready pass: %v", host.manifest.Name, err)
+			continue
+		}
+		if revised == nil {
+			continue
+		}
+		if err := m.registerHostTools(host, revised); err != nil {
+			log.Printf("[plugins] %s revised its tools badly: %v", host.manifest.Name, err)
+			continue
+		}
+		log.Printf("[plugins] %s revised its tools: %d", host.manifest.Name, len(revised))
+	}
 }
 
 func (m *Manager) register(tool Tool) {

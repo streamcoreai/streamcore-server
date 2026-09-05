@@ -19,6 +19,7 @@ type externalTool struct {
 }
 
 func (t *externalTool) Name() string                { return t.spec.Name }
+func (t *externalTool) Internal() bool              { return t.spec.Internal }
 func (t *externalTool) Description() string         { return t.spec.Description }
 func (t *externalTool) Parameters() json.RawMessage { return t.spec.Parameters() }
 func (t *externalTool) ConfirmationRequired() bool  { return t.spec.ConfirmationRequired }
@@ -68,6 +69,8 @@ func (t *externalTool) ConfirmationPrompt(params json.RawMessage) string {
 // confirmTimeout bounds the prompt round trip. The user is waiting to be asked
 // a question, so a plugin that dawdles gets the generic prompt instead.
 const confirmTimeout = 5 * time.Second
+
+func (t *DispatchTool) Internal() bool { return t.spec.Internal }
 
 func (t *DispatchTool) ConfirmationPrompt(params json.RawMessage) string {
 	return renderPrompt(t.spec.ConfirmationPrompt, params)

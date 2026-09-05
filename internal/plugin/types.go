@@ -16,6 +16,14 @@ type Tool interface {
 	ThinkingSound() bool
 }
 
+// InternalTool is an optional capability marking a tool as callable by other
+// plugins but invisible to the model. A tool that does not implement it is
+// visible, which is every tool that predates the distinction.
+type InternalTool interface {
+	Tool
+	Internal() bool
+}
+
 // SessionTool is an optional capability for tools whose work belongs to one
 // conversation rather than the process — a developer task pinned to an isolated
 // worktree, say. The pipeline calls ExecuteInSession when a tool implements it

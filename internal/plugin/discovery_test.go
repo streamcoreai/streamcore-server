@@ -63,7 +63,7 @@ func TestShippedMotionPluginsLoadFromDisk(t *testing.T) {
 // The plugins that carry credentials ship dormant. A deployment that has not
 // asked for them must not have them started, and must not see their tools.
 func TestCredentialPluginsShipDisabled(t *testing.T) {
-	manager := NewManager(stageShipped(t, "developer", "display-projector"))
+	manager := NewManager(stageShipped(t, "github", "codex", "display-projector"))
 	if err := manager.LoadAll(context.Background()); err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}

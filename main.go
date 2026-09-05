@@ -367,32 +367,26 @@ func withLegacyDisplaySettings(cfg *config.Config, settings map[string]map[strin
 }
 
 // withLegacyDeveloperSettings maps the [github] and [codex] sections onto the
-// developer plugin, which is where both now live.
+// plugins those features became.
 //
-// The plugin is enabled when either half was: it declares only the tools whose
-// credentials are actually present, so turning it on with GitHub alone gives
-// exactly the GitHub tools, as it did before.
+// They are two plugins now, enabled independently, which is what the two
+// sections already described: GitHub without Codex was always a supported
+// combination and stays one.
 func withLegacyDeveloperSettings(cfg *config.Config, settings map[string]map[string]any) {
-	const name = "developer"
-	if _, explicit := settings[name]; explicit {
-		return
-	}
-	if !cfg.GitHub.Enabled && !cfg.Codex.Enabled {
-		return
-	}
-
-	settings[name] = map[string]any{
-		"enabled": true,
-		"github": map[string]any{
-			"enabled":          cfg.GitHub.Enabled,
+	if _, explicit := settings["github"]; !explicit && cfg.GitHub.Enabled {
+		settings["github"] = map[string]any{
+			"enabled":          true,
 			"app_id":           cfg.GitHub.AppID,
 			"installation_id":  cfg.GitHub.InstallationID,
 			"private_key_path": cfg.GitHub.PrivateKeyPath,
 			"repositories":     cfg.GitHub.Repositories,
 			"api_base_url":     cfg.GitHub.APIBaseURL,
-		},
-		"codex": map[string]any{
-			"enabled":         cfg.Codex.Enabled,
+		}
+	}
+
+	if _, explicit := settings["codex"]; !explicit && cfg.Codex.Enabled {
+		settings["codex"] = map[string]any{
+			"enabled":         true,
 			"binary":          cfg.Codex.Binary,
 			"model_provider":  cfg.Codex.ModelProvider,
 			"model":           cfg.Codex.Model,
@@ -400,6 +394,6 @@ func withLegacyDeveloperSettings(cfg *config.Config, settings map[string]map[str
 			"turn_timeout_ms": cfg.Codex.TurnTimeoutMs,
 			"network_access":  cfg.Codex.NetworkAccess,
 			"config":          cfg.Codex.Config,
-		},
+		}
 	}
 }
