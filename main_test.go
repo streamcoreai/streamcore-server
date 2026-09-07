@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -158,6 +160,21 @@ func TestDebugServerServesPprofOnLoopback(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestDebugServerWarnsWhenProfilingRatesAreIgnored(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousWriter) })
+
+	srv, err := startDebugServer(config.DebugConfig{BlockProfileRate: 1})
+	if err != nil || srv != nil {
+		t.Fatalf("startDebugServer = (%v, %v), want (nil, nil)", srv, err)
+	}
+	if !strings.Contains(logs.String(), "debug.bind is empty") {
+		t.Fatalf("log = %q, want ignored profiling settings warning", logs.String())
 	}
 }
 
