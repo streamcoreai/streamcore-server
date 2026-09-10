@@ -182,6 +182,10 @@ The server validates and truncates all fields before sending:
 | `body` | `text` | 180 characters |
 | `items` | `list` | 4 items |
 | each `items[]` | `list` | 40 characters |
+| `columns` | `split` | 2 columns |
+| `columns[].heading` | `split` | 17 characters |
+| `columns[].lines` | `split` | 7 lines |
+| each `columns[].lines[]` | `split` | 17 characters |
 
 Layout semantics:
 
@@ -189,6 +193,20 @@ Layout semantics:
 - **text** — a compact explanation (`title`, required `body`).
 - **list** — at most four short entries (`title`, required non-empty `items`).
 - **status** — a completed action or confirmation (`title`, required `primary`, optional `secondary`).
+- **split** — two things side by side (`title`, required non-empty `columns`). Each column carries a `heading` and short `lines`; a blank line is a spacer the client spends a row on. For comparing one thing against another, which no single-column layout can express.
+
+```json
+{
+  "layout": "split",
+  "title": "AI Usage",
+  "columns": [
+    { "heading": "Claude 2m", "lines": ["5H 62% used", "======----", "38% left 2h 10m"] },
+    { "heading": "Codex 5m", "lines": ["5H 16% used", "==--------", "84% left 4h"] }
+  ]
+}
+```
+
+`split` is for plugins that emit their own cards; the display projector never produces one, since a projected turn has one subject rather than two. A client that predates the layout rejects the card as unknown and keeps whatever it was showing.
 
 The payload contains semantics only. StreamCore does not send coordinates, fonts, colours, framebuffers, PNGs, or device-specific rendering instructions. The client chooses typography, wrapping, colour use, and when a refresh is affordable. A recommended device policy is: store latest-wins, wait until assistant playback and the next-user check have gone idle, debounce for 1–3 seconds, then spend one refresh.
 

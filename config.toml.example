@@ -28,6 +28,16 @@ directory = "./plugins"     # Required if you want plugins and skills loaded
 # app_id = "123456"
 # installation_id = "78901234"
 
+# Claude Code and Codex rate-limit meter, spoken and pushed to the client as a
+# display.card. Off by default: it reads files that only exist on a machine
+# where those tools actually run. See plugins/plugins/ai-usage/README.md.
+#
+# [plugins.config."ai.usage"]
+# enabled = true
+# claude_snapshot_dir = "~/.claude/plugins/claude-hud/eink-snapshots"
+# codex_sessions_dir  = "~/.codex/sessions"
+# stale_after_minutes = 30
+
 # Persistent display projection over the existing events DataChannel.
 # Disabled by default; existing deployments send no new events unless enabled.
 [display]

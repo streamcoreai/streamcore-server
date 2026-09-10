@@ -1,0 +1,28 @@
+name: ai.usage
+description: "Report how much of the Claude Code and Codex rate limits have been used, for the five-hour window and the week. Use when the user asks about their AI usage, quota, limits, or how much they have left."
+version: 1
+
+# Off unless an operator asks for it. The readings come from files in the
+# operator's home directory that only exist on a machine where Claude Code and
+# Codex actually run, so a server that has not opted in must not offer the tool
+# at all. Turn it on with:
+#
+#   [plugins.config."ai.usage"]
+#   enabled = true
+enabled: false
+
+# The published @streamcore/plugin on npm predates the result envelope, so it
+# cannot emit a card. This links the SDK in the tree by path, the way the Go
+# plugins do with a replace directive. Its dist/ is gitignored, so install it
+# first: that runs its prepare script and leaves a built package to link to.
+build: ["sh", "-c", "npm --prefix ../../../../plugin-sdk/typescript install && npm install"]
+exec: ["npx", "tsx", "index.ts"]
+
+# Reading a few local files, no network. The Codex scan tails the newest
+# rollout logs, which is the only part that touches more than a few kilobytes.
+timeout_ms: 5000
+
+parameters:
+  type: object
+  properties: {}
+confirmation_required: false

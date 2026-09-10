@@ -139,6 +139,68 @@ Content-Type: application/sdp
 
 客户端在同一通道上发送的消息会被路由进流水线 —— 目前用于 `vision.analyze` 插件消费的摄像头图像分片。
 
+### 显示卡片
+
+`display.card` 是一个小而带版本号的语义载荷，面向墨水屏这类刷新很慢的常驻显示设备。它是附加能力，默认关闭。不认识它的客户端应当直接忽略，就像 NOTE4C 在做常驻渲染时会忽略实时的 `transcript`、`response` 和 `state` 事件一样。
+
+```json
+{
+  "type": "display.card",
+  "version": 1,
+  "session_id": "9d2f...",
+  "turn_id": "turn_123",
+  "turn_seq": 123,
+  "card": {
+    "layout": "hero",
+    "title": "Auckland · Tomorrow",
+    "primary": "17°C",
+    "secondary": "Rain after lunch",
+    "detail": "Mostly cloudy · light winds"
+  }
+}
+```
+
+`turn_seq` 是在同一个 `session_id` 内递增的正整数，`turn_id` 是它对应的可读形式。屏幕很慢的设备应当只保留最新的有效卡片，而不是排成先进先出队列。当一张卡片的 `turn_seq` 不比同一会话里已接受的最新卡片更大时，应当拒绝它。`session_id` 变化即开启一个新序列。
+
+服务端在发送前会校验并截断所有字段：
+
+| 字段 | 适用布局 | 上限 |
+|---|---|---|
+| `title` | 全部 | 32 字符 |
+| `primary` | `hero`、`status` | 24 字符 |
+| `secondary` | `hero`、`status` | 48 字符 |
+| `detail` | `hero` | 80 字符 |
+| `body` | `text` | 180 字符 |
+| `items` | `list` | 4 条 |
+| 每条 `items[]` | `list` | 40 字符 |
+| `columns` | `split` | 2 列 |
+| `columns[].heading` | `split` | 17 字符 |
+| `columns[].lines` | `split` | 7 行 |
+| 每条 `columns[].lines[]` | `split` | 17 字符 |
+
+布局语义：
+
+- **hero** —— 一个占主导地位的事实（`title`，必填 `primary`，可选 `secondary` / `detail`）。
+- **text** —— 一段紧凑的说明（`title`，必填 `body`）。
+- **list** —— 最多四条短条目（`title`，必填且非空的 `items`）。
+- **status** —— 一个已完成的动作或确认（`title`，必填 `primary`，可选 `secondary`）。
+- **split** —— 并排放置的两样东西（`title`，必填且非空的 `columns`）。每一列包含一个 `heading` 和若干短 `lines`；空字符串是调用方要求的占位行，客户端为它留一行但不画内容。用于把一样东西和另一样对比着看，这是任何单列布局都表达不了的。
+
+```json
+{
+  "layout": "split",
+  "title": "AI Usage",
+  "columns": [
+    { "heading": "Claude 2m", "lines": ["5H 62% used", "======----", "38% left 2h 10m"] },
+    { "heading": "Codex 5m", "lines": ["5H 16% used", "==--------", "84% left 4h"] }
+  ]
+}
+```
+
+`split` 是给自己发卡片的插件用的；display projector 永远不会产出这种布局，因为被投影的一轮对话只有一个主题，不是两个。早于这个布局的客户端会把卡片当作未知布局拒绝掉，屏幕上保持原样。
+
+载荷里只有语义。StreamCore 不下发坐标、字体、颜色、帧缓冲、PNG，也不下发任何设备相关的渲染指令。排版、换行、配色，以及什么时候值得花一次刷新，都由客户端自己决定。推荐的设备策略是：只存最新的一张，等到助手播放结束、并且确认用户没有接着说话之后，再消抖 1–3 秒，然后花掉一次刷新。
+
 ## 鉴权
 
 设置 `server.jwt_secret` 后，`/whip` 会要求 `Authorization: Bearer <jwt>`。设置该项时，服务还会暴露 `POST /token`，签发有效期 1 小时的 HS256 token。再设置 `server.api_key`，则 `/token` 本身也要求 `Authorization: Bearer <api_key>`，这样只有你的后端才能签发会话 token。两者默认都为空，即关闭鉴权。
