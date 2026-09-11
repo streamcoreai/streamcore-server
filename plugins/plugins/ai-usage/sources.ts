@@ -290,6 +290,27 @@ export function findRateLimits(value: unknown, depth = 0): CodexRateLimits | nul
  *   <- {"id":2,"result":{"rateLimits":{"primary":{"usedPercent":0,
  *        "windowDurationMins":300,"resetsAt":1789141035}, "secondary":{...}}}}
  */
+/**
+ * Every `codex app-server` still waiting on an answer. The per-call timer kills
+ * a child in the normal run of things, but the server can stop this plugin in
+ * the middle of a query, and a child that outlives its parent keeps running
+ * with nobody left to kill it.
+ */
+const inFlight = new Set<ReturnType<typeof spawn>>();
+
+function killInFlight() {
+  for (const child of inFlight) child.kill("SIGKILL");
+  inFlight.clear();
+}
+
+process.once("exit", killInFlight);
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+  process.once(signal, () => {
+    killInFlight();
+    process.exit(0);
+  });
+}
+
 export function readCodexLive(settings: Settings, nowMs: number): Promise<Reading | null> {
   const command = settings.codex_command ?? DEFAULT_CODEX_COMMAND;
   const timeoutMs = settings.codex_timeout_ms ?? DEFAULT_CODEX_TIMEOUT_MS;
@@ -305,6 +326,8 @@ export function readCodexLive(settings: Settings, nowMs: number): Promise<Readin
       return;
     }
 
+    inFlight.add(child);
+
     let settled = false;
     const finish = (reading: Reading | null) => {
       if (settled) return;
@@ -313,6 +336,7 @@ export function readCodexLive(settings: Settings, nowMs: number): Promise<Readin
       // The app-server keeps running until its stdin closes; a session that
       // never got its answer must not leave one behind.
       child.kill("SIGKILL");
+      inFlight.delete(child);
       resolve(reading);
     };
     const timer = setTimeout(() => finish(null), timeoutMs);
