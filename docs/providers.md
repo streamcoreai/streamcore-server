@@ -12,7 +12,8 @@
 
 Notes:
 
-- `stt.provider = "openai"` uses batch final transcription instead of streaming partials; choose `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` with `openai.stt_model`.
+- `stt.provider = "openai"` uses batch final transcription instead of streaming partials, so barge-in and live captions do not work, since both depend on partials; choose `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` with `openai.stt_model`.
+- `stt.provider = "telnyx"` fronts Telnyx's in-house and a dozen hosted transcription engines over one WebSocket and one key. `transcription_engine` defaults to `Deepgram`, so barge-in and live captions work out of the box; the in-house `Telnyx` engine is finals-only, so both are off when it is selected. See [Telnyx STT](#telnyx-stt).
 - `llm.provider = "ollama"` targets any Ollama-compatible endpoint via `base_url` — local or on your own infrastructure.
 - `llm.provider = "agent"` POSTs each turn to an HTTP endpoint you host; your agent owns memory, prompting, and tools, and replies stream back as SSE, chunked text, or JSON. See [Bring your own agent](./bring-your-own-agent.md).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.
@@ -21,7 +22,6 @@ Notes:
 - `tts.provider = "mimo"` is Xiaomi's MiMo TTS, with Chinese and English voices and optional voice cloning on the paid models.
 - `stt.provider = "aliyun"` is Alibaba Cloud Model Studio (DashScope) streaming ASR; `vocabulary_id` biases it toward domain terms.
 - `stt.provider = "volcengine"` is Doubao streaming ASR — useful where Deepgram is slow to reach or its Mandarin is not good enough. The console gives a free hourly allowance.
-- `stt.provider = "telnyx"` fronts Telnyx's in-house and a dozen hosted transcription engines over one WebSocket and one key. The in-house engine is finals-only, so barge-in and live captions need a hosted engine. See [Telnyx STT](#telnyx-stt).
 - `realtime.provider = "grok"` switches to speech-to-speech and ignores `[stt]`, `[llm]`, and `[tts]` entirely.
 
 Every key and knob lives in the [configuration reference](./configuration.md).
@@ -151,7 +151,7 @@ Delivery tags map onto `voice_speed` (clamped to 0.8–1.2, the same conversatio
 
 ## Telnyx STT
 
-Streaming transcription over the Telnyx speech-to-text WebSocket: raw linear16 binary frames in, JSON transcript frames out, at the pipeline's native 16 kHz mono so nothing resamples. The same `[telnyx]` section and API key as TTS cover both roles; `stt_engine` picks the recognizer.
+Streaming transcription over the Telnyx speech-to-text WebSocket: raw linear16 binary frames in, JSON transcript frames out, at the pipeline's native 16 kHz mono so nothing resamples. The same `[telnyx]` section and API key as TTS cover both roles; `transcription_engine` picks the recognizer.
 
 ```toml
 [stt]
@@ -159,16 +159,16 @@ provider = "telnyx"
 
 [telnyx]
 api_key = ""
-stt_engine = "Telnyx"   # or a hosted engine — "Deepgram", "AssemblyAI", "Azure", ... Casing matters
+transcription_engine = "Deepgram"   # verified: "Deepgram" (partial results, barge-in works) or "Telnyx" (in-house, finals-only). Case matters
 ```
 
 Three things to know:
 
-- **The in-house `Telnyx` engine is finals-only.** It emits exactly one final frame after the caller stops speaking — no interims, no timestamps, no confidence. Barge-in and live captions depend on interim results (the pipeline gates interruption on partial text), so **neither works with this engine**: interruptions never fire, and the client transcript shows nothing until the final lands. Use it for final-transcript-only deployments. See the [design discussion](https://github.com/streamcoreai/streamcore-server/issues/75) for the trade-offs.
-- **Hosted engines restore interims.** The same endpoint fronts AssemblyAI, Azure, Cohere, Deepgram, Google, Humain, Parakeet, Reson8, Soniox, Speechmatics, and xAI. Any engine other than `Telnyx` is requested with `interim_results=true`, partials stream as they do from any other provider, and barge-in and live captions work. `stt_engine = "Deepgram"` is the verified configuration.
-- **The engine name is case-sensitive.** `telnyx` is rejected with a structured error frame that lists the supported engines; the valid values are exactly the ones in that list, first letter capitalised.
+- **`Deepgram` is the default.** It streams interim results exactly like the built-in Deepgram provider, so barge-in and live captions work out of the box. A finals-only default would silently switch both off for anyone who just sets the provider and starts talking.
+- **The in-house `Telnyx` engine is finals-only.** It emits exactly one final per utterance, only after the caller stops speaking: no interims, no timestamps, confidence `null`. Barge-in and live captions depend on interim results (the pipeline gates interruption on partial text), so **neither works with this engine**: interruptions never fire, and the client transcript shows nothing until the final lands. Because the engine answers only after audio stops, the client runs its own endpointing (`internal/vad`, the same detector the pipeline uses, with the silence timeout `openai.go` uses) and opens one socket per utterance, closing it once the final lands, since the server keeps it open. A startup log line says that barge-in and live captions are off for the session, so the operator learns it from the log rather than from a caller talking over the agent with nothing happening. See the [design discussion](https://github.com/streamcoreai/streamcore-server/issues/75) for the trade-offs.
+- **The engine name is case-sensitive and sent verbatim.** `telnyx` is rejected with a structured error frame that lists the supported engines. Only `Deepgram` and `Telnyx` are verified here; the other hosted engines the endpoint fronts (AssemblyAI, Azure, and the rest of that list) pass through untested.
 
-Confidence arrives as `null` from the in-house engine and a 0–1 float from hosted ones; the pipeline treats `null` as unknown rather than low.
+Confidence arrives as `null` from the in-house engine and a 0-1 float from hosted ones; the pipeline treats `null` as unknown rather than low.
 
 ## Local VibeVoice setup
 

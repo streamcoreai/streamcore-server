@@ -305,15 +305,15 @@ type TelnyxConfig struct {
 	// VoiceSpeed is a playback-rate multiplier (1.0 = normal), clamped to
 	// the 0.8-1.2 conversational band. Zero defaults to 1.0.
 	VoiceSpeed float64 `toml:"voice_speed"`
-	// STTEngine selects the transcription engine used when stt.provider =
-	// "telnyx": the in-house "Telnyx" recognizer or any of the hosted
-	// engines the endpoint fronts (AssemblyAI, Azure, Cohere, Deepgram,
-	// Google, Humain, Parakeet, Reson8, Soniox, Speechmatics, xAI). The
-	// value is case-sensitive and sent verbatim. The in-house engine emits
-	// one final per connection and no interims, so barge-in and live
-	// captions do not work with it; hosted engines stream interims and both
-	// work. Empty defaults to "Telnyx".
-	STTEngine string `toml:"stt_engine"`
+	// TranscriptionEngine selects the recognizer used when stt.provider =
+	// "telnyx". The value is case-sensitive and sent to the endpoint
+	// verbatim. "Deepgram" (the default) streams partials, so barge-in and
+	// live captions work out of the box; the in-house "Telnyx" engine
+	// emits one final per utterance and no interims, so barge-in and live
+	// captions do not work with it and a startup log line says so. Other
+	// engines the endpoint fronts (AssemblyAI, Azure, ...) pass through
+	// untested.
+	TranscriptionEngine string `toml:"transcription_engine"`
 }
 
 type MiMoConfig struct {
@@ -461,7 +461,7 @@ func Load(path string) (*Config, error) {
 	if cfg.Telnyx.VoiceSpeed == 0 {
 		cfg.Telnyx.VoiceSpeed = 1.0
 	}
-	setDefault(&cfg.Telnyx.STTEngine, "Telnyx")
+	setDefault(&cfg.Telnyx.TranscriptionEngine, "Deepgram")
 	setDefault(&cfg.LLM.Provider, "openai")
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")

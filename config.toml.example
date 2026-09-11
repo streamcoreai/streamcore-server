@@ -148,10 +148,11 @@ voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"  # Any catalog vo
                           # (Qwen3TTS voices use UUID ids). Availability varies by account; a voice your
                           # key is not provisioned for fails the dial with HTTP 403
 voice_speed = 1.0       # Playback-rate multiplier, clamped to 0.8-1.2 like the per-utterance delivery tags
-stt_engine = "Telnyx"   # STT. Transcription engine when stt.provider = "telnyx": the in-house recognizer
-                          # or a hosted engine (Deepgram, AssemblyAI, Azure, Cohere, Google, Humain,
-                          # Parakeet, Reson8, Soniox, Speechmatics, xAI). Case-sensitive. In-house is
-                          # finals-only, so barge-in and live captions need a hosted engine
+transcription_engine = "Deepgram"  # STT. Transcription engine when stt.provider = "telnyx".
+                          # Verified values: "Deepgram" (streams partials, so barge-in and live captions
+                          # work) or "Telnyx" (in-house, finals-only, so barge-in and live captions are
+                          # off and a startup log line says so). Case-sensitive, sent verbatim; other
+                          # hosted engines the endpoint fronts pass through untested
 
 [mimo]
 api_key = ""            # Required if tts.provider = "mimo"

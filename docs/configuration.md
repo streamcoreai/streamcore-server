@@ -123,8 +123,9 @@ model = ""
 api_key = ""
 voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # Any catalog voice from GET /v2/text-to-speech/voices; availability varies by account
 voice_speed = 1.0                    # Playback-rate multiplier, clamped to 0.8-1.2
-stt_engine = "Telnyx"                # STT engine: the in-house recognizer or a hosted one (Deepgram, AssemblyAI, Azure, ...). Case-sensitive.
-                                     # In-house is finals-only — no barge-in or live captions; hosted engines stream interims and both work
+transcription_engine = "Deepgram"    # STT engine, verified values: "Deepgram" (partials, barge-in works; the default) or
+                                     # "Telnyx" (in-house, finals-only: barge-in and live captions are off, and a startup
+                                     # log line says so). Case-sensitive, sent verbatim
 
 [minimax]
 api_key = ""
