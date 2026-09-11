@@ -1,0 +1,21 @@
+name: display-projector
+description: "Turns each completed voice turn into a small screen card and pushes it to the client. Declares no tools: the model cannot see it or call it, and it cannot change what the agent says."
+version: 1
+
+# Off unless an operator asks for it. Projection sends a new event type, and a
+# deployment that has not opted in must see no change in what reaches its
+# clients. Turn it on with:
+#
+#   [plugins.config."display-projector"]
+#   enabled = true
+enabled: false
+
+build: ["go", "build", "-o", "display-projector", "."]
+exec: ["./display-projector"]
+
+# Bounds one projection, including its model call. A card that arrives late is
+# worse than no card, since the conversation has already moved on.
+timeout_ms: 3000
+
+events:
+  - assistant.response.completed

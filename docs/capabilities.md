@@ -120,5 +120,6 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 | Speech-to-speech | xAI Grok Voice (replaces STT + LLM + TTS in one model) |
 | Retrieval | pgvector, Supabase |
 | Custom tools | Python / TypeScript / JavaScript plugins, native Go tools |
+| Developer agent | GitHub App (CI investigation, confirmation-gated pull requests) and the Codex harness signed in with a ChatGPT subscription — see [Developer agent](./developer-agent.md) |
 
 Credentials and per-provider caveats: [Providers](./providers.md).

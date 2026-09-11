@@ -120,5 +120,6 @@ StreamCore 可以跑通一条完整的「语音 → 智能体 → 语音」链�
 | 语音到语音 | xAI Grok Voice（用一个模型取代 STT + LLM + TTS） |
 | 检索 | pgvector、Supabase |
 | 自定义工具 | Python / TypeScript / JavaScript 插件，原生 Go 工具 |
+| 开发者智能体 | GitHub App（CI 排查、需确认的 Pull Request）与使用 ChatGPT 订阅登录的 Codex —— 见[开发者智能体](./developer-agent.zh-CN.md) |
 
 凭据与各服务商的注意事项见[服务商](./providers.zh-CN.md)。

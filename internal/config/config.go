@@ -21,6 +21,9 @@ type Config struct {
 	Server     ServerConfig     `toml:"server"`
 	Debug      DebugConfig      `toml:"debug"`
 	Plugins    PluginsConfig    `toml:"plugins"`
+	Display    DisplayConfig    `toml:"display"`
+	GitHub     GitHubConfig     `toml:"github"`
+	Codex      CodexConfig      `toml:"codex"`
 	Pipeline   PipelineConfig   `toml:"pipeline"`
 	Realtime   RealtimeConfig   `toml:"realtime"`
 	Grok       GrokConfig       `toml:"grok"`
@@ -55,6 +58,89 @@ type DebugConfig struct {
 
 type PluginsConfig struct {
 	Directory string `toml:"directory"`
+
+	// Config holds each plugin's own settings, keyed by the name in its
+	// manifest, and is handed to that plugin at startup. It keeps a plugin's
+	// credentials in the operator's one config file rather than in a dotenv
+	// next to its source:
+	//
+	//	[plugins.config."github"]
+	//	app_id = "123456"
+	Config map[string]map[string]any `toml:"config"`
+}
+
+type DisplayConfig struct {
+	// Enabled is false by default: display projection is additive and must not
+	// change behavior for deployments that have not asked for it.
+	Enabled bool `toml:"enabled"`
+	// Plugin names the event plugin that projects completed turns. Empty uses
+	// the built-in display-projector.
+	Plugin string `toml:"plugin"`
+
+	Projector DisplayProjectorConfig `toml:"projector"`
+}
+
+type DisplayProjectorConfig struct {
+	// TimeoutMs bounds one projection, including its model call.
+	TimeoutMs int `toml:"timeout_ms"`
+	// FastPathMaxChars is the largest simple response projected locally.
+	FastPathMaxChars int `toml:"fast_path_max_chars"`
+}
+
+// GitHubConfig is the GitHub App credential and the repositories StreamCore is
+// allowed to touch. There is no personal access token: the App private key,
+// exchanged for short-lived installation tokens, is the only credential.
+type GitHubConfig struct {
+	Enabled bool `toml:"enabled"`
+
+	// AppID is the JWT issuer. GitHub accepts either the numeric App ID or the
+	// App's client ID, and recommends the client ID.
+	AppID string `toml:"app_id"`
+
+	InstallationID string `toml:"installation_id"`
+
+	// PrivateKeyPath points at the App's PEM. It is read once at startup and
+	// never leaves the server: not into a prompt, a tool result, a DataChannel
+	// message, or a log line.
+	PrivateKeyPath string `toml:"private_key_path"`
+
+	// Repositories is the allowlist, as owner/name. A repository must be here
+	// *and* reachable by the App installation before any call is made.
+	Repositories []string `toml:"repositories"`
+
+	// APIBaseURL overrides https://api.github.com for GitHub Enterprise Server.
+	APIBaseURL string `toml:"api_base_url"`
+}
+
+// CodexConfig points at the Codex harness. There is deliberately no api_key
+// field: Codex authenticates with the operator's ChatGPT sign-in, which Codex
+// itself owns, and StreamCore never holds those credentials.
+type CodexConfig struct {
+	Enabled bool `toml:"enabled"`
+
+	// Binary is the Codex CLI to launch as an App Server.
+	Binary string `toml:"binary"`
+
+	// ModelProvider and Model are pinned on the command line rather than left
+	// to ~/.codex/config.toml. An operator whose Codex defaults point at a
+	// third-party provider would otherwise get a StreamCore that never touches
+	// their ChatGPT subscription and never says so.
+	ModelProvider string `toml:"model_provider"`
+	Model         string `toml:"model"`
+
+	// WorkspaceRoot is where isolated worktrees live. Codex can write here and
+	// nowhere else; the live StreamCore checkout is never one of them.
+	WorkspaceRoot string `toml:"workspace_root"`
+
+	// TurnTimeoutMs bounds one Codex turn before it is interrupted.
+	TurnTimeoutMs int `toml:"turn_timeout_ms"`
+
+	// NetworkAccess opens the task sandbox to the network. Off by default;
+	// turn it on only when the repository's tests fetch dependencies.
+	NetworkAccess bool `toml:"network_access"`
+
+	// Config passes extra `-c key=value` overrides to the App Server.
+	Config []string `toml:"config"`
 }
 
 type PipelineConfig struct {
@@ -492,7 +578,31 @@ func Load(path string) (*Config, error) {
 	setDefault(&cfg.Ollama.SystemPrompt, "You are a helpful AI voice assistant having a natural phone conversation. Keep responses to 1-2 sentences unless asked for detail. When interrupted (indicated by bracketed context), respond the way a patient human would: if they say 'no', address the disagreement; if they redirect, follow their lead. Never repeat what you already said, never ask 'would you like me to continue', and never mention that you were interrupted.")
 	setDefault(&cfg.VibeVoice.ASRURL, "ws://127.0.0.1:8200")
 	setDefault(&cfg.VibeVoice.TTSURL, "http://127.0.0.1:8300")
+
+	setDefault(&cfg.Display.Plugin, "display-projector")
+	if cfg.Display.Projector.TimeoutMs == 0 {
+		cfg.Display.Projector.TimeoutMs = 3000
+	}
+	if cfg.Display.Projector.FastPathMaxChars == 0 {
+		cfg.Display.Projector.FastPathMaxChars = 80
+	}
+	if cfg.Display.Projector.TimeoutMs < 0 || cfg.Display.Projector.FastPathMaxChars < 0 {
+		return nil, fmt.Errorf("[display.projector] timeout_ms and fast_path_max_chars must be positive")
+	}
 	setDefault(&cfg.VibeVoice.Voice, "en-Emma_woman")
+
+	setDefault(&cfg.Codex.Binary, "codex")
+	setDefault(&cfg.Codex.ModelProvider, "openai")
+	// Verified against a ChatGPT subscription: the gpt-5.1-codex family is
+	// rejected for ChatGPT accounts, so a Codex-branded default would fail on
+	// the first turn.
+	setDefault(&cfg.Codex.Model, "gpt-5.6-terra")
+	if cfg.Codex.TurnTimeoutMs == 0 {
+		cfg.Codex.TurnTimeoutMs = 600000
+	}
+	if err := cfg.validateDeveloperTools(); err != nil {
+		return nil, err
+	}
 
 	// Quiet grace and turn-merge debounce. Both default to conservative values
 	// that measurably reduce the agent talking over a caller mid-thought.
@@ -548,10 +658,41 @@ func (c *Config) RealtimeEnabled() bool {
 	return c.Realtime.Provider != "" && c.Realtime.Provider != "none"
 }
 
-// validateRealtime rejects a bad speech-to-speech configuration at startup.
-// Without this a typo'd provider or a missing key only surfaces when the
-// first caller connects, which reads as a broken deployment rather than a
-// misconfigured one.
+// validateDeveloperTools checks the GitHub and Codex sections up front, so a
+// missing key is a startup error rather than a puzzling tool failure mid-call.
+// Both integrations are optional and disabled by default.
+func (c *Config) validateDeveloperTools() error {
+	if c.GitHub.Enabled {
+		if strings.TrimSpace(c.GitHub.AppID) == "" {
+			return fmt.Errorf("[github] app_id is required when github.enabled is true")
+		}
+		if strings.TrimSpace(c.GitHub.InstallationID) == "" {
+			return fmt.Errorf("[github] installation_id is required when github.enabled is true")
+		}
+		if strings.TrimSpace(c.GitHub.PrivateKeyPath) == "" {
+			return fmt.Errorf("[github] private_key_path is required when github.enabled is true")
+		}
+		if len(c.GitHub.Repositories) == 0 {
+			return fmt.Errorf("[github] repositories must list at least one owner/name")
+		}
+		for _, repo := range c.GitHub.Repositories {
+			if strings.Count(repo, "/") != 1 || strings.HasPrefix(repo, "/") || strings.HasSuffix(repo, "/") {
+				return fmt.Errorf("[github] repository %q must be owner/name", repo)
+			}
+		}
+	}
+
+	if c.Codex.Enabled {
+		if strings.TrimSpace(c.Codex.WorkspaceRoot) == "" {
+			return fmt.Errorf("[codex] workspace_root is required when codex.enabled is true")
+		}
+		if c.Codex.TurnTimeoutMs < 0 {
+			return fmt.Errorf("[codex] turn_timeout_ms must not be negative")
+		}
+	}
+	return nil
+}
+
 // Echo-guard modes for pipeline.echo_guard.
 const (
 	EchoGuardAuto   = "auto"
@@ -582,6 +723,10 @@ func (c *Config) validateEchoGuard() error {
 	}
 }
 
+// validateRealtime rejects a bad speech-to-speech configuration at startup.
+// Without this a typo'd provider or a missing key only surfaces when the
+// first caller connects, which reads as a broken deployment rather than a
+// misconfigured one.
 func (c *Config) validateRealtime() error {
 	if !c.RealtimeEnabled() {
 		return nil

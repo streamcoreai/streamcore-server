@@ -460,6 +460,75 @@ func TestValidateRealtimeRejectsTooManyKeyterms(t *testing.T) {
 	}
 }
 
+// The developer integrations are off unless the operator turns them on, and
+// when they are on the credentials they need are checked at startup rather than
+// mid-call.
+func TestDeveloperToolsDefaultOff(t *testing.T) {
+	cfg := &Config{}
+	if cfg.GitHub.Enabled || cfg.Codex.Enabled {
+		t.Fatal("a developer integration is enabled by default")
+	}
+	if err := cfg.validateDeveloperTools(); err != nil {
+		t.Fatalf("a config with both disabled was rejected: %v", err)
+	}
+}
+
+func TestGitHubConfigRequiresACredential(t *testing.T) {
+	base := func() *Config {
+		cfg := &Config{}
+		cfg.GitHub = GitHubConfig{
+			Enabled:        true,
+			AppID:          "Iv1.abc",
+			InstallationID: "12345",
+			PrivateKeyPath: "/run/secrets/app.pem",
+			Repositories:   []string{"streamcoreai/streamcore-server"},
+		}
+		return cfg
+	}
+	if err := base().validateDeveloperTools(); err != nil {
+		t.Fatalf("a complete github config was rejected: %v", err)
+	}
+
+	for name, breakIt := range map[string]func(*Config){
+		"app_id":           func(c *Config) { c.GitHub.AppID = "" },
+		"installation_id":  func(c *Config) { c.GitHub.InstallationID = "" },
+		"private_key_path": func(c *Config) { c.GitHub.PrivateKeyPath = "" },
+		"repositories":     func(c *Config) { c.GitHub.Repositories = nil },
+		"malformed repo":   func(c *Config) { c.GitHub.Repositories = []string{"not-a-repo"} },
+	} {
+		cfg := base()
+		breakIt(cfg)
+		if err := cfg.validateDeveloperTools(); err == nil {
+			t.Fatalf("a github config missing %s was accepted", name)
+		}
+	}
+}
+
+func TestCodexConfigNeedsAWorkspace(t *testing.T) {
+	cfg := &Config{}
+	cfg.Codex = CodexConfig{Enabled: true}
+	if err := cfg.validateDeveloperTools(); err == nil {
+		t.Fatal("codex was enabled with nowhere to work")
+	}
+
+	cfg.Codex.WorkspaceRoot = "/var/lib/streamcore/codex"
+	if err := cfg.validateDeveloperTools(); err != nil {
+		t.Fatalf("a valid codex config was rejected: %v", err)
+	}
+}
+
+// There is intentionally no way to give Codex an API key through config: the
+// integration exists to spend the operator's ChatGPT subscription.
+func TestCodexConfigHasNoAPIKey(t *testing.T) {
+	value := reflect.TypeOf(CodexConfig{})
+	for i := range value.NumField() {
+		name := strings.ToLower(value.Field(i).Name)
+		if strings.Contains(name, "apikey") || strings.Contains(name, "token") || strings.Contains(name, "secret") {
+			t.Fatalf("[codex] exposes a credential field: %s", value.Field(i).Name)
+		}
+	}
+}
+
 // A single instance commonly serves browsers and SIP calls at once, so the
 // echo bound has to be decided per peer rather than per server.
 func TestEchoGuardFor(t *testing.T) {

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"sync/atomic"
 
 	"github.com/streamcoreai/streamcore-server/internal/config"
@@ -20,6 +21,10 @@ import (
 // so there is no snapshot to take at teardown — which matters, because a
 // dropped connection never gets a clean teardown.
 type ConversationState struct {
+	// SessionID scopes the turn sequence used by lifecycle events. It travels
+	// with the conversation so a resumed Pipeline keeps ordering monotonic.
+	SessionID string
+
 	// LLM holds the message history. Nil in realtime mode, where the
 	// speech-to-speech provider keeps the history on its own side.
 	LLM llm.Client
@@ -35,6 +40,8 @@ type ConversationState struct {
 	// starting from a blank summary.
 	rollingSummary       *atomic.Value // string
 	lastSummaryAtEntries *atomic.Int32
+	// turnSeq orders completed turns across Pipeline reconnects and resumes.
+	turnSeq atomic.Uint64
 }
 
 // NewConversationState builds the durable half of a call.
@@ -46,8 +53,9 @@ type ConversationState struct {
 // In realtime mode no LLM client is constructed: the speech-to-speech provider
 // replaces STT, LLM, and TTS at once, and building one would demand API keys
 // for a provider this deployment does not use.
-func NewConversationState(cfg *config.Config, resourceID string) (*ConversationState, error) {
+func NewConversationState(cfg *config.Config, sessionID, resourceID string) (*ConversationState, error) {
 	state := &ConversationState{
+		SessionID:            sessionID,
 		Log:                  &TranscriptLog{},
 		rollingSummary:       &atomic.Value{},
 		lastSummaryAtEntries: &atomic.Int32{},
@@ -62,6 +70,14 @@ func NewConversationState(cfg *config.Config, resourceID string) (*ConversationS
 	}
 
 	return state, nil
+}
+
+// NextTurn returns a session-scoped, monotonically increasing turn sequence.
+// Allocating a sequence even when projection later fails is safe: gaps keep the
+// ordering conservative while remaining unique.
+func (c *ConversationState) NextTurn() (uint64, string) {
+	seq := c.turnSeq.Add(1)
+	return seq, fmt.Sprintf("turn_%d", seq)
 }
 
 // Summary returns the current rolling summary, empty if none has been

@@ -123,8 +123,13 @@ resource "aws_instance" "voiceagent" {
   key_name               = var.key_pair_name
   vpc_security_group_ids = [aws_security_group.voiceagent.id]
 
-  credit_specification {
-    cpu_credits = "unlimited"
+  # Only the burstable T family accepts this; the API errors out if it is sent
+  # for c7i and friends.
+  dynamic "credit_specification" {
+    for_each = startswith(var.instance_type, "t") ? [1] : []
+    content {
+      cpu_credits = "unlimited"
+    }
   }
 
   # Free tier: 30 GB gp3
@@ -157,6 +162,14 @@ resource "aws_instance" "voiceagent" {
 
   tags = {
     Name = "voiceagent-server"
+  }
+
+  # The AMI data source tracks "latest AL2023", so a new AMI release would
+  # otherwise show up as a replacement and take the box (and /opt/voiceagent
+  # with it). Resizing must stay a stop/start. To pick up a new AMI on purpose,
+  # drop this and plan for a rebuild plus a redeploy.
+  lifecycle {
+    ignore_changes = [ami]
   }
 }
 

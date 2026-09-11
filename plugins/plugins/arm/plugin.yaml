@@ -1,0 +1,144 @@
+name: arm
+description: "Pick-and-place for whatever manipulator is connected — a tabletop arm on a single-board computer, an industrial six-axis, a simulator with no hardware. Nothing here names a robot: the server never learns which arm is on the other end, and never learns where anything is. The model names an object; the device resolves it against its own perception and reports what happened."
+version: 1
+
+tools:
+  - name: arm.pick
+    description: "Pick up an object the robot can see. Use when the user asks it to pick something up, grab it, take it, get it, or fetch it. Name the object the way the user did — 'the red mug', 'that bottle'. Never guess coordinates: the robot resolves the name against what its camera can actually see, and will say so if it cannot find it."
+    dispatch:
+      topic: arm.command
+      payload:
+        action: pick
+      omit_zero: true
+      speak: "Picking it up."
+    parameters:
+      type: object
+      properties:
+        label:
+          type: "string"
+          description: "What to pick up, in the user's own words. Must be something that has been enrolled — use arm.remember first if the user is introducing a new object."
+      required:
+        - label
+    # Two halves of the same thing, and one list because they are the same
+    # instruction: which object.
+    #
+    # The first set starts a pick on the verb, before the sentence is
+    # finished. The second corrects one already under way — the device's
+    # arbiter treats the newer command as preempting the older on the same
+    # connection, so the arm changes where it is going rather than beginning
+    # a second conversation.
+    #
+    # The phrases are anchors, not prefixes. "grab the red one, no the blue
+    # one" is one utterance carrying two instructions, so the last anchor wins
+    # and a second firing needs a second anchor — which is also what keeps
+    # "grab the red mug please" a single pick.
+    #
+    # settle_ms waits for the name to stop arriving: "grab the red mug" is
+    # spoken as "grab the", "grab the red", "grab the red mug", and acting on
+    # the first would send the wrong object.
+    on_partial:
+      capture:
+        arg: label
+        after:
+          - "grab the"
+          - "grab"
+          - "pick up the"
+          - "pick up"
+          - "no the"
+          - "no not that the"
+          - "actually the"
+          - "i meant the"
+      settle_ms: 250
+
+  - name: arm.place
+    description: "Put down whatever the robot is holding, at a named object or place. Use when the user asks it to put something down, drop it, place it, or set it somewhere. Fails plainly if the gripper is empty."
+    dispatch:
+      topic: arm.command
+      payload:
+        action: place
+      omit_zero: true
+      speak: "Putting it down."
+    parameters:
+      type: object
+      properties:
+        label:
+          type: "string"
+          description: "Where to put it — a named object or place the robot knows. Leave unset to put it down where the arm already is."
+
+  - name: arm.remember
+    description: "Teach the robot a new object by looking at it. Use when the user holds something up and names it — 'this is my keys', 'remember this as the blue cup'. The robot enrols whatever is largest in its camera view right now, so ask the user to hold it up first if nothing is in front of the camera."
+    dispatch:
+      topic: arm.command
+      payload:
+        action: enroll
+      omit_zero: true
+      speak: "Got it, I'll remember that."
+    parameters:
+      type: object
+      properties:
+        label:
+          type: "string"
+          description: "What to call this object from now on. Use the user's own words."
+      required:
+        - label
+
+  - name: arm.home
+    description: "Return the arm to its resting position and open the gripper. Use when the user asks it to go home, reset, put its arm away, or let go of everything."
+    dispatch:
+      topic: arm.command
+      payload:
+        action: home
+      speak: "Going home."
+    parameters:
+      type: object
+      properties: {}
+
+  - name: arm.stop
+    description: "Stop the arm immediately. Use the moment the user says stop, wait, hold on, freeze, or anything that sounds like they want the motion to end. Always safe to call, including when nothing is moving. Prefer calling this too eagerly over too late."
+    dispatch:
+      topic: arm.command
+      payload:
+        action: stop
+      speak: "Stopping."
+    parameters:
+      type: object
+      properties: {}
+    # A brake the model has to deliberate is not a brake. These fire from the
+    # partial transcript, before endpointing and before the turn, and send the
+    # identical packet the tool call above would have sent.
+    #
+    # match is whole-word anywhere, so "no, stop" counts. starts_with fires as
+    # soon as the utterance opens with the phrase and cannot be taken back, so
+    # only phrases whose every continuation still means stop belong there:
+    # "wait a second" still means wait, but "hold on to it" does not mean hold
+    # on, which is why it is not listed. That one stays the model's to judge.
+    on_partial:
+      # These are the retract, so they have to work mid-sentence: "grab the
+      # red mug — no no" only reaches the brake if the phrase is matched
+      # anywhere rather than at the front. "wait" stays a prefix, because
+      # "wait for it" is not an instruction to stop.
+      match: ["stop", "freeze", "no no", "never mind", "forget it", "cancel that"]
+      starts_with: ["wait"]
+      once_per_turn: true
+
+  - name: arm.open_gripper
+    description: "Open the gripper, releasing anything held. Use when the user asks it to let go, open its hand, or release."
+    dispatch:
+      topic: arm.command
+      payload:
+        action: open_gripper
+      speak: "Opening."
+    parameters:
+      type: object
+      properties: {}
+
+  - name: arm.close_gripper
+    description: "Close the gripper. Use when the user asks it to grip, hold, or close its hand — usually after they have placed something in it."
+    dispatch:
+      topic: arm.command
+      payload:
+        action: close_gripper
+      speak: "Closing."
+    parameters:
+      type: object
+      properties: {}

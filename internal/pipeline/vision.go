@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-const (
-	visionToolName = "vision.analyze"
-)
-
 type dcImageStart struct {
 	Type      string `json:"type"`
 	ID        string `json:"id"`

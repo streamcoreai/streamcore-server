@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "name": "ai-usage-plugin",
+  "version": "0.1.0",
+  "scripts": {
+    "test": "TZ=UTC npx tsx --test test.ts"
+  },
+  "dependencies": {
+    "@streamcore/plugin": "file:../../../../plugin-sdk/typescript"
+  }
+}

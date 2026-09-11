@@ -89,6 +89,9 @@ func (p *Pipeline) runInbound() {
 			ev.OverAgentSpeech = p.agentSpeechRecent()
 			hasPartialText.Store(false)
 			latestPartial.Store("text", "")
+			// The utterance is over, so a tool that fired on it may fire again
+			// on the next thing said.
+			p.reflex.endUtterance()
 			p.storeLastUserConfidence(result.Confidence)
 			// Finals go to the turn buffer, which merges a caller's
 			// mid-sentence pauses into one turn before the agent responds.
@@ -106,6 +109,10 @@ func (p *Pipeline) runInbound() {
 				// speech. Single-char noise artifacts ("uh", "m") are ignored.
 				hasPartialText.Store(true)
 			}
+			// Before the turn buffer, before the model. A manifest that
+			// declared on_partial gets its packet out now; everything else
+			// carries on unchanged.
+			p.reflexOnPartial(trimmed)
 		}
 		select {
 		case p.transcriptCh <- ev:

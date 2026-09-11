@@ -1,0 +1,39 @@
+name: ai.usage
+description: "Report how much of the Claude Code and Codex rate limits have been used, for the five-hour window and the week. Use when the user asks about their AI usage, quota, limits, or how much they have left."
+version: 1
+
+# Off unless an operator asks for it. The readings come from files in the
+# operator's home directory that only exist on a machine where Claude Code and
+# Codex actually run, so a server that has not opted in must not offer the tool
+# at all. Turn it on with:
+#
+#   [plugins.config."ai.usage"]
+#   enabled = true
+enabled: false
+
+# The published @streamcore/plugin on npm predates the result envelope, so it
+# cannot emit a card. This links the SDK in the tree by path, the way the Go
+# plugins do with a replace directive. Its dist/ is gitignored, so install it
+# first: that runs its prepare script and leaves a built package to link to.
+build: ["sh", "-c", "npm --prefix ../../../../plugin-sdk/typescript install && npm install"]
+exec: ["npx", "tsx", "index.ts"]
+
+# Room for the live Codex query: `codex app-server` answers
+# account/rateLimits/read in about a second, and the reader gives it six before
+# falling back to the rollout logs.
+timeout_ms: 12000
+
+# Where the numbers come from, and how long to wait for them:
+#
+#   [plugins.config."ai.usage"]
+#   enabled = true
+#   claude_usage_file = "~/.claude/usage-snapshot.json"  # statusline snapshot
+#   codex_live = true            # ask `codex app-server` before reading logs
+#   codex_command = "codex"      # if it is not on the server's PATH
+#   codex_timeout_ms = 6000
+#   stale_after_minutes = 30     # older than this is labelled stale on screen
+
+parameters:
+  type: object
+  properties: {}
+confirmation_required: false

@@ -125,6 +125,7 @@ OpenAI STT supports `whisper-1`, `gpt-4o-transcribe`, and `gpt-4o-mini-transcrib
 | [Capabilities](./docs/capabilities.md) | What the runtime does today, endpoints, AI integrations |
 | [Bring your own agent](./docs/bring-your-own-agent.md) | Five ways to own the intelligence, including the HTTP agent endpoint and the `llm.Client` interface |
 | [Agent runtime](./docs/agent-runtime.md) | Plugins, skills, RAG, document ingestion |
+| [Developer agent](./docs/developer-agent.md) | Optional GitHub App and Codex integrations: CI investigation, isolated worktrees, confirmation-gated pull requests |
 | [Providers](./docs/providers.md) | Grok speech-to-speech, MiniMax, local VibeVoice, per-provider caveats |
 | [Configuration](./docs/configuration.md) | Full annotated `config.toml` reference |
 | [Protocol](./docs/protocol.md) | WHIP signaling, DataChannel events, auth |
