@@ -164,6 +164,9 @@ func newDebugMux() *http.ServeMux {
 
 func startDebugServer(cfg config.DebugConfig) (*http.Server, error) {
 	if cfg.Bind == "" {
+		if cfg.BlockProfileRate != 0 || cfg.MutexProfileFraction != 0 {
+			log.Printf("Warning: debug profiling rates are ignored because debug.bind is empty")
+		}
 		return nil, nil
 	}
 	if cfg.BlockProfileRate < 0 {

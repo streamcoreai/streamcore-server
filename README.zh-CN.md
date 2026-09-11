@@ -75,7 +75,7 @@ Docker、TURN 端口与生产部署注意事项见[快速开始指南](./docs/qu
 | **传输** | 基于 WHIP（[RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)）的 WebRTC 音频 —— 一次 HTTP POST，无需常驻信令连接。双向 Opus/RTP |
 | **连通性** | 内置 Pion STUN/TURN，同时监听 UDP 与 TCP 3478 —— 无需额外的 coturn。网络切换或 NAT 重新绑定可在同一会话上通过 ICE restart 恢复，对话不会因此中断 |
 | **轮次控制** | 自适应 VAD 跟踪每通电话的噪声基线，并用去抖把句中停顿合并为同一轮 |
-| **插话打断** | Barge-in 先压低智能体音量，过滤 "嗯嗯" 这类回应词，确认打断后取消进行中的 LLM 与 TTS |
+| **插话打断** | Barge-in 先压低智能体音量，过滤 "嗯嗯" 这类回应词，确认打断后取消进行中的 LLM 与 TTS。在没有回声消除的链路（如电话）上，打断阈值会以智能体刚发出的音频为下限，因此不会被自己的声音打断 |
 | **流式链路** | 流式 STT → 流式 LLM → 分块流式 TTS，合成尚未结束音频就已开始播放 |
 | **会话与事件** | 服务端生成会话 ID、多 peer 会话，DataChannel 推送转写、回复、状态与每轮延迟 |
 | **接入范围** | 浏览器、移动端、后端服务、CLI、[SIP 电话](https://github.com/streamcoreai/sip-server) 与 [ESP32](https://github.com/streamcoreai/esp32) 设备 |
@@ -113,7 +113,9 @@ StreamCore 位于「提示词 + 工具」类框架的下一层：媒体链路。
 
 详情与代码：[接入你自己的智能体](./docs/bring-your-own-agent.zh-CN.md) · [智能体运行时](./docs/agent-runtime.zh-CN.md)。
 
-服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Ollama、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见[服务商](./docs/providers.zh-CN.md)。
+服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Telnyx、Ollama、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见[服务商](./docs/providers.zh-CN.md)。
+
+OpenAI STT 可通过独立的 `openai.stt_model` 配置选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
 
 ## 文档
 

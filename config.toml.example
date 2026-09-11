@@ -90,6 +90,16 @@ turn_merge_ms = 350          # Debounce window for merging finals into one turn.
 # rag_prefetch = false                    # Start retrieval during the merge window instead of after it
 # readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
 
+# Echo reference for barge-in, decided per session. On a path with no AEC
+# (SIP/PCMU telephony) the agent's own voice comes back loud enough to look
+# like an interruption; a browser cancels it in getUserMedia and needs no
+# bound. "auto" follows what each client declares on the WHIP URL (aec=none),
+# which sip-server already sends, so one server can host both.
+# echo_guard = "auto"           # auto | always | off. "always" is for raw-path clients that send no hint
+# echo_guard_gain = 0.6         # Echo cannot exceed this fraction of what produced it
+# echo_guard_margin = 1.8       # How far inbound must clear the echo bound to count as the caller
+# echo_guard_window_ms = 400    # How long sent audio stays in the reference window
+
 # Provider selection
 
 # Speech-to-speech mode. Setting a provider here replaces [stt], [llm], and
@@ -106,7 +116,7 @@ provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, openai, vibev
 provider = "openai"     # Supported: openai, ollama, agent
 
 [tts]
-provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, vibevoice, volcengine
+provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, telnyx, vibevoice, volcengine
 
 # Provider credentials
 
@@ -159,14 +169,16 @@ keyterms = []           # Bias the decoder toward domain words
 [openai]
 api_key = ""            # Required for LLM, and for OpenAI STT if selected
 model = "gpt-4o-mini"
+stt_model = "whisper-1" # STT model: whisper-1, gpt-4o-transcribe, or gpt-4o-mini-transcribe
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 base_url = ""           # Optional. Any endpoint speaking OpenAI's protocol — DeepSeek
-                        # (https://api.deepseek.com/v1, model deepseek-chat), Moonshot
-                        # (https://api.moonshot.cn/v1), Qwen, MiniMax. Empty targets OpenAI.
-                        # Prefer a non-reasoning model here: reasoning models emit their
-                        # thinking before the answer, and on a voice call that is dead air.
-                        # Note this is unrelated to [ollama] base_url, which speaks Ollama's
-                        # own protocol — the two are not interchangeable
+                         # (https://api.deepseek.com/v1, model deepseek-chat), Moonshot
+                         # (https://api.moonshot.cn/v1), Qwen, MiniMax, Telnyx
+                         # (https://api.telnyx.com/v2/ai, e.g. model glm-5.3). Empty targets OpenAI.
+                         # Prefer a non-reasoning model here: reasoning models emit their
+                         # thinking before the answer, and on a voice call that is dead air.
+                         # Note this is unrelated to [ollama] base_url, which speaks Ollama's
+                         # own protocol — the two are not interchangeable
 
 [ollama]
 base_url = "http://localhost:11434"  # Ollama server URL
@@ -200,6 +212,13 @@ model = ""              # Optional; defaults to eleven_turbo_v2_5
 api_key = ""            # Required if tts.provider = "speechify"
 voice_id = ""           # Optional; defaults to Geffen (geffen_32). Simba 3.2 uses its curated voice set.
 model = ""              # Optional; defaults to simba-3.2
+
+[telnyx]
+api_key = ""            # Required if tts.provider = "telnyx"
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"  # Any catalog voice from GET /v2/text-to-speech/voices
+                          # (Qwen3TTS voices use UUID ids). Availability varies by account; a voice your
+                          # key is not provisioned for fails the dial with HTTP 403
+voice_speed = 1.0       # Playback-rate multiplier, clamped to 0.8-1.2 like the per-utterance delivery tags
 
 [mimo]
 api_key = ""            # Required if tts.provider = "mimo"

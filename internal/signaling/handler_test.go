@@ -161,7 +161,7 @@ func TestPatchWildcardIfMatchPassesThePrecondition(t *testing.T) {
 func TestPatchTrickleOnlyIsDeclined(t *testing.T) {
 	h, sm := testHandler(t)
 	s := sm.GetOrCreate("s1")
-	if _, err := s.AddPeer("s1", ""); err != nil {
+	if _, err := s.AddPeer("s1", session.PeerOptions{}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestPatchTrickleOnlyIsDeclined(t *testing.T) {
 func TestPatchOnPeerWithoutNegotiation(t *testing.T) {
 	h, sm := testHandler(t)
 	s := sm.GetOrCreate("s1")
-	if _, err := s.AddPeer("s1", ""); err != nil {
+	if _, err := s.AddPeer("s1", session.PeerOptions{}); err != nil {
 		t.Fatalf("AddPeer: %v", err)
 	}
 
@@ -365,5 +365,31 @@ func TestResumeRetiresThePreDropETag(t *testing.T) {
 	rec := patch(t, h, second.Header().Get("Location"), peer.ICEFragmentContentType, oldETag, restartFragment)
 	if rec.Code != http.StatusPreconditionFailed {
 		t.Fatalf("stale ETag after a resume: status = %d, want 412", rec.Code)
+	}
+}
+
+// A browser never sends the hint, so the default must be "echo already
+// cancelled" — anything else would arm the echo bound against sessions whose
+// audio getUserMedia already cleaned.
+func TestPeerOptionsFromQuery(t *testing.T) {
+	cases := []struct {
+		query     string
+		direction string
+		aecAbsent bool
+	}{
+		{"", "", false},
+		{"?direction=outbound", "outbound", false},
+		{"?aec=none", "", true},
+		{"?direction=inbound&aec=none", "inbound", true},
+		{"?aec=upstream", "", false},
+		{"?aec=", "", false},
+	}
+	for _, c := range cases {
+		r := httptest.NewRequest(http.MethodPost, "/whip"+c.query, nil)
+		got := peerOptionsFrom(r)
+		if got.Direction != c.direction || got.AECAbsent != c.aecAbsent {
+			t.Errorf("%q: got %+v, want direction=%q aecAbsent=%v",
+				c.query, got, c.direction, c.aecAbsent)
+		}
 	}
 }

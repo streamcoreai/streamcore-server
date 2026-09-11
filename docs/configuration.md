@@ -16,7 +16,7 @@ port = "8080"
 
 [debug]
 bind = ""                      # Empty disables pprof; use 127.0.0.1:6060 and an SSH tunnel in production
-allow_public = false            # Must be true to bind pprof to a non-loopback address
+allow_public = false            # Required for a non-loopback bind; only for network-isolated deployments
 block_profile_rate = 0          # 1 records every blocking event; 0 disables block profiling
 mutex_profile_fraction = 0      # 1 records every mutex contention event; 0 disables mutex profiling
 
@@ -63,6 +63,10 @@ user_speech_quiet_ms = 600           # Quiet period after the caller stops befor
 turn_merge_ms = 350                  # Debounce window for merging finals into one turn
 # rag_prefetch = false               # Start retrieval during the merge window instead of after it
 # readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
+# echo_guard = "auto"                # auto | always | off. Auto follows each client's aec hint
+# echo_guard_gain = 0.6              # Echo cannot exceed this fraction of what produced it
+# echo_guard_margin = 1.8            # How far inbound must clear the echo bound to count as the caller
+# echo_guard_window_ms = 400         # How long sent audio stays in the reference window
 
 # Speech-to-speech. When set, replaces [stt], [llm], and [tts] entirely.
 [realtime]
@@ -75,7 +79,7 @@ provider = "deepgram"                # aliyun | assemblyai | deepgram | openai |
 provider = "openai"                  # openai | ollama | agent
 
 [tts]
-provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | vibevoice
+provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | telnyx | vibevoice
 
 # [grok]                             # Used when realtime.provider = "grok"
 # api_key = ""
@@ -121,6 +125,7 @@ utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes
 [openai]
 api_key = ""
 model = "gpt-4o-mini"
+stt_model = "whisper-1"             # whisper-1 | gpt-4o-transcribe | gpt-4o-mini-transcribe
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [ollama]
@@ -148,6 +153,11 @@ model = ""
 api_key = ""
 voice_id = ""
 model = ""
+
+[telnyx]                             # Telnyx hosted synthesis, used when tts.provider = "telnyx"
+api_key = ""
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # Any catalog voice from GET /v2/text-to-speech/voices; availability varies by account
+voice_speed = 1.0                    # Playback-rate multiplier, clamped to 0.8-1.2
 
 [minimax]
 api_key = ""
@@ -181,7 +191,8 @@ Notes:
 
 - `server.public_ip` plus `server.turn_secret` enables the built-in Pion STUN/TURN server, replacing an external coturn container. TURN listens on UDP and TCP 3478 and relays media on UDP 50001–60000.
 - `server.max_sessions` bounds the blast radius of distributed clients: the per-IP rate limit cannot, and every session burns CPU and provider spend. Past the cap, `POST /whip` returns 503 with `Retry-After`; session resumes are exempt, since they reattach to a session that is already counted. Size it to what one instance can actually serve.
-- `debug.bind` enables Go's pprof handlers on a separate listener. Keep it on loopback and reach it through an SSH tunnel; a non-loopback address is rejected unless `debug.allow_public = true` explicitly acknowledges that profiles expose process data and CPU profiles consume resources. The public server never serves `/debug/pprof/`.
+- `debug.bind` enables Go's pprof handlers on a separate listener. Keep it on loopback and reach it through an SSH tunnel. The public server never serves `/debug/pprof/`.
+- `debug.allow_public` is only for network-isolated deployments. There is no authentication on the listener. With `debug.allow_public = true` on a reachable interface, `/debug/pprof/profile?seconds=3600` is an anonymous CPU-pinning DoS, and a heap dump from this server can contain provider API keys, caller audio buffers and transcripts. A non-loopback bind is rejected unless this flag is set.
 - `debug.block_profile_rate` and `debug.mutex_profile_fraction` enable the corresponding runtime profiles while the debug listener is active. Both default to `0` (off); set either to `1` to record every event while diagnosing contention.
 - `plugins.directory` is required for plugins and skills to load; omit it and discovery is skipped.
 - `plugins.config.<name>` is handed to that plugin at startup, so a plugin's credentials live in this file rather than in a dotenv beside its source. Quote a name containing a dot: `[plugins.config."weather.get"]`. Two keys are read by the server rather than passed through — `enabled` turns a plugin off without deleting it, and `timeout_ms` overrides the manifest's.
@@ -198,8 +209,21 @@ Notes:
 - `pipeline.user_speech_quiet_ms` is how long the caller must be quiet before the agent starts speaking.
 - `pipeline.rag_prefetch` overlaps retrieval with the turn-merge window. Off by default; it issues a speculative embedding + search that is discarded if the turn text changes.
 - `pipeline.readback_bargein_guard_enabled` keeps weak corrections and backchannels from cutting off a confirmation readback. Only explicit commands (stop, cancel, hang up) interrupt. Off by default.
+- `pipeline.echo_guard` stops the agent barging in on its own voice. A browser runs AEC before audio reaches the server, so the VAD never sees the agent's output come back; over a carrier there is no AEC anywhere in the path, the returning audio is attenuated but structurally identical to speech, and an energy test cannot tell it from a caller. The guard keeps a rolling window of the RMS the server actually sent and requires inbound to clear `sent_rms x echo_guard_gain x echo_guard_margin` before it counts as an interruption. While the agent is silent that bound is zero and the ordinary adaptive threshold governs, so a quiet caller on a clean line is unaffected.
+
+  The decision is per session, because one instance usually serves browsers and SIP calls at once and the two need opposite answers. A client declares a raw path by adding `aec=none` to the WHIP URL, which `sip-server` sends on every call; browsers send nothing and are read as already cancelled.
+
+  | `echo_guard` | Effect |
+  | --- | --- |
+  | `"auto"` (default) | On for peers that sent `aec=none`, off for everyone else |
+  | `"always"` | On for every peer. For a raw-path client you cannot change to send the hint |
+  | `"off"` | Never on |
+
+  Leave it on `"auto"` unless you have a client on a path with no AEC that you cannot modify. Setting `"always"` on a server that also hosts browsers makes genuine browser barge-ins clear the agent's own output level first, which is the regression the per-session default exists to avoid.
+- `pipeline.echo_guard_gain`, `pipeline.echo_guard_margin`, and `pipeline.echo_guard_window_ms` tune that bound, for the sessions it applies to. The gain is how loud echo can be relative to the audio that produced it, the margin is what separates double-talk from echo, and the window should cover the round trip of the carrier's echo. The defaults (0.6, 1.8, 400ms) were measured on an 8kHz mu-law path; retune only against recordings of your own. The bound follows the barge-in duck on its own, since it is sampled from what goes on the wire after attenuation.
 - `deepgram.endpointing` and `deepgram.utterance_end_ms` tune when a turn is considered finished upstream; the turn-merge debounce runs on top of them.
 - `deepgram.tts_model` picks the Aura voice; STT (`model`) and TTS (`tts_model`) share the one API key. Voices are named `[family]-[voice]-[language]` — see [Deepgram's voice list](https://developers.deepgram.com/docs/tts-models).
+- `openai.stt_model` selects the batch transcription model independently of the chat `model`; it defaults to `whisper-1`.
 - `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.
 - `minimax.base_url` selects the region. Leave it unset for the global endpoint; mainland-China accounts must point it at `https://api.minimaxi.com/v1`, since keys do not work across the two platforms.
 - `minimax.model` must match your plan: a Token Plan key (`sk-cp-`) only covers `speech-2.8-hd`, while any other model bills pay-as-you-go and errors with `2056` on a zero balance.
@@ -233,6 +257,7 @@ Provider keys use each provider's conventional variable name; secrets owned by t
 | `CARTESIA_API_KEY` | `cartesia.api_key` |
 | `ELEVENLABS_API_KEY` | `elevenlabs.api_key` |
 | `SPEECHIFY_API_KEY` | `speechify.api_key` |
+| `TELNYX_API_KEY` | `telnyx.api_key` |
 | `MINIMAX_API_KEY` | `minimax.api_key` |
 | `MIMO_API_KEY` | `mimo.api_key` |
 | `SUPABASE_API_KEY` | `supabase.api_key` |

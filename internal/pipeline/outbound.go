@@ -87,6 +87,11 @@ func (p *Pipeline) encodeAndSend(frame PCMFrame) {
 		samples = ducked
 	}
 
+	// Recorded here rather than at enqueue: this is the signal that actually
+	// goes on the wire, duck attenuation and padding included, and it is what
+	// can come back as echo on a path with no AEC. No-op when the guard is off.
+	p.echoGuard.Observe(samples)
+
 	opusData, err := p.encoder.Encode(samples)
 	if err != nil {
 		log.Printf("[sender] encode error: %v", err)

@@ -42,6 +42,7 @@ type Config struct {
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
 	ElevenLabs ElevenLabsConfig `toml:"elevenlabs"`
 	Speechify  SpeechifyConfig  `toml:"speechify"`
+	Telnyx     TelnyxConfig     `toml:"telnyx"`
 	MiniMax    MiniMaxConfig    `toml:"minimax"`
 	MiMo       MiMoConfig       `toml:"mimo"`
 	Pgvector   PgvectorConfig   `toml:"pgvector"`
@@ -165,6 +166,36 @@ type PipelineConfig struct {
 	// cancel, hang up) cut through. Default off, preserving existing
 	// barge-in behaviour.
 	ReadbackBargeInGuardEnabled bool `toml:"readback_bargein_guard_enabled"`
+
+	// EchoGuard keeps the barge-in VAD from hearing the agent's own voice
+	// coming back. It bounds the interrupt threshold by the RMS of what the
+	// server just sent, which is the only echo reference available when
+	// nothing in the path runs AEC.
+	//
+	// The choice is per session, not per server: one instance commonly serves
+	// browsers and SIP calls at once, and the two need opposite answers. A
+	// browser cancels echo in getUserMedia, so the bound would block nothing
+	// it was going to catch while making a genuine barge-in clear the agent's
+	// own level first. A carrier leg has no AEC anywhere.
+	//
+	//	"auto"   — on for peers that arrive with aec=none, off otherwise (default)
+	//	"always" — on for every peer, for clients that cannot send the hint
+	//	"off"    — never
+	EchoGuard string `toml:"echo_guard"`
+
+	// EchoGuardGain bounds echo against the audio that produced it (echo
+	// cannot be louder than its source), and EchoGuardMargin is how far
+	// inbound must clear that bound to count as the caller talking rather
+	// than the agent's tail. Default 0.6 and 1.8; retune only against
+	// recordings of the actual path.
+	EchoGuardGain   float64 `toml:"echo_guard_gain"`
+	EchoGuardMargin float64 `toml:"echo_guard_margin"`
+
+	// EchoGuardWindowMs is how long outbound audio stays in the reference
+	// window, sized to cover the round trip of the carrier's echo. Default
+	// 400. Too short and the tail of a phrase escapes the bound; too long
+	// and the agent stays hard to interrupt after it has stopped talking.
+	EchoGuardWindowMs int `toml:"echo_guard_window_ms"`
 
 	// RAGPrefetch starts retrieval speculatively during the turn-merge
 	// window so embedding and vector search overlap the debounce instead of
@@ -318,8 +349,12 @@ type AssemblyAIConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey       string `toml:"api_key"`
-	Model        string `toml:"model"`
+	APIKey string `toml:"api_key"`
+	Model  string `toml:"model"`
+	// STTModel selects the transcription model used when stt.provider =
+	// "openai". It is separate from Model because chat and transcription use
+	// different model families. Empty defaults to whisper-1.
+	STTModel     string `toml:"stt_model"`
 	SystemPrompt string `toml:"system_prompt"`
 	// BaseURL points the client at an OpenAI-compatible endpoint other than
 	// OpenAI's own — DeepSeek, Moonshot, Qwen and MiniMax all speak the same
@@ -372,6 +407,20 @@ type SpeechifyConfig struct {
 	APIKey  string `toml:"api_key"`
 	VoiceID string `toml:"voice_id"`
 	Model   string `toml:"model"`
+}
+
+// TelnyxConfig configures Telnyx hosted speech synthesis, used when
+// tts.provider = "telnyx".
+type TelnyxConfig struct {
+	APIKey string `toml:"api_key"`
+	// Voice is a catalog voice from GET /v2/text-to-speech/voices. Empty
+	// defaults to the Qwen3TTS voice Delta (Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03). Availability varies by account, and
+	// a voice the account is not provisioned for fails the WebSocket
+	// handshake with HTTP 403.
+	Voice string `toml:"voice"`
+	// VoiceSpeed is a playback-rate multiplier (1.0 = normal), clamped to
+	// the 0.8-1.2 conversational band. Zero defaults to 1.0.
+	VoiceSpeed float64 `toml:"voice_speed"`
 }
 
 type MiMoConfig struct {
@@ -516,9 +565,13 @@ func Load(path string) (*Config, error) {
 	if cfg.Cartesia.MaxConcurrency == 0 {
 		cfg.Cartesia.MaxConcurrency = 3
 	}
+	if cfg.Telnyx.VoiceSpeed == 0 {
+		cfg.Telnyx.VoiceSpeed = 1.0
+	}
 	setDefault(&cfg.LLM.Provider, "openai")
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")
+	setDefault(&cfg.OpenAI.STTModel, "whisper-1")
 	setDefault(&cfg.OpenAI.SystemPrompt, "You are a helpful AI voice assistant having a natural phone conversation. Keep responses to 1-2 sentences unless asked for detail. When interrupted (indicated by bracketed context), respond the way a patient human would: if they say 'no', address the disagreement; if they redirect, follow their lead. Never repeat what you already said, never ask 'would you like me to continue', and never mention that you were interrupted.")
 	setDefault(&cfg.Ollama.BaseURL, "http://localhost:11434")
 	setDefault(&cfg.Ollama.Model, "llama3.2")
@@ -560,6 +613,18 @@ func Load(path string) (*Config, error) {
 		cfg.Pipeline.TurnMergeMs = 350
 	}
 
+	// Echo-reference tuning. Only consulted for sessions the guard is on for.
+	setDefault(&cfg.Pipeline.EchoGuard, EchoGuardAuto)
+	if cfg.Pipeline.EchoGuardGain == 0 {
+		cfg.Pipeline.EchoGuardGain = 0.6
+	}
+	if cfg.Pipeline.EchoGuardMargin == 0 {
+		cfg.Pipeline.EchoGuardMargin = 1.8
+	}
+	if cfg.Pipeline.EchoGuardWindowMs == 0 {
+		cfg.Pipeline.EchoGuardWindowMs = 400
+	}
+
 	// Default barge-in to true if not explicitly set
 	if cfg.Pipeline.BargeIn == nil {
 		t := true
@@ -574,6 +639,10 @@ func Load(path string) (*Config, error) {
 	if cfg.Grok.Transcription == nil {
 		t := true
 		cfg.Grok.Transcription = &t
+	}
+
+	if err := cfg.validateEchoGuard(); err != nil {
+		return nil, err
 	}
 
 	if err := cfg.validateRealtime(); err != nil {
@@ -593,6 +662,7 @@ func (c *Config) RealtimeEnabled() bool {
 // Without this a typo'd provider or a missing key only surfaces when the
 // first caller connects, which reads as a broken deployment rather than a
 // misconfigured one.
+<<<<<<< HEAD
 // validateDeveloperTools checks the GitHub and Codex sections up front, so a
 // missing key is a startup error rather than a puzzling tool failure mid-call.
 // Both integrations are optional and disabled by default.
@@ -626,6 +696,36 @@ func (c *Config) validateDeveloperTools() error {
 		}
 	}
 	return nil
+=======
+// Echo-guard modes for pipeline.echo_guard.
+const (
+	EchoGuardAuto   = "auto"
+	EchoGuardAlways = "always"
+	EchoGuardOff    = "off"
+)
+
+// EchoGuardFor reports whether the barge-in echo bound applies to a peer,
+// given whether that peer declared it has no acoustic echo cancellation.
+func (c *Config) EchoGuardFor(aecAbsent bool) bool {
+	switch c.Pipeline.EchoGuard {
+	case EchoGuardAlways:
+		return true
+	case EchoGuardAuto:
+		return aecAbsent
+	default:
+		return false
+	}
+}
+
+func (c *Config) validateEchoGuard() error {
+	switch c.Pipeline.EchoGuard {
+	case EchoGuardAuto, EchoGuardAlways, EchoGuardOff:
+		return nil
+	default:
+		return fmt.Errorf("[pipeline] echo_guard = %q must be %q, %q, or %q",
+			c.Pipeline.EchoGuard, EchoGuardAuto, EchoGuardAlways, EchoGuardOff)
+	}
+>>>>>>> main
 }
 
 func (c *Config) validateRealtime() error {
@@ -689,6 +789,7 @@ var envOverrides = []struct {
 	{"CARTESIA_API_KEY", func(c *Config) *string { return &c.Cartesia.APIKey }},
 	{"ELEVENLABS_API_KEY", func(c *Config) *string { return &c.ElevenLabs.APIKey }},
 	{"SPEECHIFY_API_KEY", func(c *Config) *string { return &c.Speechify.APIKey }},
+	{"TELNYX_API_KEY", func(c *Config) *string { return &c.Telnyx.APIKey }},
 	{"MINIMAX_API_KEY", func(c *Config) *string { return &c.MiniMax.APIKey }},
 	{"MIMO_API_KEY", func(c *Config) *string { return &c.MiMo.APIKey }},
 	{"SUPABASE_API_KEY", func(c *Config) *string { return &c.Supabase.APIKey }},

@@ -88,6 +88,10 @@ type Pipeline struct {
 	// VAD
 	vad        *vad.Detector
 	bargeInVAD *vad.Detector
+	// echoGuard feeds the barge-in VAD the RMS of what the sender just put
+	// on the wire, so returning agent audio on a path with no AEC does not
+	// read as the caller interrupting. Nil unless pipeline.echo_guard is on.
+	echoGuard *vad.EchoGuard
 
 	// Bounded channels
 	inPCMCh chan PCMFrame
@@ -204,7 +208,7 @@ func New(
 	sendEvent func(interface{}) error,
 	pluginMgr *plugin.Manager,
 	ragClient rag.Client,
-	direction string,
+	opts PeerOptions,
 	conv *ConversationState,
 	resumed bool,
 ) (*Pipeline, error) {
@@ -278,9 +282,23 @@ func New(
 		// most audible way to tell them the agent forgot.
 		suppressGreeting: resumed,
 		sendEvent:        sendEvent,
-		direction:        direction,
+		direction:        opts.Direction,
 		ssrc:             12345678,
 		markerNext:       true,
+	}
+
+	// Per session, not per server: one instance serves browsers and SIP calls
+	// at once, and a browser has already cancelled its echo upstream.
+	if cfg.EchoGuardFor(opts.AECAbsent) {
+		p.echoGuard = vad.NewEchoGuard(
+			time.Duration(cfg.Pipeline.EchoGuardWindowMs)*time.Millisecond,
+			cfg.Pipeline.EchoGuardGain,
+			cfg.Pipeline.EchoGuardMargin,
+		)
+		p.bargeInVAD.SetEchoReference(p.echoGuard)
+		log.Printf("[pipeline] echo guard on (mode %s, window %dms, gain %.2f, margin %.2f)",
+			cfg.Pipeline.EchoGuard, cfg.Pipeline.EchoGuardWindowMs,
+			cfg.Pipeline.EchoGuardGain, cfg.Pipeline.EchoGuardMargin)
 	}
 
 	// Realtime mode wires its own tools and instructions when the

@@ -6,17 +6,18 @@
 |------|-----------|----------------------|
 | STT | `aliyun`、`assemblyai`、`deepgram`、`openai`、`vibevoice`、`volcengine` | 对应服务商的 API key，或一个本地 VibeVoice ASR 服务 |
 | LLM | `openai`、`ollama`、`agent` | OpenAI API key、你自己掌控的 Ollama 实例，或你自己的 HTTP 智能体端点 |
-| TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`speechify`、`vibevoice` | 对应服务商的 API key，或一个本地 VibeVoice TTS 服务 |
+| TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`speechify`、`telnyx`、`vibevoice` | 对应服务商的 API key，或一个本地 VibeVoice TTS 服务 |
 | 语音到语音 | `grok` | xAI API key —— 一并取代 STT、LLM 与 TTS |
 | RAG（可选） | `pgvector`、`supabase` | Postgres 连接串或 Supabase URL + key，另需 OpenAI key 用于 embedding |
 
 注意：
 
-- `stt.provider = "openai"` 使用 Whisper 式的最终转写，而不是流式中间结果。
+- `stt.provider = "openai"` 使用批量最终转写而不是流式中间结果；可通过 `openai.stt_model` 选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
 - `llm.provider = "ollama"` 通过 `base_url` 指向任何兼容 Ollama 的端点 —— 本地或你自己的基础设施均可。
 - `llm.provider = "agent"` 把每一轮对话 POST 到你托管的 HTTP 端点；记忆、提示词与工具都由你的智能体掌控，回复以 SSE、分块文本或 JSON 流式返回。见[接入你自己的智能体](./bring-your-own-agent.zh-CN.md)。
 - `stt.provider = "vibevoice"` 与 `tts.provider = "vibevoice"` 使用本地模型；请先启动 Python 边车进程。
 - `tts.provider = "minimax"` 覆盖 40+ 语言，是中文场景下最强的选项。区域与套餐相关的坑见 [MiniMax TTS](#minimax-tts)。
+- `tts.provider = "telnyx"` 是 Telnyx 托管合成，每个话语一条 WebSocket 连接；音色可用性因账号而异。连接模型与音色目录见 [Telnyx TTS](#telnyx-tts)。
 - `tts.provider = "mimo"` 是小米 MiMo TTS，中英文音色齐备，付费模型还支持声音克隆。
 - `stt.provider = "aliyun"` 是阿里云百炼（DashScope）流式 ASR；`vocabulary_id` 可以把模型往你的领域词上带。
 - `stt.provider = "volcengine"` 是豆包流式 ASR —— 适合 Deepgram 访问慢、或它的中文识别不够好的场景。控制台有免费时长可以先试。
@@ -124,6 +125,28 @@ model = "speech-2.6-turbo"
 - **错误以 HTTP 200 返回。** MiniMax 把鉴权与配额失败放在 200 响应体的 `base_resp.status_code` 字段里。客户端会检查它，因此这些问题会以真实错误的形式暴露，而不是变成静默的空音频。
 
 表达标签映射到 MiniMax 的情绪枚举：`[warm]` 与 `[excited]` 变成 `happy`，`[calm]` 与 `[empathetic]` 变成 `calm`。`[empathetic]` 刻意落在 `calm` 而不是 `sad` —— 后者在道歉与坏消息场景下会过头，听起来像在难过。没有情绪映射的标签仍会通过语速生效，语速被限制在 MiniMax 的 0.5–2.0 范围内。
+
+## Telnyx TTS
+
+Telnyx 托管语音合成，走 WebSocket，以流水线原生的 16 kHz linear16 流式输出，音频路径无需任何重采样。
+
+```toml
+[tts]
+provider = "telnyx"
+
+[telnyx]
+api_key = ""
+voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"
+voice_speed = 1.0
+```
+
+有三件事必须弄对：
+
+- **每个话语一条 WebSocket 连接。** 协议没有逐话语的完成标记：只有客户端发出空文本 teardown 后，服务端才会发 `isFinal`，因此客户端为每个话语新建一条连接：init、文本、teardown、收齐音频直到 final 帧、服务端关闭。与常驻连接相比，这在实时链路上没有代价：合成速度约为播放的 2.4 倍，拨号后不到一秒就有首个音频到达。
+- **音色因账号而异。** `voice` 是 `GET /v2/text-to-speech/voices` 目录中的任意名称，可用性因账号而异：你的 key 未开通的音色会在 WebSocket 握手阶段就返回 HTTP 403，而不是在通话中途报错。配置默认值（`Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03`）是一个已验证的 Qwen3TTS 音色（目录中名为 Delta，女声），并不对每个 key 都保证可用。
+- **Telnyx 的 LLM 无需新增服务商。** `openai.base_url = "https://api.telnyx.com/v2/ai"` 即可让现有的 `openai` LLM 服务商直连 Telnyx 推理（例如模型 `glm-5.3`），零代码改动。
+
+表达标签映射到 `voice_speed`（限制在 0.8–1.2，与 Cartesia 相同的对话档位），配置里的 `voice_speed` 则是未打标签句子的基准语速。
 
 ## 本地 VibeVoice 配置
 

@@ -217,6 +217,33 @@ api_key = "file-key"
 	}
 }
 
+func TestLoadOpenAISTTModel(t *testing.T) {
+	clearEnvOverrides(t)
+
+	t.Run("defaults to whisper-1", func(t *testing.T) {
+		cfg, err := Load(writeConfig(t, ""))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.OpenAI.STTModel != "whisper-1" {
+			t.Errorf("OpenAI.STTModel = %q, want %q", cfg.OpenAI.STTModel, "whisper-1")
+		}
+	})
+
+	t.Run("reads an explicit transcription model", func(t *testing.T) {
+		cfg, err := Load(writeConfig(t, `
+[openai]
+stt_model = "gpt-4o-transcribe"
+`))
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.OpenAI.STTModel != "gpt-4o-transcribe" {
+			t.Errorf("OpenAI.STTModel = %q, want %q", cfg.OpenAI.STTModel, "gpt-4o-transcribe")
+		}
+	})
+}
+
 func TestLoadWarnsAboutUnknownKeys(t *testing.T) {
 	clearEnvOverrides(t)
 	logs := captureLogs(t)
@@ -433,6 +460,7 @@ func TestValidateRealtimeRejectsTooManyKeyterms(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
 // The developer integrations are off unless the operator turns them on, and
 // when they are on the credentials they need are checked at startup rather than
 // mid-call.
@@ -473,10 +501,33 @@ func TestGitHubConfigRequiresACredential(t *testing.T) {
 		breakIt(cfg)
 		if err := cfg.validateDeveloperTools(); err == nil {
 			t.Fatalf("a github config missing %s was accepted", name)
+=======
+// A single instance commonly serves browsers and SIP calls at once, so the
+// echo bound has to be decided per peer rather than per server.
+func TestEchoGuardFor(t *testing.T) {
+	cases := []struct {
+		mode      string
+		aecAbsent bool
+		want      bool
+	}{
+		{EchoGuardAuto, true, true},    // SIP leg declares aec=none
+		{EchoGuardAuto, false, false},  // browser, AEC ran in getUserMedia
+		{EchoGuardAlways, false, true}, // client that cannot send the hint
+		{EchoGuardAlways, true, true},
+		{EchoGuardOff, true, false},
+		{EchoGuardOff, false, false},
+	}
+	for _, c := range cases {
+		cfg := &Config{}
+		cfg.Pipeline.EchoGuard = c.mode
+		if got := cfg.EchoGuardFor(c.aecAbsent); got != c.want {
+			t.Errorf("mode %q aecAbsent=%v: got %v, want %v", c.mode, c.aecAbsent, got, c.want)
+>>>>>>> main
 		}
 	}
 }
 
+<<<<<<< HEAD
 func TestCodexConfigNeedsAWorkspace(t *testing.T) {
 	cfg := &Config{}
 	cfg.Codex = CodexConfig{Enabled: true}
@@ -499,5 +550,51 @@ func TestCodexConfigHasNoAPIKey(t *testing.T) {
 		if strings.Contains(name, "apikey") || strings.Contains(name, "token") || strings.Contains(name, "secret") {
 			t.Fatalf("[codex] exposes a credential field: %s", value.Field(i).Name)
 		}
+=======
+// An unset echo_guard must behave as "auto", so an upgrade fixes SIP without
+// touching browser sessions and without anyone editing a config.
+func TestEchoGuardDefaultsToAuto(t *testing.T) {
+	cfg := &Config{}
+	if cfg.EchoGuardFor(true) {
+		t.Error("zero-value config must not enable the guard before defaults are applied")
+	}
+	cfg.Pipeline.EchoGuard = EchoGuardAuto
+	if !cfg.EchoGuardFor(true) || cfg.EchoGuardFor(false) {
+		t.Error("auto must follow the peer's aec hint")
+	}
+}
+
+func TestEchoGuardRejectsUnknownMode(t *testing.T) {
+	cfg := &Config{}
+	cfg.Pipeline.EchoGuard = "yes"
+	if err := cfg.validateEchoGuard(); err == nil {
+		t.Error("expected an error for an unknown echo_guard mode")
+	}
+}
+
+func TestLoadDefaultsEchoGuardToAuto(t *testing.T) {
+	path := writeConfig(t, "[pipeline]\nbarge_in = true\n")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("config rejected: %v", err)
+	}
+	if cfg.Pipeline.EchoGuard != EchoGuardAuto {
+		t.Errorf("echo_guard = %q, want the default %q", cfg.Pipeline.EchoGuard, EchoGuardAuto)
+	}
+	if !cfg.EchoGuardFor(true) {
+		t.Error("a SIP peer declaring aec=none should get the guard by default")
+	}
+	if cfg.EchoGuardFor(false) {
+		t.Error("a browser peer must not get the guard by default")
+	}
+}
+
+func TestLoadRejectsBadEchoGuardMode(t *testing.T) {
+	path := writeConfig(t, "[pipeline]\necho_guard = \"on\"\n")
+
+	if _, err := Load(path); err == nil {
+		t.Error("Load accepted an unknown echo_guard mode")
+>>>>>>> main
 	}
 }

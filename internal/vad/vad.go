@@ -22,6 +22,11 @@ type Detector struct {
 
 	adaptive   bool
 	noiseFloor float64 // EMA of non-speech frame energy; negative = unset
+
+	// echo, when set, raises the threshold by what the agent just sent, so
+	// the detector does not hear the agent's own voice returning as speech.
+	// Nil on paths that already run AEC. See EchoGuard.
+	echo *EchoGuard
 }
 
 // Adaptive-threshold tuning. The floor adapts over ~1s of silence frames
@@ -74,10 +79,17 @@ func NewBargeIn() *Detector {
 	return d
 }
 
-// effectiveThreshold returns the current decision threshold: the fixed base
-// until a noise floor has been learned, then the clamped multiple of the
-// floor.
-func (d *Detector) effectiveThreshold() float64 {
+// SetEchoReference attaches an outbound-audio reference so the detector can
+// tell the agent's own voice coming back from a caller talking over it. Only
+// needed where nothing in the path runs AEC; passing nil disables the check.
+func (d *Detector) SetEchoReference(g *EchoGuard) {
+	d.echo = g
+}
+
+// noiseThreshold returns the decision threshold from the fixed base and the
+// learned noise floor: the base until a floor has been learned, then the
+// clamped multiple of the floor.
+func (d *Detector) noiseThreshold() float64 {
 	if !d.adaptive || d.noiseFloor < 0 {
 		return d.threshold
 	}
@@ -87,6 +99,21 @@ func (d *Detector) effectiveThreshold() float64 {
 	}
 	if maxThr := d.threshold * adaptiveMaxFactor; thr > maxThr {
 		thr = maxThr
+	}
+	return thr
+}
+
+// effectiveThreshold is the noise-floor threshold, raised to the echo bound
+// whenever the agent's own audio is recent enough to still be arriving back.
+//
+// The echo bound is not subject to adaptiveMaxFactor: it tracks a signal the
+// server generated rather than an estimate of the line, so a loud agent
+// legitimately demands a loud caller, and the bound drops to zero on its own
+// once the agent stops.
+func (d *Detector) effectiveThreshold() float64 {
+	thr := d.noiseThreshold()
+	if echo := d.echo.Threshold(); echo > thr {
+		thr = echo
 	}
 	return thr
 }
@@ -106,7 +133,14 @@ func (d *Detector) updateNoiseFloor(energy float64) {
 // Process evaluates a PCM frame and returns whether speech just started or ended.
 func (d *Detector) Process(samples []int16) (started, ended bool) {
 	energy := RMSEnergy(samples)
-	if energy > d.effectiveThreshold() {
+	echoThr := d.echo.Threshold()
+
+	thr := d.noiseThreshold()
+	if echoThr > thr {
+		thr = echoThr
+	}
+
+	if energy > thr {
 		d.speechCount++
 		d.silentCount = 0
 		if !d.isSpeaking && d.speechCount >= d.speechFrames {
@@ -116,7 +150,13 @@ func (d *Detector) Process(samples []int16) (started, ended bool) {
 	} else {
 		// Below-threshold frames are what the noise floor is made of —
 		// learning only here keeps speech energy out of the floor estimate.
-		d.updateNoiseFloor(energy)
+		// Echo is not background noise: folding it in would ratchet the
+		// adaptive threshold up every time the agent spoke and leave the
+		// agent deaf to a quiet caller afterwards, which is the failure the
+		// echo bound exists to avoid.
+		if echoThr == 0 {
+			d.updateNoiseFloor(energy)
+		}
 		d.silentCount++
 		d.speechCount = 0
 		if d.isSpeaking && d.silentCount >= d.silentFrames {
