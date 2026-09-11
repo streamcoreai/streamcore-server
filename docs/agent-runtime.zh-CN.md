@@ -38,7 +38,7 @@
 | 插件 | 语言 | 说明 |
 |--------|----------|-------------|
 | `math.calculate` | TypeScript | 计算数学表达式 |
-| `weather.get` | TypeScript | 查询某地当前天气 |
+| `weather.get` | TypeScript | 查询某地当前天气和未来几天的预报，并发出一张 `weather` 卡片。在它的配置表里设置 `units = "f"` 可以把卡片切到华氏度 |
 | `time.get` | Python | 查询任意时区的当前日期/时间 |
 | `vision.analyze` | TypeScript | 分析来自设备摄像头的图像 |
 | `gmail` | TypeScript | 通过 Gmail 读写邮件（OAuth2）—— 见 [Gmail 插件 README](../plugins/plugins/gmail/README.md) |

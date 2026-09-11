@@ -160,6 +160,14 @@ Content-Type: application/sdp
 }
 ```
 
+**它在链路上是被包了一层的。** 卡片属于插件发出的数据包，而所有按 topic 寻址的数据包到达客户端时都裹在一个 data 包里，payload 还做了 base64：
+
+```json
+{ "type": "data", "topic": "display.card", "payload": "<上面那个对象的 base64>" }
+```
+
+因此客户端应当从**按 topic 寻址的数据回调**里读卡片，而不是从原始事件流里读——原始事件流拿到的是外层信封，它的 `type` 是 `data`。把信封当成卡片去解析的客户端只会看到类型不对，然后把收到的每一张卡片都丢掉。ESP32 SDK 会替你拆掉这层信封，把解码后的字节交给 `on_data(topic, payload)`；`on_raw_event` 拿到的是信封本身。`transcript`、`response`、`state` 是以裸事件形式下发的，而 `display.card` 目前没有任何地方以裸事件形式发送——你可以同时兼容裸事件，但必须接受被包裹的形式，否则什么也收不到。
+
 `turn_seq` 是在同一个 `session_id` 内递增的正整数，`turn_id` 是它对应的可读形式。屏幕很慢的设备应当只保留最新的有效卡片，而不是排成先进先出队列。当一张卡片的 `turn_seq` 不比同一会话里已接受的最新卡片更大时，应当拒绝它。`session_id` 变化即开启一个新序列。
 
 服务端在发送前会校验并截断所有字段：
@@ -177,6 +185,16 @@ Content-Type: application/sdp
 | `columns[].heading` | `split` | 17 字符 |
 | `columns[].lines` | `split` | 7 行 |
 | 每条 `columns[].lines[]` | `split` | 17 字符 |
+| `weather.forecast` | `weather` | 3 天 |
+| `weather.note` | `weather` | 34 字符 |
+| 每个温度值 | `weather` | 4 字符 |
+| 每条 `forecast[].label` | `weather` | 4 字符 |
+| `agents` | `usage` | 3 个 |
+| `agents[].name` | `usage` | 18 字符 |
+| `agents[].note` | `usage` | 14 字符 |
+| `agents[].gauges` | `usage` | 3 条 |
+| `gauges[].label` | `usage` | 3 字符 |
+| `gauges[].reset` | `usage` | 8 字符 |
 
 布局语义：
 
@@ -184,6 +202,8 @@ Content-Type: application/sdp
 - **text** —— 一段紧凑的说明（`title`，必填 `body`）。
 - **list** —— 最多四条短条目（`title`，必填且非空的 `items`）。
 - **status** —— 一个已完成的动作或确认（`title`，必填 `primary`，可选 `secondary`）。
+- **weather** —— 一份天气（`title`，必填 `primary` 和 `weather`）。见下文。
+- **usage** —— 一个主体一块用量面板（`title`，必填且非空的 `agents`）。见下文。
 - **split** —— 并排放置的两样东西（`title`，必填且非空的 `columns`）。每一列包含一个 `heading` 和若干短 `lines`；空字符串是调用方要求的占位行，客户端为它留一行但不画内容。用于把一样东西和另一样对比着看，这是任何单列布局都表达不了的。
 
 ```json
@@ -198,6 +218,63 @@ Content-Type: application/sdp
 ```
 
 `split` 是给自己发卡片的插件用的；display projector 永远不会产出这种布局，因为被投影的一轮对话只有一个主题，不是两个。早于这个布局的客户端会把卡片当作未知布局拒绝掉，屏幕上保持原样。
+
+#### weather
+
+有两类内容在常驻屏幕上出现得足够频繁，值得拥有自己的结构化布局，天气是其中之一。卡片里依然没有像素：它只说明这是什么天气，具体画成什么图标由客户端决定。
+
+```json
+{
+  "layout": "weather",
+  "title": "Auckland",
+  "primary": "17",
+  "secondary": "Partly cloudy",
+  "detail": "Saturday 18 May",
+  "weather": {
+    "icon": "partly",
+    "unit": "C",
+    "high": "19",
+    "low": "11",
+    "note": "Take an umbrella Monday",
+    "forecast": [
+      { "label": "SUN", "icon": "rain", "high": "18", "low": "10" },
+      { "label": "MON", "icon": "sun", "high": "21", "low": "12" }
+    ]
+  }
+}
+```
+
+`title` 是地点，`primary` 是当前温度且只有数字，`secondary` 是天气状况的文字描述，`detail` 是这份数据对应的日期。温度里不带度数符号，也不带单位——单位由 `unit` 用 `C` 或 `F` 说明一次，其余部分由客户端自己画：把非 ASCII 字符一律换成 `?` 的面板，渲染不了夹在字符串里的 `°`。
+
+`icon` 取值为 `sun`、`moon`、`partly`、`cloud`、`rain`、`storm`、`snow`、`fog`、`wind` 之一。**客户端不得因为不认识某个图标名就拒绝整张卡片**——画一个中性图标、保留温度即可，那仍然是用户要的答案。`note` 是卡片底部的一行提示，可选；`forecast` 可选，最多三天。
+
+#### usage
+
+另一类：某样按额度计量的东西用掉了多少。一个主体一块面板，一个窗口一条刻度。
+
+```json
+{
+  "layout": "usage",
+  "title": "AI Usage",
+  "agents": [
+    {
+      "name": "Claude Code",
+      "note": "as of 06:11",
+      "gauges": [
+        { "label": "5H", "percent": 62, "reset": "@14:10" },
+        { "label": "7D", "percent": 17, "reset": "@Sep 7" }
+      ]
+    },
+    { "name": "Codex", "note": "no recent runs", "gauges": [] }
+  ]
+}
+```
+
+`percent` 是**已用**百分比：0 到 100 的整数，数据源没给出时为 `null`——客户端必须把它画得和 0 不一样，因为"没读到"和"没用过"不是同一个事实。
+
+之所以传"已用"，是因为数据源报出来的原始事实就是这个。客户端完全可以改画"还剩多少"——NOTE4C 就是这么做的，因为对着一块挂在墙上的屏幕，你问的是"我还剩多少"——但不管选哪一种，**都必须在画面上写清楚是哪一种**。这两个工具自己就不统一：Claude Code 的 `/usage` 写的是 "26% used"，Codex CLI 写的是 "100% remaining"。一个光秃秃的百分比，读的人只能猜它的方向，而且有一半的人会猜反。超出范围的值会被夹到区间内，而不是导致整张卡片被拒。`reset` 由服务端格式化好，因为只有服务端知道自己的本地时间。`gauges` 允许为空：没有数据可报的 agent 仍然保留自己的面板，并在 `note` 里说明原因。
+
+这两种布局都是给自己发卡片的插件用的。display projector 两种都不会产出，因为它只能看到一轮对话的文本，那样等于凭空编造结构。
 
 载荷里只有语义。StreamCore 不下发坐标、字体、颜色、帧缓冲、PNG，也不下发任何设备相关的渲染指令。排版、换行、配色，以及什么时候值得花一次刷新，都由客户端自己决定。推荐的设备策略是：只存最新的一张，等到助手播放结束、并且确认用户没有接着说话之后，再消抖 1–3 秒，然后花掉一次刷新。
 

@@ -2,9 +2,18 @@
 // rate limits, so both readings are scavenged from files the tools already
 // write while they run.
 
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+
+/**
+ * What each agent is called on the card and in the spoken line. Claude Code
+ * rather than Claude: the reading comes from the CLI's own files, and on a
+ * panel sitting beside a Codex panel the product name is the useful one.
+ */
+export const CLAUDE = "Claude Code";
+export const CODEX = "Codex";
 
 /** One agent's standing against its limits, as far as we can tell locally. */
 export interface Reading {
@@ -21,17 +30,38 @@ export interface Reading {
   sampledAt: number;
   /** Older than the configured threshold, so the numbers may have moved. */
   stale: boolean;
+  /**
+   * Windows the plan meters apart from the two above — one model with its own
+   * weekly limit, say. Absent for a source that has no such concept.
+   */
+  scoped?: ScopedWindow[];
+}
+
+export interface ScopedWindow {
+  label: string;
+  percent: number | null;
+  resetsAt: number | null;
 }
 
 export interface Settings {
+  /** claude-hud's external usage snapshot — the freshest Claude Code source. */
+  claude_usage_file?: string;
+  /** Legacy statusline snapshot directory, used when the file above is absent. */
   claude_snapshot_dir?: string;
+  /** Ask the Codex CLI for live limits before falling back to its logs. */
+  codex_live?: boolean;
+  codex_command?: string;
+  codex_timeout_ms?: number;
   codex_sessions_dir?: string;
   stale_after_minutes?: number;
   codex_scan_files?: number;
 }
 
+export const DEFAULT_CLAUDE_USAGE_FILE = "~/.claude/usage-snapshot.json";
 export const DEFAULT_CLAUDE_SNAPSHOT_DIR =
   "~/.claude/plugins/claude-hud/eink-snapshots";
+export const DEFAULT_CODEX_COMMAND = "codex";
+export const DEFAULT_CODEX_TIMEOUT_MS = 6_000;
 export const DEFAULT_CODEX_SESSIONS_DIR = "~/.codex/sessions";
 export const DEFAULT_STALE_AFTER_MINUTES = 30;
 export const DEFAULT_CODEX_SCAN_FILES = 8;
@@ -96,7 +126,7 @@ function ageMinutes(sampleEpochSeconds: number | null, nowMs: number): number | 
  * is skipped rather than guessed at.
  */
 export function readClaudeSnapshot(dir: string, nowMs: number, staleAfterMinutes: number): Reading {
-  const reading = missing("Claude");
+  const reading = missing(CLAUDE);
 
   let entries: string[];
   try {
@@ -125,7 +155,7 @@ export function readClaudeSnapshot(dir: string, nowMs: number, staleAfterMinutes
 
   const age = ageMinutes(best.at, nowMs);
   return {
-    agent: "Claude",
+    agent: CLAUDE,
     fiveHourPercent: clampPercent(best.usage.fiveHour),
     weeklyPercent: clampPercent(best.usage.sevenDay),
     fiveHourResetsAt: toEpochSeconds(best.usage.fiveHourResetAt),
@@ -134,6 +164,91 @@ export function readClaudeSnapshot(dir: string, nowMs: number, staleAfterMinutes
     sampledAt: best.at,
     stale: age !== null && age > staleAfterMinutes,
   };
+}
+
+/**
+ * The snapshot claude-hud writes for other tools, which is the freshest Claude
+ * Code source there is. Claude Code hands its plan percentages to the
+ * statusline on stdin and nowhere else — there is no file of its own and no
+ * local API to ask — so something that already sees that stdin has to tee it.
+ * claude-hud does, on `display.externalUsageWritePath`, atomically and at most
+ * every 30 seconds:
+ *
+ *   { "updated_at": "2026-09-11T09:58:00.000Z",
+ *     "five_hour": { "used_percentage": 62, "resets_at": "..." },
+ *     "seven_day": { "used_percentage": 17, "resets_at": "..." } }
+ *
+ * It is therefore only as fresh as the last time Claude Code drew its
+ * statusline. That is the ceiling on this number, and why the age travels with
+ * it rather than being rounded off.
+ */
+export function readClaudeUsageFile(
+  file: string,
+  nowMs: number,
+  staleAfterMinutes: number,
+): Reading {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return missing(CLAUDE);
+  }
+
+  const window = (key: string): Record<string, unknown> | null => {
+    const value = parsed[key];
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  };
+  const fiveHour = window("five_hour");
+  const sevenDay = window("seven_day");
+  if (!fiveHour && !sevenDay) return missing(CLAUDE);
+
+  // A file with no timestamp still has an mtime, and the writer replaces it by
+  // rename, so the mtime is when these numbers were true.
+  let at = toEpochSeconds(parsed.updated_at);
+  if (at === null) {
+    try {
+      at = Math.round(fs.statSync(file).mtimeMs / 1000);
+    } catch {
+      return missing(CLAUDE);
+    }
+  }
+
+  const age = ageMinutes(at, nowMs);
+  return {
+    agent: CLAUDE,
+    scoped: parseScopedWindows(parsed.model_scoped),
+    fiveHourPercent: clampPercent(fiveHour?.used_percentage),
+    weeklyPercent: clampPercent(sevenDay?.used_percentage),
+    fiveHourResetsAt: toEpochSeconds(fiveHour?.resets_at),
+    weeklyResetsAt: toEpochSeconds(sevenDay?.resets_at),
+    ageMinutes: age,
+    sampledAt: at ?? 0,
+    stale: age !== null && age > staleAfterMinutes,
+  };
+}
+
+/**
+ * `model_scoped` from the statusline payload: a plan can meter one model apart
+ * from the rest, and that window is invisible in the five-hour and weekly
+ * numbers. The panel shows it as another gauge rather than folding it in.
+ */
+export function parseScopedWindows(value: unknown): ScopedWindow[] {
+  if (!Array.isArray(value)) return [];
+  const windows: ScopedWindow[] = [];
+  for (const raw of value.slice(0, 3)) {
+    if (!raw || typeof raw !== "object") continue;
+    const entry = raw as Record<string, unknown>;
+    const label = typeof entry.display_name === "string" ? entry.display_name.trim() : "";
+    const percent = clampPercent(entry.used_percentage ?? entry.utilization);
+    if (!label || percent === null) continue;
+    windows.push({ label, percent, resetsAt: toEpochSeconds(entry.resets_at) });
+  }
+  return windows;
+}
+
+/** True once a reading carries at least one number worth showing. */
+export function hasNumbers(reading: Reading): boolean {
+  return reading.fiveHourPercent !== null || reading.weeklyPercent !== null;
 }
 
 // ── Codex ───────────────────────────────────────────────────────────────
@@ -162,6 +277,112 @@ export function findRateLimits(value: unknown, depth = 0): CodexRateLimits | nul
 }
 
 /**
+ * The Codex CLI's own app-server answers `account/rateLimits/read` with the
+ * live figures, which is as current as Codex itself — it goes and asks, rather
+ * than reporting what some past session happened to see.
+ *
+ * Three lines of JSON-RPC over stdio and about a second. Codex uses its own
+ * stored credentials; nothing here reads or forwards a token.
+ *
+ *   -> {"id":1,"method":"initialize","params":{"clientInfo":{...}}}
+ *   -> {"method":"initialized","params":{}}
+ *   -> {"id":2,"method":"account/rateLimits/read","params":{}}
+ *   <- {"id":2,"result":{"rateLimits":{"primary":{"usedPercent":0,
+ *        "windowDurationMins":300,"resetsAt":1789141035}, "secondary":{...}}}}
+ */
+export function readCodexLive(settings: Settings, nowMs: number): Promise<Reading | null> {
+  const command = settings.codex_command ?? DEFAULT_CODEX_COMMAND;
+  const timeoutMs = settings.codex_timeout_ms ?? DEFAULT_CODEX_TIMEOUT_MS;
+
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      // stderr is ignored rather than inherited: the app-server is chatty on a
+      // first run and none of it belongs in the voice server's log.
+      child = spawn(command, ["app-server"], { stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      resolve(null);
+      return;
+    }
+
+    let settled = false;
+    const finish = (reading: Reading | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // The app-server keeps running until its stdin closes; a session that
+      // never got its answer must not leave one behind.
+      child.kill("SIGKILL");
+      resolve(reading);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+
+    child.on("error", () => finish(null));
+    // `close` rather than `exit`: exit can arrive before the last of stdout has
+    // been read, which would throw away an answer that did come.
+    child.on("close", () => finish(null));
+
+    let buffered = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      buffered += chunk.toString("utf8");
+      let newline: number;
+      while ((newline = buffered.indexOf("\n")) >= 0) {
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        if (!line.trim()) continue;
+        let message: { id?: unknown; result?: unknown };
+        try {
+          message = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (message.id !== RATE_LIMIT_REQUEST_ID) continue;
+        const limits = normalizeLiveRateLimits(message.result);
+        finish(limits ? readingFromRateLimits(limits, Math.round(nowMs / 1000), nowMs, 0) : null);
+      }
+    });
+
+    const send = (value: unknown) => child.stdin?.write(`${JSON.stringify(value)}\n`);
+    send({
+      id: 1,
+      method: "initialize",
+      params: { clientInfo: { name: "streamcore-ai-usage", title: "StreamCore", version: "1" } },
+    });
+    send({ method: "initialized", params: {} });
+    send({ id: RATE_LIMIT_REQUEST_ID, method: "account/rateLimits/read", params: {} });
+  });
+}
+
+const RATE_LIMIT_REQUEST_ID = 2;
+
+/**
+ * The app-server names the same two windows in camelCase and gives the window
+ * length in `windowDurationMins`. Normalising to the rollout logs' shape keeps
+ * one place deciding which window is the rolling one.
+ */
+export function normalizeLiveRateLimits(result: unknown): CodexRateLimits | null {
+  if (!result || typeof result !== "object") return null;
+  const rateLimits = (result as Record<string, unknown>).rateLimits;
+  if (!rateLimits || typeof rateLimits !== "object") return null;
+
+  const convert = (value: unknown) => {
+    if (!value || typeof value !== "object") return undefined;
+    const window = value as Record<string, unknown>;
+    return {
+      used_percent: window.usedPercent,
+      window_minutes: window.windowDurationMins,
+      resets_at: window.resetsAt,
+    };
+  };
+
+  const snapshot = rateLimits as Record<string, unknown>;
+  const primary = convert(snapshot.primary);
+  const secondary = convert(snapshot.secondary);
+  if (!primary && !secondary) return null;
+  return { primary, secondary };
+}
+
+/**
  * Turn one rollout line into a reading. Codex labels its two windows primary
  * and secondary, but which is which has not always held, so the shorter
  * `window_minutes` is taken as the rolling window and the longer as the week.
@@ -186,7 +407,7 @@ export function readingFromRateLimits(
   const age = ageMinutes(sampleEpochSeconds, nowMs);
 
   return {
-    agent: "Codex",
+    agent: CODEX,
     fiveHourPercent: rolling?.percent ?? null,
     weeklyPercent: weekly?.percent ?? null,
     fiveHourResetsAt: rolling?.resetsAt ?? null,
@@ -294,24 +515,62 @@ export function readCodexSessions(
       return readingFromRateLimits(limits, at, nowMs, staleAfterMinutes);
     }
   }
-  return missing("Codex");
+  return missing(CODEX);
 }
 
 // ── Both ────────────────────────────────────────────────────────────────
 
-export function collect(settings: Settings, nowMs: number): Reading[] {
+/**
+ * Both agents, each from the freshest source that answers.
+ *
+ * Neither tool publishes its limits to a file of its own, so each has a live
+ * route and a scavenged one, and the live route is tried first:
+ *
+ * | Agent | Live | Fallback |
+ * | --- | --- | --- |
+ * | Claude Code | claude-hud's usage snapshot, refreshed while the CLI is used | the older statusline snapshots |
+ * | Codex | `codex app-server`, which goes and asks | `rate_limits` scavenged from its rollout logs |
+ *
+ * A fallback reading is not wrong, only old, so it is kept with its age
+ * attached rather than discarded — an hour-old number beats no number on a
+ * panel. What must not happen is an old number presented as current, which is
+ * what `stale` exists for.
+ */
+export async function collect(settings: Settings, nowMs: number): Promise<Reading[]> {
   const staleAfter = settings.stale_after_minutes ?? DEFAULT_STALE_AFTER_MINUTES;
   return [
-    readClaudeSnapshot(
-      expandHome(settings.claude_snapshot_dir ?? DEFAULT_CLAUDE_SNAPSHOT_DIR),
-      nowMs,
-      staleAfter,
-    ),
-    readCodexSessions(
-      expandHome(settings.codex_sessions_dir ?? DEFAULT_CODEX_SESSIONS_DIR),
-      nowMs,
-      staleAfter,
-      settings.codex_scan_files ?? DEFAULT_CODEX_SCAN_FILES,
-    ),
+    collectClaude(settings, nowMs, staleAfter),
+    await collectCodex(settings, nowMs, staleAfter),
   ];
+}
+
+export function collectClaude(settings: Settings, nowMs: number, staleAfter: number): Reading {
+  const fresh = readClaudeUsageFile(
+    expandHome(settings.claude_usage_file ?? DEFAULT_CLAUDE_USAGE_FILE),
+    nowMs,
+    staleAfter,
+  );
+  if (hasNumbers(fresh)) return fresh;
+  return readClaudeSnapshot(
+    expandHome(settings.claude_snapshot_dir ?? DEFAULT_CLAUDE_SNAPSHOT_DIR),
+    nowMs,
+    staleAfter,
+  );
+}
+
+export async function collectCodex(
+  settings: Settings,
+  nowMs: number,
+  staleAfter: number,
+): Promise<Reading> {
+  if (settings.codex_live ?? true) {
+    const live = await readCodexLive(settings, nowMs);
+    if (live && hasNumbers(live)) return live;
+  }
+  return readCodexSessions(
+    expandHome(settings.codex_sessions_dir ?? DEFAULT_CODEX_SESSIONS_DIR),
+    nowMs,
+    staleAfter,
+    settings.codex_scan_files ?? DEFAULT_CODEX_SCAN_FILES,
+  );
 }

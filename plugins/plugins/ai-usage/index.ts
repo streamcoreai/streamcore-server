@@ -1,6 +1,6 @@
 // Command ai-usage answers "how much AI have I used" from files Claude Code and
 // Codex leave on the machine, and puts the answer on the caller's screen as a
-// display.card v1 list.
+// display.card v1 usage card: one panel per agent, a gauge per window.
 //
 // It reads only; it never signs in to either service and never leaves the host.
 
@@ -32,9 +32,11 @@ function nextSeq(): number {
   return seq;
 }
 
-plugin.onExecute((_params: Record<string, unknown>, call: Call): Result => {
+plugin.onExecute(async (_params: Record<string, unknown>, call: Call): Promise<Result> => {
   const now = Date.now();
-  const readings = collect(settings, now);
+  // Asking Codex costs about a second, which is why the manifest's timeout
+  // has room for it.
+  const readings = await collect(settings, now);
   const seq = nextSeq();
 
   return {

@@ -53,6 +53,14 @@ func (p *Pipeline) runTool(ctx context.Context, tool plugin.Tool, args json.RawM
 
 	result := plugin.ParseResult(raw)
 	for _, emission := range result.Emit {
+		// The model often reaches a conclusion a partial already acted on. The
+		// device is already doing this; sending it again would read as a second
+		// command and restart the motion in progress.
+		if p.reflexAlreadySent(emission) {
+			log.Printf("[tools] %s already sent from a partial; not repeating %s",
+				tool.Name(), emission.Topic)
+			continue
+		}
 		if err := p.emit(emission); err != nil {
 			// The packet is the point of a dispatching tool, so a failure to
 			// send it must not be reported to the model as success.

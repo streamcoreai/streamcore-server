@@ -28,6 +28,10 @@ func NewDispatchTool(spec ToolSpec) (*DispatchTool, error) {
 	return &DispatchTool{spec: spec}, nil
 }
 
+// Partial reports which half-spoken phrases may fire this tool, or nil if the
+// manifest did not opt in. It satisfies PartialTool.
+func (t *DispatchTool) Partial() *PartialSpec { return t.spec.OnPartial }
+
 func (t *DispatchTool) Name() string                { return t.spec.Name }
 func (t *DispatchTool) Description() string         { return t.spec.Description }
 func (t *DispatchTool) Parameters() json.RawMessage { return t.spec.Parameters() }

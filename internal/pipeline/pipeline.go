@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/streamcoreai/streamcore-server/internal/audio"
@@ -72,6 +73,17 @@ type Pipeline struct {
 
 	// Plugins
 	pluginMgr *plugin.Manager
+
+	// reflex fires manifest-declared tools from a partial transcript, ahead of
+	// the model. nil when no loaded manifest asked for it, which is the case
+	// for every deployment without a robot on the other end.
+	reflex *partialReflex
+
+	// reflexSent records packets the reflex already sent, so the model's own
+	// call to the same tool a moment later does not send a duplicate the
+	// device would treat as a second command.
+	reflexSentMu sync.Mutex
+	reflexSent   map[string]time.Time
 
 	// VAD
 	vad        *vad.Detector
@@ -244,6 +256,7 @@ func New(
 		ttsClient:     ttsClient,
 		ragClient:     ragClient,
 		pluginMgr:     pluginMgr,
+		reflex:        newPartialReflex(pluginMgr),
 		imageRecv:     imgRecv,
 		vad:           vad.NewDefault(),
 		bargeInVAD:    vad.NewBargeIn(),
@@ -349,6 +362,12 @@ func New(
 	// Initialize atomic values with empty strings for type consistency.
 	p.lastAgentText.Store("")
 	p.interruptedText.Store("")
+
+	// A capture fires from its own timer once the spoken text stops changing,
+	// so the reflex needs a way back in that is not the STT callback.
+	if p.reflex != nil {
+		p.reflex.send = func(hit reflexHit) { p.fireReflex(hit, hit.tool.Name()) }
+	}
 
 	return p, nil
 }

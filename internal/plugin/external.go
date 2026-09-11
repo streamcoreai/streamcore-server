@@ -22,13 +22,24 @@ import (
 // short because a hanging tool stalls a live conversation.
 const DefaultExecuteTimeout = 30 * time.Second
 
-// stopGrace is how long a plugin gets at each stage of shutdown: first to exit
-// on its own after stdin closes, then to honour a SIGTERM. A plugin that
-// supervises children of its own — a language server, a harness — needs the
-// chance to take them with it.
+// defaultInitTimeout bounds the initialize handshake, and is deliberately not
+// the plugin's timeout_ms. That value is how long one tool call may take, and a
+// projection that must land in three seconds says nothing about how long its
+// process needs to come up. Starting is a one-off: exec, runtime init, SDK
+// bootstrap, then the first read of stdin — and on a loaded machine (CI under
+// the race detector, every package's tests at once) a fresh Go binary took
+// more than three seconds to get that far, and the plugin was skipped as if it
+// were broken.
+const defaultInitTimeout = 30 * time.Second
+
+// stopGrace is how long a plugin gets at each stage of shutdown: to exit on its
+// own after stdin closes, to honour a SIGTERM, and, as the command's WaitDelay,
+// to have its stdio pipes drained after it is dead. A plugin that supervises
+// children of its own — a language server, a harness — needs the chance to take
+// them with it.
 //
 // Two seconds each because the server's own force-exit net is five away, and
-// plugins are stopped concurrently so the worst case is one plugin's four, not
+// plugins are stopped concurrently so the worst case is one plugin's six, not
 // every plugin's.
 const stopGrace = 2 * time.Second
 
@@ -43,17 +54,33 @@ const stopGrace = 2 * time.Second
 // plugin; anything else is a reply, which is what makes the two directions
 // share one pipe unambiguously.
 type ExternalPlugin struct {
-	manifest  Manifest
-	dir       string
-	sdkDir    string
-	timeout   time.Duration
-	callbacks Callbacks
+	manifest Manifest
+	dir      string
+	sdkDir   string
+	timeout  time.Duration
+	// initTimeout bounds the handshake alone. A field rather than the constant
+	// so a test that wants a plugin which never answers does not wait thirty
+	// seconds to find that out.
+	initTimeout time.Duration
+	callbacks   Callbacks
 
 	writeMu   sync.Mutex
 	stdin     *json.Encoder
 	stdinPipe io.Closer
 
-	cmd      *exec.Cmd
+	// procMu guards cmd and stopOnce. Start assigns them on whichever goroutine
+	// is restarting the plugin, and Stop reads them from anywhere — a test's
+	// Cleanup, the manager shutting down, restart itself.
+	procMu sync.Mutex
+	cmd    *exec.Cmd
+	// stopOnce is fresh for every process Start launches. Two callers can
+	// reach Stop at once — shutdown from outside while restart is honouring
+	// the same shutdown from inside — and each used to spawn its own
+	// cmd.Wait on one process, which exec does not allow and the race
+	// detector reports. Once.Do runs the teardown for the first and holds the
+	// second until it is finished, so both return to a dead process.
+	stopOnce *sync.Once
+
 	running  atomic.Bool
 	stopping atomic.Bool
 	nextID   atomic.Int64
@@ -74,8 +101,11 @@ func NewExternalPlugin(m Manifest, dir string, sdkDir string) *ExternalPlugin {
 		dir:      dir,
 		sdkDir:   sdkDir,
 		timeout:  m.Timeout(),
-		pending:  make(map[int64]chan JSONRPCResponse),
-		tools:    m.Tools,
+		// Not m.Timeout(): that is the per-call budget, and startup is not a
+		// call. See defaultInitTimeout.
+		initTimeout: defaultInitTimeout,
+		pending:     make(map[int64]chan JSONRPCResponse),
+		tools:       m.Tools,
 	}
 }
 
@@ -120,6 +150,12 @@ func (p *ExternalPlugin) Start(ctx context.Context) error {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = p.dir
 	cmd.Env = env
+	// Stderr below is a logWriter, not an *os.File, so exec drains it through
+	// a pipe and Wait blocks until that pipe hits EOF. A grandchild that
+	// inherited the pipe keeps it open after the plugin is dead, and without
+	// this Wait never returns and Stop hangs with it. WaitDelay has Wait close
+	// the pipes itself once the process has been gone this long.
+	cmd.WaitDelay = stopGrace
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -135,9 +171,15 @@ func (p *ExternalPlugin) Start(ctx context.Context) error {
 		return fmt.Errorf("plugin %s: start: %w", p.manifest.Name, err)
 	}
 
+	p.procMu.Lock()
 	p.cmd = cmd
+	p.stopOnce = new(sync.Once)
+	p.procMu.Unlock()
+
+	p.writeMu.Lock()
 	p.stdin = json.NewEncoder(stdinPipe)
 	p.stdinPipe = stdinPipe
+	p.writeMu.Unlock()
 	p.running.Store(true)
 
 	go p.readLoop(stdoutPipe)
@@ -187,8 +229,10 @@ func (p *ExternalPlugin) initialize(ctx context.Context) error {
 	}
 
 	// The handshake gets its own bound: a plugin that never answers must not
-	// hold up the rest of the server's startup indefinitely.
-	initCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	// hold up the rest of the server's startup indefinitely. Its own, not the
+	// per-call timeout — a tool that must answer in three seconds is not a
+	// process that must boot in three.
+	initCtx, cancel := context.WithTimeout(ctx, p.initTimeout)
 	defer cancel()
 
 	raw, err := p.call(initCtx, JSONRPCRequest{Method: "initialize", Params: params})
@@ -326,6 +370,12 @@ func (p *ExternalPlugin) call(ctx context.Context, req JSONRPCRequest) (json.Raw
 	req.JSONRPC = "2.0"
 	req.ID = p.nextID.Add(1)
 
+	// Read the bound off the context rather than assuming p.timeout. The
+	// handshake and a tool call carry different ones, and an error that names
+	// the wrong number sends whoever reads it after the wrong setting.
+	started := time.Now()
+	deadline, hasDeadline := ctx.Deadline()
+
 	reply := make(chan JSONRPCResponse, 1)
 	p.pendingMu.Lock()
 	p.pending[req.ID] = reply
@@ -347,7 +397,11 @@ func (p *ExternalPlugin) call(ctx context.Context, req JSONRPCRequest) (json.Raw
 		}
 		return resp.Result, nil
 	case <-ctx.Done():
-		return nil, fmt.Errorf("plugin %s: %s timed out after %s", p.manifest.Name, req.Method, p.timeout)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) && hasDeadline {
+			return nil, fmt.Errorf("plugin %s: %s timed out after %s",
+				p.manifest.Name, req.Method, deadline.Sub(started).Round(time.Millisecond))
+		}
+		return nil, fmt.Errorf("plugin %s: %s cancelled: %w", p.manifest.Name, req.Method, ctx.Err())
 	}
 }
 
@@ -502,9 +556,20 @@ func (p *ExternalPlugin) Stop() {
 	// see a deliberate shutdown rather than a crash worth recovering from.
 	p.stopping.Store(true)
 
-	if p.cmd == nil || p.cmd.Process == nil {
+	p.procMu.Lock()
+	cmd, once := p.cmd, p.stopOnce
+	p.procMu.Unlock()
+	if cmd == nil || cmd.Process == nil || once == nil {
 		return
 	}
+
+	// A second caller blocks here until the first teardown has finished, so
+	// "Stop returned" means the same thing for both of them.
+	once.Do(func() { p.teardown(cmd) })
+}
+
+// teardown is the part of Stop that must run exactly once per process.
+func (p *ExternalPlugin) teardown(cmd *exec.Cmd) {
 	p.running.Store(false)
 
 	p.writeMu.Lock()
@@ -515,7 +580,7 @@ func (p *ExternalPlugin) Stop() {
 
 	exited := make(chan struct{})
 	go func() {
-		p.cmd.Wait()
+		cmd.Wait()
 		close(exited)
 	}()
 
@@ -525,15 +590,22 @@ func (p *ExternalPlugin) Stop() {
 	case <-time.After(stopGrace):
 	}
 
-	p.cmd.Process.Signal(syscall.SIGTERM)
+	cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case <-exited:
 		return
 	case <-time.After(stopGrace):
 	}
 
-	p.cmd.Process.Kill()
-	<-exited
+	cmd.Process.Kill()
+	select {
+	case <-exited:
+	case <-time.After(2 * stopGrace):
+		// WaitDelay should have closed the pipes and let Wait return well
+		// before this. If it did not, something other than an orphaned pipe
+		// is holding Wait, and a shutdown path must not hang on it either.
+		log.Printf("[plugin:%s] killed, but Wait has not returned; giving up on it", p.manifest.Name)
+	}
 }
 
 // resultText renders a JSON-RPC result as the string a tool returned. A result

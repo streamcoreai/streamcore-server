@@ -1,8 +1,18 @@
 name: weather.get
-description: Get the current weather for a given location
+description: Get the current weather and the next days' forecast for a given location
 version: 1
 language: typescript
 entrypoint: index.ts
+
+# The published @streamcore/plugin on npm predates the result envelope, so it
+# cannot emit a card. This links the SDK in the tree by path, the way ai-usage
+# and the Go plugins do. Its dist/ is gitignored, so install it first: that runs
+# its prepare script and leaves a built package to link to.
+build: ["sh", "-c", "npm --prefix ../../../../plugin-sdk/typescript install && npm install"]
+
+# One HTTPS round trip to wttr.in, which is occasionally slow to answer.
+timeout_ms: 10000
+
 parameters:
   type: object
   properties:

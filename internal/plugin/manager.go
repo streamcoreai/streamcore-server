@@ -149,6 +149,29 @@ func (m *Manager) Tools() []Tool {
 	return tools
 }
 
+// PartialTool is a tool a partial transcript may fire, ahead of the model.
+// Only dispatch tools implement it: see PartialSpec.
+type PartialTool interface {
+	Tool
+	Partial() *PartialSpec
+}
+
+// PartialTools returns the tools whose manifests opted into being fired from a
+// partial transcript. Call it once and keep the result: partials arrive several
+// times a second and this takes the registry lock.
+func (m *Manager) PartialTools() []PartialTool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []PartialTool
+	for _, t := range m.plugins {
+		candidate, ok := t.(PartialTool)
+		if ok && candidate.Partial() != nil {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
 // GetTool returns a model-callable tool by name. Internal tools are not
 // reachable here, so a model that guesses one of their names gets the same
 // "unknown tool" it would get for anything else it invented.

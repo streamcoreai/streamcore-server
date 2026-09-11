@@ -169,6 +169,23 @@ Messages the client sends on the same channel are routed into the pipeline — c
 }
 ```
 
+**On the wire it arrives wrapped.** A card is a plugin emission, and every
+topic-addressed emission reaches the client inside a data packet, base64 and
+all:
+
+```json
+{ "type": "data", "topic": "display.card", "payload": "<base64 of the object above>" }
+```
+
+So a client reads cards from its **topic-addressed data callback**, not from
+the raw event stream — the raw stream carries the envelope, whose `type` is
+`data`. A client that parses the envelope as a card sees the wrong type and
+drops every card it is sent. The ESP32 SDK unwraps this for you and hands the
+decoded bytes to `on_data(topic, payload)`; `on_raw_event` sees the envelope.
+Unlike `transcript`, `response` and `state`, which are sent as bare events,
+nothing sends a bare `display.card` today — accept one if you like, but take
+the wrapped form or you will receive nothing.
+
 `turn_seq` is a positive integer that increases within `session_id`; `turn_id` is its human-readable counterpart. A device with a slow display should keep only the newest valid card, not a FIFO. Reject a card whose `turn_seq` is not newer than the latest accepted card from the same session. A changed `session_id` starts a new sequence.
 
 The server validates and truncates all fields before sending:
@@ -186,6 +203,16 @@ The server validates and truncates all fields before sending:
 | `columns[].heading` | `split` | 17 characters |
 | `columns[].lines` | `split` | 7 lines |
 | each `columns[].lines[]` | `split` | 17 characters |
+| `weather.forecast` | `weather` | 3 days |
+| `weather.note` | `weather` | 34 characters |
+| each temperature | `weather` | 4 characters |
+| each `forecast[].label` | `weather` | 4 characters |
+| `agents` | `usage` | 3 agents |
+| `agents[].name` | `usage` | 18 characters |
+| `agents[].note` | `usage` | 14 characters |
+| `agents[].gauges` | `usage` | 3 gauges |
+| `gauges[].label` | `usage` | 3 characters |
+| `gauges[].reset` | `usage` | 8 characters |
 
 Layout semantics:
 
@@ -193,6 +220,8 @@ Layout semantics:
 - **text** — a compact explanation (`title`, required `body`).
 - **list** — at most four short entries (`title`, required non-empty `items`).
 - **status** — a completed action or confirmation (`title`, required `primary`, optional `secondary`).
+- **weather** — a forecast (`title`, required `primary` and `weather`). See below.
+- **usage** — one meter per subject (`title`, required non-empty `agents`). See below.
 - **split** — two things side by side (`title`, required non-empty `columns`). Each column carries a `heading` and short `lines`; a blank line is a spacer the client spends a row on. For comparing one thing against another, which no single-column layout can express.
 
 ```json
@@ -207,6 +236,63 @@ Layout semantics:
 ```
 
 `split` is for plugins that emit their own cards; the display projector never produces one, since a projected turn has one subject rather than two. A client that predates the layout rejects the card as unknown and keeps whatever it was showing.
+
+#### weather
+
+Two subjects come up often enough on a persistent display to have earned a structured layout of their own, and the weather is one. The card still carries no pixels: it names a condition, and the client owns every icon it draws for it.
+
+```json
+{
+  "layout": "weather",
+  "title": "Auckland",
+  "primary": "17",
+  "secondary": "Partly cloudy",
+  "detail": "Saturday 18 May",
+  "weather": {
+    "icon": "partly",
+    "unit": "C",
+    "high": "19",
+    "low": "11",
+    "note": "Take an umbrella Monday",
+    "forecast": [
+      { "label": "SUN", "icon": "rain", "high": "18", "low": "10" },
+      { "label": "MON", "icon": "sun", "high": "21", "low": "12" }
+    ]
+  }
+}
+```
+
+`title` is the place, `primary` the current temperature as bare digits, `secondary` the condition in words, and `detail` the day it is for. Temperatures carry no degree sign or unit — `unit` says `C` or `F` once, and the client draws the rest, because a panel that maps non-ASCII to `?` cannot render a `°` that arrives inside a string.
+
+`icon` is one of `sun`, `moon`, `partly`, `cloud`, `rain`, `storm`, `snow`, `fog`, `wind`. **A client must not reject a card over an icon name it does not know** — it draws a neutral one and keeps the temperature, which is still the answer. `note` is one line of advice across the foot of the card, and is optional; `forecast` is optional and holds up to three days.
+
+#### usage
+
+The other: how much of something metered is gone. One panel per subject, one gauge per window.
+
+```json
+{
+  "layout": "usage",
+  "title": "AI Usage",
+  "agents": [
+    {
+      "name": "Claude Code",
+      "note": "as of 06:11",
+      "gauges": [
+        { "label": "5H", "percent": 62, "reset": "@14:10" },
+        { "label": "7D", "percent": 17, "reset": "@Sep 7" }
+      ]
+    },
+    { "name": "Codex", "note": "no recent runs", "gauges": [] }
+  ]
+}
+```
+
+`percent` is the percentage **used**: an integer from 0 to 100, or `null` where the source did not say — which a client must draw apart from zero, since an unread limit and an untouched one are not the same fact.
+
+Used, because that is the raw fact the sources report. A client is free to draw what is *left* instead — the NOTE4C does, since "how much have I got" is the question you ask a wall panel — but whichever it picks, **it has to say which on the face of it**. The tools themselves disagree: Claude Code's `/usage` says "26% used", the Codex CLI says "100% remaining". A bare percentage is a number the reader has to guess the polarity of, and half of them will guess wrong. A value outside the range is clamped rather than rejected. `reset` is already formatted by the server, which is the only side that knows its own local time, and `gauges` may be empty: an agent with nothing to report keeps its panel and explains itself in `note`.
+
+Both layouts are for plugins that emit their own cards. The display projector produces neither, because it works from a finished turn's text and would be inventing the structure.
 
 The payload contains semantics only. StreamCore does not send coordinates, fonts, colours, framebuffers, PNGs, or device-specific rendering instructions. The client chooses typography, wrapping, colour use, and when a refresh is affordable. A recommended device policy is: store latest-wins, wait until assistant playback and the next-user check have gone idle, debounce for 1–3 seconds, then spend one refresh.
 

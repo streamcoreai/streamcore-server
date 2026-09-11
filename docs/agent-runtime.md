@@ -71,7 +71,7 @@ The projector is generic display semantics, not a NOTE4C plugin. It contains no 
 | Plugin | Language | Description |
 |--------|----------|-------------|
 | `math.calculate` | TypeScript | Evaluate math expressions |
-| `weather.get` | TypeScript | Current weather for a location |
+| `weather.get` | TypeScript | Current weather and forecast for a location; emits a `weather` display card. `units = "f"` in its config table switches the card to Fahrenheit |
 | `time.get` | Python | Current date/time in any timezone |
 | `vision.analyze` | TypeScript | Analyze images from a device camera |
 | `gmail` | TypeScript | Read and send emails via Gmail (OAuth2) — see [Gmail plugin README](../plugins/plugins/gmail/README.md) |

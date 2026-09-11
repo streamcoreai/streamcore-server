@@ -6,35 +6,44 @@ import type { Reading } from "./sources";
 export const CARD_TOPIC = "display.card";
 export const CARD_VERSION = 1;
 
-const BAR_WIDTH = 10;
 const MAX_TITLE = 32;
 
-/** The panel's own caps for a split card. Mirrors note4c-logic/src/display_card.rs. */
-const MAX_COLUMN_LINES = 7;
-const MAX_COLUMN_CHARS = 17;
+/** The panel's own caps for a usage card. Mirrors note4c-logic/src/display_card.rs. */
+const MAX_AGENTS = 3;
+const MAX_AGENT_NAME = 18;
+const MAX_AGENT_NOTE = 14;
+const MAX_GAUGES = 3;
+const MAX_GAUGE_LABEL = 5;
+const MAX_GAUGE_RESET = 8;
 
-export interface Column {
-  heading: string;
-  lines: string[];
+/** One rate-limit window. */
+export interface Gauge {
+  /** `"5H"`, `"7D"`. */
+  label: string;
+  /**
+   * Used, as a whole percentage. `null` where the source did not say — the
+   * panel draws that apart from zero rather than claiming an untouched limit.
+   */
+  percent: number | null;
+  /** When the window rolls over, already formatted: `"@14:10"`. */
+  reset: string;
 }
 
-/** The v1 card. Semantics only: no coordinates, fonts, or colours. */
-export interface Card {
-  layout: "split";
-  title: string;
-  columns: Column[];
+export interface Agent {
+  name: string;
+  /** When the reading was taken, or why there is none. */
+  note: string;
+  gauges: Gauge[];
 }
 
 /**
- * Bars are drawn from `=`, `-` and `.` rather than block glyphs for two
- * reasons: the note4c maps every non-ASCII character to `?` before rendering,
- * and `#`, `*` and brackets are rejected as markup by the card sanitizer the
- * projector applies. This alphabet survives both.
+ * The v1 card. Semantics only: no coordinates, fonts, or colours — the client
+ * decides what a percentage looks like, and the note4c draws it as a gauge.
  */
-export function bar(percent: number | null): string {
-  if (percent === null) return ".".repeat(BAR_WIDTH);
-  const filled = Math.max(0, Math.min(BAR_WIDTH, Math.round((percent / 100) * BAR_WIDTH)));
-  return "=".repeat(filled) + "-".repeat(BAR_WIDTH - filled);
+export interface Card {
+  layout: "usage";
+  title: string;
+  agents: Agent[];
 }
 
 /** "2h 10m", or "" when there is nothing to say. */
@@ -93,46 +102,52 @@ function resetStamp(epochSeconds: number | null, short: boolean): string {
   return short ? `@${clock(epochSeconds)}` : `@${calendarDay(epochSeconds)}`;
 }
 
-/**
- * One window, as the three rows the panel gives it: what has gone, a bar, and
- * what is left with the countdown to the reset.
- */
-function windowRows(label: string, percent: number | null, resetsAt: number | null): string[] {
-  if (percent === null) {
-    return [`${label} no data`, bar(null), ""];
-  }
-  const stamp = resetStamp(resetsAt, label === "5H");
-  const left = `${100 - percent}% left`;
-  return [`${label} ${percent}% used`, bar(percent), stamp ? `${left} ${stamp}` : left];
+function gauge(label: string, percent: number | null, resetsAt: number | null): Gauge {
+  return {
+    label: label.toUpperCase().slice(0, MAX_GAUGE_LABEL),
+    percent,
+    // Only the rolling window lands inside the day; everything else needs the
+    // date, since "@16:00" says nothing about a reset six days out.
+    reset: resetStamp(resetsAt, label === "5H").slice(0, MAX_GAUGE_RESET),
+  };
 }
 
 /**
- * A column per agent, opening with when its numbers were taken. Absolute times
+ * A panel per agent, labelled with when its numbers were taken. Absolute times
  * beat relative ones on a panel that may sit unrefreshed for an hour: "as of
  * 06:11" stays true on the screen, "2m ago" does not.
+ *
+ * An agent that has not run recently still gets its panel, with the note
+ * carrying the reason: a card that quietly dropped it would look like an agent
+ * with nothing used.
  */
-export function buildColumn(reading: Reading, nowMs: number): Column {
+export function buildAgent(reading: Reading, nowMs: number): Agent {
+  const name = reading.agent.slice(0, MAX_AGENT_NAME);
   if (reading.ageMinutes === null) {
-    return { heading: reading.agent, lines: ["no recent runs", "on this machine"] };
+    return { name, note: "no recent runs", gauges: [] };
   }
-  // Seven rows is the whole budget, so the reset time rides on the same row as
-  // the percentage left rather than taking one of its own.
-  const lines = [
-    `as of ${takenAt(reading.sampledAt, nowMs)}`,
-    ...windowRows("5H", reading.fiveHourPercent, reading.fiveHourResetsAt),
-    ...windowRows("7D", reading.weeklyPercent, reading.weeklyResetsAt),
-  ];
+  // A reading old enough to have moved says so in the one line it has. The
+  // panel may sit unrefreshed for hours on top of that, so "as of 06:11" on a
+  // number taken last week reads as this morning unless the word is there.
+  const when = takenAt(reading.sampledAt, nowMs);
   return {
-    heading: reading.agent,
-    lines: lines.slice(0, MAX_COLUMN_LINES).map((line) => line.slice(0, MAX_COLUMN_CHARS)),
+    name,
+    note: (reading.stale ? `stale ${when}` : `as of ${when}`).slice(0, MAX_AGENT_NOTE),
+    gauges: [
+      gauge("5H", reading.fiveHourPercent, reading.fiveHourResetsAt),
+      gauge("7D", reading.weeklyPercent, reading.weeklyResetsAt),
+      // A separately metered model goes after the two everyone has, and is
+      // labelled with its own name rather than a window length.
+      ...(reading.scoped ?? []).map((w) => gauge(w.label, w.percent, w.resetsAt)),
+    ].slice(0, MAX_GAUGES),
   };
 }
 
 export function buildCard(readings: Reading[], nowMs: number): Card {
   return {
-    layout: "split",
+    layout: "usage",
     title: "AI Usage".slice(0, MAX_TITLE),
-    columns: readings.slice(0, 2).map((reading) => buildColumn(reading, nowMs)),
+    agents: readings.slice(0, MAX_AGENTS).map((reading) => buildAgent(reading, nowMs)),
   };
 }
 
@@ -175,6 +190,12 @@ export function buildSpeech(readings: Reading[], nowMs: number): string {
     }
 
     let sentence = `${reading.agent} has used ${parts.join(", and ")}`;
+    // A separately metered model is its own budget; folding it into the week
+    // above would double-count it and hide the one that runs out first.
+    for (const window of reading.scoped ?? []) {
+      if (window.percent === null) continue;
+      sentence += `. Its ${window.label} week is ${percentPhrase(window.percent)} used, ${100 - window.percent} percent left`;
+    }
     sentence += `. Read at ${clock(reading.sampledAt)}`;
     if (reading.stale) {
       sentence += `, ${spokenDuration(age(reading.ageMinutes))} ago`;

@@ -18,9 +18,20 @@ enabled: false
 build: ["sh", "-c", "npm --prefix ../../../../plugin-sdk/typescript install && npm install"]
 exec: ["npx", "tsx", "index.ts"]
 
-# Reading a few local files, no network. The Codex scan tails the newest
-# rollout logs, which is the only part that touches more than a few kilobytes.
-timeout_ms: 5000
+# Room for the live Codex query: `codex app-server` answers
+# account/rateLimits/read in about a second, and the reader gives it six before
+# falling back to the rollout logs.
+timeout_ms: 12000
+
+# Where the numbers come from, and how long to wait for them:
+#
+#   [plugins.config."ai.usage"]
+#   enabled = true
+#   claude_usage_file = "~/.claude/usage-snapshot.json"  # statusline snapshot
+#   codex_live = true            # ask `codex app-server` before reading logs
+#   codex_command = "codex"      # if it is not on the server's PATH
+#   codex_timeout_ms = 6000
+#   stale_after_minutes = 30     # older than this is labelled stale on screen
 
 parameters:
   type: object
