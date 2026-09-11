@@ -3,7 +3,7 @@
   "name": "vision-analyze-plugin",
   "version": "0.1.0",
   "dependencies": {
-    "@streamcore/plugin": "^0.1.3",
+    "@streamcore/plugin": "^0.2.0",
     "openai": "^4.73.0"
   }
 }
