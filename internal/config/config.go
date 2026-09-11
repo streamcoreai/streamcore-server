@@ -658,11 +658,6 @@ func (c *Config) RealtimeEnabled() bool {
 	return c.Realtime.Provider != "" && c.Realtime.Provider != "none"
 }
 
-// validateRealtime rejects a bad speech-to-speech configuration at startup.
-// Without this a typo'd provider or a missing key only surfaces when the
-// first caller connects, which reads as a broken deployment rather than a
-// misconfigured one.
-<<<<<<< HEAD
 // validateDeveloperTools checks the GitHub and Codex sections up front, so a
 // missing key is a startup error rather than a puzzling tool failure mid-call.
 // Both integrations are optional and disabled by default.
@@ -696,7 +691,8 @@ func (c *Config) validateDeveloperTools() error {
 		}
 	}
 	return nil
-=======
+}
+
 // Echo-guard modes for pipeline.echo_guard.
 const (
 	EchoGuardAuto   = "auto"
@@ -725,9 +721,12 @@ func (c *Config) validateEchoGuard() error {
 		return fmt.Errorf("[pipeline] echo_guard = %q must be %q, %q, or %q",
 			c.Pipeline.EchoGuard, EchoGuardAuto, EchoGuardAlways, EchoGuardOff)
 	}
->>>>>>> main
 }
 
+// validateRealtime rejects a bad speech-to-speech configuration at startup.
+// Without this a typo'd provider or a missing key only surfaces when the
+// first caller connects, which reads as a broken deployment rather than a
+// misconfigured one.
 func (c *Config) validateRealtime() error {
 	if !c.RealtimeEnabled() {
 		return nil

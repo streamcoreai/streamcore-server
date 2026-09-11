@@ -460,7 +460,6 @@ func TestValidateRealtimeRejectsTooManyKeyterms(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 // The developer integrations are off unless the operator turns them on, and
 // when they are on the credentials they need are checked at startup rather than
 // mid-call.
@@ -501,33 +500,10 @@ func TestGitHubConfigRequiresACredential(t *testing.T) {
 		breakIt(cfg)
 		if err := cfg.validateDeveloperTools(); err == nil {
 			t.Fatalf("a github config missing %s was accepted", name)
-=======
-// A single instance commonly serves browsers and SIP calls at once, so the
-// echo bound has to be decided per peer rather than per server.
-func TestEchoGuardFor(t *testing.T) {
-	cases := []struct {
-		mode      string
-		aecAbsent bool
-		want      bool
-	}{
-		{EchoGuardAuto, true, true},    // SIP leg declares aec=none
-		{EchoGuardAuto, false, false},  // browser, AEC ran in getUserMedia
-		{EchoGuardAlways, false, true}, // client that cannot send the hint
-		{EchoGuardAlways, true, true},
-		{EchoGuardOff, true, false},
-		{EchoGuardOff, false, false},
-	}
-	for _, c := range cases {
-		cfg := &Config{}
-		cfg.Pipeline.EchoGuard = c.mode
-		if got := cfg.EchoGuardFor(c.aecAbsent); got != c.want {
-			t.Errorf("mode %q aecAbsent=%v: got %v, want %v", c.mode, c.aecAbsent, got, c.want)
->>>>>>> main
 		}
 	}
 }
 
-<<<<<<< HEAD
 func TestCodexConfigNeedsAWorkspace(t *testing.T) {
 	cfg := &Config{}
 	cfg.Codex = CodexConfig{Enabled: true}
@@ -550,7 +526,33 @@ func TestCodexConfigHasNoAPIKey(t *testing.T) {
 		if strings.Contains(name, "apikey") || strings.Contains(name, "token") || strings.Contains(name, "secret") {
 			t.Fatalf("[codex] exposes a credential field: %s", value.Field(i).Name)
 		}
-=======
+	}
+}
+
+// A single instance commonly serves browsers and SIP calls at once, so the
+// echo bound has to be decided per peer rather than per server.
+func TestEchoGuardFor(t *testing.T) {
+	cases := []struct {
+		mode      string
+		aecAbsent bool
+		want      bool
+	}{
+		{EchoGuardAuto, true, true},    // SIP leg declares aec=none
+		{EchoGuardAuto, false, false},  // browser, AEC ran in getUserMedia
+		{EchoGuardAlways, false, true}, // client that cannot send the hint
+		{EchoGuardAlways, true, true},
+		{EchoGuardOff, true, false},
+		{EchoGuardOff, false, false},
+	}
+	for _, c := range cases {
+		cfg := &Config{}
+		cfg.Pipeline.EchoGuard = c.mode
+		if got := cfg.EchoGuardFor(c.aecAbsent); got != c.want {
+			t.Errorf("mode %q aecAbsent=%v: got %v, want %v", c.mode, c.aecAbsent, got, c.want)
+		}
+	}
+}
+
 // An unset echo_guard must behave as "auto", so an upgrade fixes SIP without
 // touching browser sessions and without anyone editing a config.
 func TestEchoGuardDefaultsToAuto(t *testing.T) {
@@ -595,6 +597,5 @@ func TestLoadRejectsBadEchoGuardMode(t *testing.T) {
 
 	if _, err := Load(path); err == nil {
 		t.Error("Load accepted an unknown echo_guard mode")
->>>>>>> main
 	}
 }
