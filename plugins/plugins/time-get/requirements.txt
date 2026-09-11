@@ -1,6 +1,6 @@
-# Install the plugin SDK from the local repo (not yet published to PyPI):
-#   pip install -e ../../../plugin-sdk/python
+# time-get only uses the one-argument on_execute, so 0.1 still works. 0.2 also
+# answers the server's ready pass instead of logging an error at startup.
 #
-# Or set PLUGIN_SDK_DIR when running the server:
+# To run against a local checkout of the SDK instead:
 #   PLUGIN_SDK_DIR=../plugin-sdk go run .
-streamcore-plugin==0.1.0
+streamcore-plugin>=0.1.0,<0.3

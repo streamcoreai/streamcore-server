@@ -1,4 +1,10 @@
 .env
+**/.env
+**/.env.*
+**/token.json
+# The Dockerfile installs plugin deps itself. A host node_modules can hold
+# symlinks to paths outside the build context, which crash npm in the image.
+**/node_modules
 *.log
 .git
 .gitignore

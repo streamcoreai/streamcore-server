@@ -3,6 +3,6 @@
   "name": "weather-get-plugin",
   "version": "0.1.0",
   "dependencies": {
-    "@streamcore/plugin": "file:../../../../plugin-sdk/typescript"
+    "@streamcore/plugin": "^0.2.0"
   }
 }
