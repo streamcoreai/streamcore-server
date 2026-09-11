@@ -83,6 +83,15 @@ func TestConfigEnablesADormantPlugin(t *testing.T) {
 	if testing.Short() {
 		t.Skip("compiles a Go plugin")
 	}
+	// CI checks out the server alone, so the SDK the plugin builds against is
+	// only there in the full workspace.
+	sdk, err := filepath.Abs(filepath.Join("..", "..", "..", "plugin-sdk", "go"))
+	if err != nil {
+		t.Fatalf("resolve sdk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sdk, "go.mod")); err != nil {
+		t.Skipf("plugin-sdk/go not checked out alongside the server: %v", err)
+	}
 
 	root := stageShipped(t, "display-projector")
 	// The staged copy needs the plugin's source to build from.
@@ -106,10 +115,6 @@ func TestConfigEnablesADormantPlugin(t *testing.T) {
 	}
 	// go.mod points at the SDK by relative path, which the staged copy has
 	// moved away from.
-	sdk, err := filepath.Abs(filepath.Join("..", "..", "..", "plugin-sdk", "go"))
-	if err != nil {
-		t.Fatalf("resolve sdk: %v", err)
-	}
 	gomod := filepath.Join(root, "plugins", "display-projector", "go.mod")
 	if err := os.WriteFile(gomod, []byte(`module display-projector
 
