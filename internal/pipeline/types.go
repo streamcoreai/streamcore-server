@@ -50,3 +50,16 @@ type stateMsg struct {
 	Type  string `json:"type"`
 	State string `json:"state"`
 }
+
+// PeerOptions carries what the signalling layer learned about a peer that the
+// media pipeline has no way to see for itself.
+type PeerOptions struct {
+	// Direction is "outbound" for an outgoing SIP call, empty otherwise.
+	Direction string
+
+	// AECAbsent is set when the client says nothing upstream of the server
+	// removes the agent's own voice from its inbound audio (aec=none on the
+	// WHIP URL). A browser cancels echo in getUserMedia, so absent means
+	// present, which is what every client predating the hint is.
+	AECAbsent bool
+}

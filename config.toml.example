@@ -29,6 +29,16 @@ turn_merge_ms = 350          # Debounce window for merging finals into one turn.
 # rag_prefetch = false                    # Start retrieval during the merge window instead of after it
 # readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
 
+# Echo reference for barge-in, decided per session. On a path with no AEC
+# (SIP/PCMU telephony) the agent's own voice comes back loud enough to look
+# like an interruption; a browser cancels it in getUserMedia and needs no
+# bound. "auto" follows what each client declares on the WHIP URL (aec=none),
+# which sip-server already sends, so one server can host both.
+# echo_guard = "auto"           # auto | always | off. "always" is for raw-path clients that send no hint
+# echo_guard_gain = 0.6         # Echo cannot exceed this fraction of what produced it
+# echo_guard_margin = 1.8       # How far inbound must clear the echo bound to count as the caller
+# echo_guard_window_ms = 400    # How long sent audio stays in the reference window
+
 # Provider selection
 
 # Speech-to-speech mode. Setting a provider here replaces [stt], [llm], and
