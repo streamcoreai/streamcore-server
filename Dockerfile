@@ -35,11 +35,13 @@ COPY --from=builder /server /server
 # Copy plugins and skills
 COPY plugins /plugins
 
-# Install npm dependencies for each TypeScript plugin
+# Install npm dependencies for each TypeScript plugin. The loop only reports the
+# last iteration's status, so exit on the first failure or a broken plugin
+# earlier in the list ships without its dependencies.
 RUN for dir in /plugins/plugins/*/; do \
       if [ -f "$dir/package.json" ]; then \
         echo "npm install: $dir" && \
-        cd "$dir" && npm install --omit=dev; \
+        (cd "$dir" && npm install --omit=dev) || exit 1; \
       fi; \
     done
 
@@ -47,7 +49,7 @@ RUN for dir in /plugins/plugins/*/; do \
 RUN for dir in /plugins/plugins/*/; do \
       if [ -f "$dir/requirements.txt" ]; then \
         echo "pip install: $dir" && \
-        pip install --no-cache-dir -r "$dir/requirements.txt"; \
+        pip install --no-cache-dir -r "$dir/requirements.txt" || exit 1; \
       fi; \
     done
 
