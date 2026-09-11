@@ -39,7 +39,7 @@ turn_merge_ms = 350          # Debounce window for merging finals into one turn.
 provider = ""           # Supported: grok (empty = classic pipeline)
 
 [stt]
-provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, openai, vibevoice, volcengine
+provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, openai, telnyx, vibevoice, volcengine
 
 [llm]
 provider = "openai"     # Supported: openai, ollama, agent
@@ -143,11 +143,15 @@ voice_id = ""           # Optional; defaults to Geffen (geffen_32). Simba 3.2 us
 model = ""              # Optional; defaults to simba-3.2
 
 [telnyx]
-api_key = ""            # Required if tts.provider = "telnyx"
+api_key = ""            # Required if tts.provider = "telnyx" or stt.provider = "telnyx"
 voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"  # Any catalog voice from GET /v2/text-to-speech/voices
                           # (Qwen3TTS voices use UUID ids). Availability varies by account; a voice your
                           # key is not provisioned for fails the dial with HTTP 403
 voice_speed = 1.0       # Playback-rate multiplier, clamped to 0.8-1.2 like the per-utterance delivery tags
+stt_engine = "Telnyx"   # STT. Transcription engine when stt.provider = "telnyx": the in-house recognizer
+                          # or a hosted engine (Deepgram, AssemblyAI, Azure, Cohere, Google, Humain,
+                          # Parakeet, Reson8, Soniox, Speechmatics, xAI). Case-sensitive. In-house is
+                          # finals-only, so barge-in and live captions need a hosted engine
 
 [mimo]
 api_key = ""            # Required if tts.provider = "mimo"

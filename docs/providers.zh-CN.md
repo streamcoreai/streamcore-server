@@ -4,7 +4,7 @@
 
 | 角色 | 服务商 | 所需凭据 |
 |------|-----------|----------------------|
-| STT | `aliyun`、`assemblyai`、`deepgram`、`openai`、`vibevoice`、`volcengine` | 对应服务商的 API key，或一个本地 VibeVoice ASR 服务 |
+| STT | `aliyun`、`assemblyai`、`deepgram`、`openai`、`telnyx`、`vibevoice`、`volcengine` | 对应服务商的 API key，或一个本地 VibeVoice ASR 服务 |
 | LLM | `openai`、`ollama`、`agent` | OpenAI API key、你自己掌控的 Ollama 实例，或你自己的 HTTP 智能体端点 |
 | TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`speechify`、`telnyx`、`vibevoice` | 对应服务商的 API key，或一个本地 VibeVoice TTS 服务 |
 | 语音到语音 | `grok` | xAI API key —— 一并取代 STT、LLM 与 TTS |
@@ -21,6 +21,7 @@
 - `tts.provider = "mimo"` 是小米 MiMo TTS，中英文音色齐备，付费模型还支持声音克隆。
 - `stt.provider = "aliyun"` 是阿里云百炼（DashScope）流式 ASR；`vocabulary_id` 可以把模型往你的领域词上带。
 - `stt.provider = "volcengine"` 是豆包流式 ASR —— 适合 Deepgram 访问慢、或它的中文识别不够好的场景。控制台有免费时长可以先试。
+- `stt.provider = "telnyx"` 通过一条 WebSocket、一个 key 前置自研与十余种托管转写引擎。自研引擎只出最终结果，打断与实时字幕需要托管引擎。见 [Telnyx STT](#telnyx-stt)。
 - `realtime.provider = "grok"` 切换到语音到语音模式，并完全忽略 `[stt]`、`[llm]` 与 `[tts]`。
 
 所有 key 与可调项都在[配置参考](./configuration.zh-CN.md)里。
@@ -147,6 +148,27 @@ voice_speed = 1.0
 - **Telnyx 的 LLM 无需新增服务商。** `openai.base_url = "https://api.telnyx.com/v2/ai"` 即可让现有的 `openai` LLM 服务商直连 Telnyx 推理（例如模型 `glm-5.3`），零代码改动。
 
 表达标签映射到 `voice_speed`（限制在 0.8–1.2，与 Cartesia 相同的对话档位），配置里的 `voice_speed` 则是未打标签句子的基准语速。
+
+## Telnyx STT
+
+走 Telnyx 语音转文字 WebSocket 的流式识别：上行是裸 linear16 二进制帧，下行是 JSON 转写帧，均为流水线原生的 16 kHz 单声道，音频路径无需任何重采样。与 TTS 共用同一个 `[telnyx]` 配置段和 API key；`stt_engine` 选择识别引擎。
+
+```toml
+[stt]
+provider = "telnyx"
+
+[telnyx]
+api_key = ""
+stt_engine = "Telnyx"   # 或托管引擎 —— "Deepgram"、"AssemblyAI"、"Azure" 等。大小写敏感
+```
+
+有三件事必须弄对：
+
+- **自研 `Telnyx` 引擎只出最终结果。** 它在来电者停止说话后才发出唯一一帧 final —— 没有中间结果、没有时间戳、没有置信度。打断（barge-in）与实时字幕依赖中间结果（流水线以部分文本来判定打断），因此**这两项在该引擎下不工作**：打断永远不会触发，客户端字幕也要等到 final 落地才有内容。只适合「仅需最终转写」的场景。取舍讨论见[设计讨论](https://github.com/streamcoreai/streamcore-server/issues/75)。
+- **托管引擎可以恢复中间结果。** 同一个端点前置 AssemblyAI、Azure、Cohere、Deepgram、Google、Humain、Parakeet、Reson8、Soniox、Speechmatics 与 xAI。除 `Telnyx` 以外的任何引擎都会带上 `interim_results=true` 请求，中间结果像其他服务商一样流式到达，打断与实时字幕正常工作。已验证的配置是 `stt_engine = "Deepgram"`。
+- **引擎名大小写敏感。** `telnyx` 会被一帧结构化错误拒绝，错误里列出支持的引擎；合法取值就是那个列表，首字母大写。
+
+置信度：自研引擎返回 `null`，托管引擎返回 0–1 浮点数；流水线把 `null` 视为未知而不是低置信。
 
 ## 本地 VibeVoice 配置
 

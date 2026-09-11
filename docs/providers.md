@@ -4,7 +4,7 @@
 
 | Role | Providers | Required credentials |
 |------|-----------|----------------------|
-| STT | `aliyun`, `assemblyai`, `deepgram`, `openai`, `vibevoice`, `volcengine` | Matching provider API key, or a local VibeVoice ASR server |
+| STT | `aliyun`, `assemblyai`, `deepgram`, `openai`, `telnyx`, `vibevoice`, `volcengine` | Matching provider API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama`, `agent` | OpenAI API key, an Ollama instance you control, or your own HTTP agent endpoint |
 | TTS | `cartesia`, `deepgram`, `elevenlabs`, `mimo`, `minimax`, `speechify`, `telnyx`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | Speech-to-speech | `grok` | xAI API key — replaces STT, LLM, and TTS together |
@@ -21,6 +21,7 @@ Notes:
 - `tts.provider = "mimo"` is Xiaomi's MiMo TTS, with Chinese and English voices and optional voice cloning on the paid models.
 - `stt.provider = "aliyun"` is Alibaba Cloud Model Studio (DashScope) streaming ASR; `vocabulary_id` biases it toward domain terms.
 - `stt.provider = "volcengine"` is Doubao streaming ASR — useful where Deepgram is slow to reach or its Mandarin is not good enough. The console gives a free hourly allowance.
+- `stt.provider = "telnyx"` fronts Telnyx's in-house and a dozen hosted transcription engines over one WebSocket and one key. The in-house engine is finals-only, so barge-in and live captions need a hosted engine. See [Telnyx STT](#telnyx-stt).
 - `realtime.provider = "grok"` switches to speech-to-speech and ignores `[stt]`, `[llm]`, and `[tts]` entirely.
 
 Every key and knob lives in the [configuration reference](./configuration.md).
@@ -147,6 +148,27 @@ Three things to know:
 - **Telnyx LLMs need no new provider.** `openai.base_url = "https://api.telnyx.com/v2/ai"` points the existing `openai` LLM provider at Telnyx inference (e.g. model `glm-5.3`) with zero code.
 
 Delivery tags map onto `voice_speed` (clamped to 0.8–1.2, the same conversational band as Cartesia), and `voice_speed` in config sets the baseline pace for untagged sentences.
+
+## Telnyx STT
+
+Streaming transcription over the Telnyx speech-to-text WebSocket: raw linear16 binary frames in, JSON transcript frames out, at the pipeline's native 16 kHz mono so nothing resamples. The same `[telnyx]` section and API key as TTS cover both roles; `stt_engine` picks the recognizer.
+
+```toml
+[stt]
+provider = "telnyx"
+
+[telnyx]
+api_key = ""
+stt_engine = "Telnyx"   # or a hosted engine — "Deepgram", "AssemblyAI", "Azure", ... Casing matters
+```
+
+Three things to know:
+
+- **The in-house `Telnyx` engine is finals-only.** It emits exactly one final frame after the caller stops speaking — no interims, no timestamps, no confidence. Barge-in and live captions depend on interim results (the pipeline gates interruption on partial text), so **neither works with this engine**: interruptions never fire, and the client transcript shows nothing until the final lands. Use it for final-transcript-only deployments. See the [design discussion](https://github.com/streamcoreai/streamcore-server/issues/75) for the trade-offs.
+- **Hosted engines restore interims.** The same endpoint fronts AssemblyAI, Azure, Cohere, Deepgram, Google, Humain, Parakeet, Reson8, Soniox, Speechmatics, and xAI. Any engine other than `Telnyx` is requested with `interim_results=true`, partials stream as they do from any other provider, and barge-in and live captions work. `stt_engine = "Deepgram"` is the verified configuration.
+- **The engine name is case-sensitive.** `telnyx` is rejected with a structured error frame that lists the supported engines; the valid values are exactly the ones in that list, first letter capitalised.
+
+Confidence arrives as `null` from the in-house engine and a 0–1 float from hosted ones; the pipeline treats `null` as unknown rather than low.
 
 ## Local VibeVoice setup
 

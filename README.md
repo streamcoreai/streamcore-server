@@ -117,6 +117,8 @@ Providers: Deepgram, AssemblyAI, OpenAI, Cartesia, ElevenLabs, MiniMax, Speechif
 
 OpenAI STT supports `whisper-1`, `gpt-4o-transcribe`, and `gpt-4o-mini-transcribe` through the independent `openai.stt_model` setting.
 
+Telnyx STT fronts a dozen engines behind one key (`telnyx.stt_engine`); the in-house `Telnyx` engine is finals-only, so barge-in and live captions need a hosted engine such as `Deepgram`.
+
 ## Documentation
 
 | Page | What's in it |

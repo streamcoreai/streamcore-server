@@ -38,7 +38,7 @@ turn_merge_ms = 350                  # Debounce window for merging finals into o
 provider = ""                        # "grok", or empty for the classic pipeline
 
 [stt]
-provider = "deepgram"                # aliyun | assemblyai | deepgram | openai | vibevoice | volcengine
+provider = "deepgram"                # aliyun | assemblyai | deepgram | openai | telnyx | vibevoice | volcengine
 
 [llm]
 provider = "openai"                  # openai | ollama | agent
@@ -119,10 +119,12 @@ api_key = ""
 voice_id = ""
 model = ""
 
-[telnyx]                             # Telnyx hosted synthesis, used when tts.provider = "telnyx"
+[telnyx]                             # Telnyx hosted speech, used when tts.provider = "telnyx" or stt.provider = "telnyx"; one key covers both roles
 api_key = ""
 voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # Any catalog voice from GET /v2/text-to-speech/voices; availability varies by account
 voice_speed = 1.0                    # Playback-rate multiplier, clamped to 0.8-1.2
+stt_engine = "Telnyx"                # STT engine: the in-house recognizer or a hosted one (Deepgram, AssemblyAI, Azure, ...). Case-sensitive.
+                                     # In-house is finals-only — no barge-in or live captions; hosted engines stream interims and both work
 
 [minimax]
 api_key = ""

@@ -117,6 +117,8 @@ StreamCore 位于「提示词 + 工具」类框架的下一层：媒体链路。
 
 OpenAI STT 可通过独立的 `openai.stt_model` 配置选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
 
+Telnyx STT 用一个 key 前置十余种引擎（`telnyx.stt_engine`）；自研 `Telnyx` 引擎只出最终结果，打断（barge-in）与实时字幕需要 hosted 引擎（如 `Deepgram`）。
+
 ## 文档
 
 | 页面 | 内容 |
