@@ -4,7 +4,7 @@
 
 | Role | Providers | Required credentials |
 |------|-----------|----------------------|
-| STT | `aliyun`, `assemblyai`, `deepgram`, `openai`, `vibevoice`, `volcengine` | Matching provider API key, or a local VibeVoice ASR server |
+| STT | `aliyun`, `assemblyai`, `deepgram`, `openai`, `telnyx`, `vibevoice`, `volcengine` | Matching provider API key, or a local VibeVoice ASR server |
 | LLM | `openai`, `ollama`, `agent` | OpenAI API key, an Ollama instance you control, or your own HTTP agent endpoint |
 | TTS | `cartesia`, `deepgram`, `elevenlabs`, `mimo`, `minimax`, `speechify`, `telnyx`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
 | Speech-to-speech | `grok` | xAI API key — replaces STT, LLM, and TTS together |
@@ -12,7 +12,8 @@
 
 Notes:
 
-- `stt.provider = "openai"` uses batch final transcription instead of streaming partials; choose `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` with `openai.stt_model`.
+- `stt.provider = "openai"` uses batch final transcription instead of streaming partials, so barge-in and live captions do not work, since both depend on partials; choose `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` with `openai.stt_model`.
+- `stt.provider = "telnyx"` fronts Telnyx's in-house and a dozen hosted transcription engines over one WebSocket and one key. `transcription_engine` defaults to `Deepgram`, so barge-in and live captions work out of the box; the in-house `Telnyx` engine is finals-only, so both are off when it is selected. See [Telnyx STT](#telnyx-stt).
 - `llm.provider = "ollama"` targets any Ollama-compatible endpoint via `base_url` — local or on your own infrastructure.
 - `llm.provider = "agent"` POSTs each turn to an HTTP endpoint you host; your agent owns memory, prompting, and tools, and replies stream back as SSE, chunked text, or JSON. See [Bring your own agent](./bring-your-own-agent.md).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.
@@ -147,6 +148,27 @@ Three things to know:
 - **Telnyx LLMs need no new provider.** `openai.base_url = "https://api.telnyx.com/v2/ai"` points the existing `openai` LLM provider at Telnyx inference (e.g. model `glm-5.3`) with zero code.
 
 Delivery tags map onto `voice_speed` (clamped to 0.8–1.2, the same conversational band as Cartesia), and `voice_speed` in config sets the baseline pace for untagged sentences.
+
+## Telnyx STT
+
+Streaming transcription over the Telnyx speech-to-text WebSocket: raw linear16 binary frames in, JSON transcript frames out, at the pipeline's native 16 kHz mono so nothing resamples. The same `[telnyx]` section and API key as TTS cover both roles; `transcription_engine` picks the recognizer.
+
+```toml
+[stt]
+provider = "telnyx"
+
+[telnyx]
+api_key = ""
+transcription_engine = "Deepgram"   # verified: "Deepgram" (partial results, barge-in works) or "Telnyx" (in-house, finals-only). Case matters
+```
+
+Three things to know:
+
+- **`Deepgram` is the default.** It streams interim results exactly like the built-in Deepgram provider, so barge-in and live captions work out of the box. A finals-only default would silently switch both off for anyone who just sets the provider and starts talking.
+- **The in-house `Telnyx` engine is finals-only.** It emits exactly one final per utterance, only after the caller stops speaking: no interims, no timestamps, confidence `null`. Barge-in and live captions depend on interim results (the pipeline gates interruption on partial text), so **neither works with this engine**: interruptions never fire, and the client transcript shows nothing until the final lands. Because the engine answers only after audio stops, the client runs its own endpointing (`internal/vad`, the same detector the pipeline uses, with the silence timeout `openai.go` uses) and opens one socket per utterance, closing it once the final lands, since the server keeps it open. A startup log line says that barge-in and live captions are off for the session, so the operator learns it from the log rather than from a caller talking over the agent with nothing happening. See the [design discussion](https://github.com/streamcoreai/streamcore-server/issues/75) for the trade-offs.
+- **The engine name is case-sensitive and sent verbatim.** `telnyx` is rejected with a structured error frame that lists the supported engines. Only `Deepgram` and `Telnyx` are verified here; the other hosted engines the endpoint fronts (AssemblyAI, Azure, and the rest of that list) pass through untested.
+
+Confidence arrives as `null` from the in-house engine and a 0-1 float from hosted ones; the pipeline treats `null` as unknown rather than low.
 
 ## Local VibeVoice setup
 

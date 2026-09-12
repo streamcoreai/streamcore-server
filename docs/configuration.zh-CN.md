@@ -59,7 +59,7 @@ turn_merge_ms = 350                  # Debounce window for merging finals into o
 provider = ""                        # "grok", or empty for the classic pipeline
 
 [stt]
-provider = "deepgram"                # aliyun | assemblyai | deepgram | openai | vibevoice | volcengine
+provider = "deepgram"                # aliyun | assemblyai | deepgram | openai | telnyx | vibevoice | volcengine
 
 [llm]
 provider = "openai"                  # openai | ollama | agent
@@ -140,10 +140,12 @@ api_key = ""
 voice_id = ""
 model = ""
 
-[telnyx]                             # Telnyx 托管合成，当 tts.provider = "telnyx" 时使用
+[telnyx]                             # Telnyx 托管语音，当 tts.provider = "telnyx" 或 stt.provider = "telnyx" 时使用；一个 key 覆盖两个方向
 api_key = ""
 voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # GET /v2/text-to-speech/voices 目录中的任意音色；可用性因账号而异
 voice_speed = 1.0                    # 播放速率倍数，限制在 0.8-1.2
+transcription_engine = "Deepgram"    # STT 引擎，已验证取值："Deepgram"（有中间结果，打断可用；默认值）或
+                                     # "Telnyx"（自研，只出最终结果：打断与实时字幕关闭，启动日志会写明）。大小写敏感，原样透传
 
 [minimax]
 api_key = ""

@@ -409,8 +409,8 @@ type SpeechifyConfig struct {
 	Model   string `toml:"model"`
 }
 
-// TelnyxConfig configures Telnyx hosted speech synthesis, used when
-// tts.provider = "telnyx".
+// TelnyxConfig configures Telnyx hosted speech, used when tts.provider =
+// "telnyx" and when stt.provider = "telnyx". One API key covers both roles.
 type TelnyxConfig struct {
 	APIKey string `toml:"api_key"`
 	// Voice is a catalog voice from GET /v2/text-to-speech/voices. Empty
@@ -421,6 +421,15 @@ type TelnyxConfig struct {
 	// VoiceSpeed is a playback-rate multiplier (1.0 = normal), clamped to
 	// the 0.8-1.2 conversational band. Zero defaults to 1.0.
 	VoiceSpeed float64 `toml:"voice_speed"`
+	// TranscriptionEngine selects the recognizer used when stt.provider =
+	// "telnyx". The value is case-sensitive and sent to the endpoint
+	// verbatim. "Deepgram" (the default) streams partials, so barge-in and
+	// live captions work out of the box; the in-house "Telnyx" engine
+	// emits one final per utterance and no interims, so barge-in and live
+	// captions do not work with it and a startup log line says so. Other
+	// engines the endpoint fronts (AssemblyAI, Azure, ...) pass through
+	// untested.
+	TranscriptionEngine string `toml:"transcription_engine"`
 }
 
 type MiMoConfig struct {
@@ -568,6 +577,7 @@ func Load(path string) (*Config, error) {
 	if cfg.Telnyx.VoiceSpeed == 0 {
 		cfg.Telnyx.VoiceSpeed = 1.0
 	}
+	setDefault(&cfg.Telnyx.TranscriptionEngine, "Deepgram")
 	setDefault(&cfg.LLM.Provider, "openai")
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")
