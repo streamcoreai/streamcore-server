@@ -239,6 +239,86 @@ go tool pprof http://localhost:6060/debug/pprof/profile  # collects a 30-second 
 curl 'http://localhost:6060/debug/pprof/goroutine?debug=2'
 ```
 
+## Profiling in containers
+
+On a Docker bridge network, `127.0.0.1` is the container's own loopback, not the
+host's. Publishing `-p 6060:6060` does not make a listener bound only to that
+loopback reachable from the host: forwarded traffic reaches the container's
+network interface instead.
+
+### Keep the listener private and collect inside the container
+
+Keep these settings in the mounted `config.toml`, then restart the container:
+
+```toml
+[debug]
+bind = "127.0.0.1:6060"
+allow_public = false
+```
+
+For a running container named `streamcore`, collect a heap profile without
+publishing port 6060. The repository's [Dockerfile](../Dockerfile) includes
+Python 3; Go only needs to be installed on the machine inspecting the profile:
+
+```bash
+umask 077
+docker exec -i streamcore python3 - > heap.pb.gz <<'PY'
+import sys
+import urllib.request
+
+with urllib.request.urlopen("http://127.0.0.1:6060/debug/pprof/heap", timeout=30) as response:
+    sys.stdout.buffer.write(response.read())
+PY
+go tool pprof heap.pb.gz
+```
+
+Do not add `-t`: a pseudo-terminal is unnecessary for a binary profile. Keep
+profile files private; they can contain sensitive process data. Use the actual
+container name when it differs from this example.
+
+### Publish to host loopback only when necessary
+
+For a temporary debugging container on a dedicated bridge network, the listener
+must accept traffic on the container interface. This requires the explicit
+acknowledgement below; `allow_public` does **not** add authentication:
+
+```toml
+[debug]
+bind = "0.0.0.0:6060"
+allow_public = true
+```
+
+With the image built as in the [quick start](./quickstart.md), create the
+container with an explicit host-loopback mapping:
+
+```bash
+docker network create streamcore-debug
+docker run --rm --name streamcore-profile --network streamcore-debug \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:6060:6060 \
+  -v "$(pwd)/config.toml:/config.toml:ro" \
+  streamcore-server
+```
+
+From another terminal on the Docker host, the profiling commands above can use
+`http://127.0.0.1:6060`. Do not replace the debug mapping with `-p 6060:6060`,
+which publishes on all host interfaces by default. Use Docker Engine 28.0.0 or
+newer for this mapping; older releases have a documented
+[localhost-publishing exposure](https://docs.docker.com/engine/network/port-publishing/).
+
+Host-loopback publishing is not isolation from other containers on the
+[same bridge network](https://docs.docker.com/engine/network/drivers/bridge/):
+they can still reach `6060` on the container interface. Do not attach untrusted
+containers, enable direct routing to the debug listener, or put it behind a
+public proxy. Prefer the `docker exec` approach when those restrictions cannot
+be guaranteed. Remove the temporary network with `docker network rm
+streamcore-debug` after the container has stopped.
+
+With Linux [`--network host`](https://docs.docker.com/engine/network/drivers/host/),
+there is no separate container network namespace. Keep
+`bind = "127.0.0.1:6060"` and `allow_public = false`; reach it on the host
+loopback, or through an SSH tunnel to that host. Port-publishing flags are ignored
+in host mode. After profiling, set `bind = ""` and restart to disable the listener.
+
 ## Secrets from environment variables
 
 Every secret can be injected as an environment variable instead of written into `config.toml`, which is what container and cloud deployments need to keep keys out of images and files. A set variable **overrides** the file value — the deployment environment is more authoritative than a baked-in config — and each override is logged by name (never by value) at startup. An empty variable is treated as unset.
