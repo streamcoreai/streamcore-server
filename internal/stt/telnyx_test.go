@@ -465,3 +465,41 @@ func TestTelnyxUtteranceClientSilenceNeverDials(t *testing.T) {
 	default:
 	}
 }
+
+// EmitsPartials splits along the same line as the socket lifecycle: the
+// hosted engines stream interims, so barge-in keeps its partial-text gate;
+// the in-house engine is finals-only, so the pipeline falls back to
+// VAD-only barge-in. The exact-case engine string decides, consistent
+// with how NewTelnyxClient routes.
+func TestTelnyxClientEmitsPartialsByEngine(t *testing.T) {
+	f := newFakeTelnyxSTT(t, func(conn *websocket.Conn) {
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	})
+	overrideTelnyxSTTURL(t, f.wsURL())
+
+	session, err := NewTelnyxClient(context.Background(),
+		config.TelnyxConfig{APIKey: "k", TranscriptionEngine: "Deepgram"}, func(TranscriptResult) {})
+	if err != nil {
+		t.Fatalf("session client: %v", err)
+	}
+	defer session.Close()
+
+	if ep, ok := session.(PartialsEmitter); !ok || !ep.EmitsPartials() {
+		t.Error("hosted-engine client EmitsPartials = false, want true (it streams interims)")
+	}
+
+	utterance, err := NewTelnyxClient(context.Background(),
+		config.TelnyxConfig{APIKey: "k", TranscriptionEngine: "Telnyx"}, func(TranscriptResult) {})
+	if err != nil {
+		t.Fatalf("utterance client: %v", err)
+	}
+	defer utterance.Close()
+
+	if ep, ok := utterance.(PartialsEmitter); !ok || ep.EmitsPartials() {
+		t.Error("in-house-engine client EmitsPartials = true, want false (one final per utterance, nothing before it)")
+	}
+}

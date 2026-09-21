@@ -129,6 +129,15 @@ func (p *Pipeline) runInbound() {
 	}
 	defer sttClient.Close()
 
+	// Finals-only providers never confirm speech with partial text
+	// (issue #75). Asserted once here: a provider that does not implement
+	// stt.PartialsEmitter keeps emitsPartials true and the partials-driven
+	// path below exactly as it was.
+	emitsPartials := true
+	if ep, ok := sttClient.(stt.PartialsEmitter); ok {
+		emitsPartials = ep.EmitsPartials()
+	}
+
 	// Backchannel suppression state machine
 	var bargeInPending bool
 	var bargeInStart time.Time
@@ -172,6 +181,10 @@ func (p *Pipeline) runInbound() {
 						}
 					} else if !p.bargeInVAD.IsSpeaking() {
 						// Speech ended within the window — check for backchannel.
+						// A finals-only provider has no partial text here, so
+						// every burst that ends inside the window classifies as
+						// backchannel: with no text, there is no basis to cut
+						// the agent off mid-word.
 						partial, _ := latestPartial.Load("text")
 						partialStr, _ := partial.(string)
 						if !isMeaningfulBargeInTranscript(partialStr) {
@@ -200,8 +213,12 @@ func (p *Pipeline) runInbound() {
 						}
 					}
 					// else: still speaking within window, keep waiting
-				} else if p.bargeInVAD.IsSpeaking() && p.speaking.Load() && hasPartialText.Load() {
+				} else if p.bargeInVAD.IsSpeaking() && p.speaking.Load() && (!emitsPartials || hasPartialText.Load()) {
 					// Conditions met — start backchannel suppression window.
+					// A finals-only provider opens the window on VAD alone,
+					// since partial text never arrives to confirm the speech;
+					// the interrupt still cannot fire until the window has
+					// fully elapsed.
 					bargeInPending = true
 					bargeInStart = time.Now()
 					hasPartialText.Store(false)
