@@ -425,10 +425,10 @@ type TelnyxConfig struct {
 	// "telnyx". The value is case-sensitive and sent to the endpoint
 	// verbatim. "Deepgram" (the default) streams partials, so barge-in and
 	// live captions work out of the box; the in-house "Telnyx" engine
-	// emits one final per utterance and no interims, so barge-in and live
-	// captions do not work with it and a startup log line says so. Other
-	// engines the endpoint fronts (AssemblyAI, Azure, ...) pass through
-	// untested.
+	// emits one final per utterance and no interims, so live captions show
+	// finals only and barge-in runs VAD-only after the backchannel window —
+	// a startup log line says so. Other engines the endpoint fronts
+	// (AssemblyAI, Azure, ...) pass through untested.
 	TranscriptionEngine string `toml:"transcription_engine"`
 }
 

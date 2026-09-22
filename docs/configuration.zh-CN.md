@@ -145,7 +145,7 @@ api_key = ""
 voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # GET /v2/text-to-speech/voices 目录中的任意音色；可用性因账号而异
 voice_speed = 1.0                    # 播放速率倍数，限制在 0.8-1.2
 transcription_engine = "Deepgram"    # STT 引擎，已验证取值："Deepgram"（有中间结果，打断可用；默认值）或
-                                     # "Telnyx"（自研，只出最终结果：打断与实时字幕关闭，启动日志会写明）。大小写敏感，原样透传
+                                     # "Telnyx"（自研，只出最终结果：实时字幕只显示最终结果，打断降级为等满回应窗口后仅凭 VAD 触发；启动日志会写明）。大小写敏感，原样透传
 
 [minimax]
 api_key = ""

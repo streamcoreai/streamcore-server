@@ -47,3 +47,23 @@ func TestOpenAITranscriptionUsesConfiguredModel(t *testing.T) {
 		t.Errorf("transcript = %q, want %q", gotTranscript, "hello")
 	}
 }
+
+// The transcription API is batch-oriented: only finals ever arrive, so the
+// client must report finals-only and let the pipeline fall back to
+// VAD-only barge-in (issue #75).
+func TestOpenAIClientEmitsNoPartials(t *testing.T) {
+	client, err := NewOpenAIClient(context.Background(), "test-key", "", func(TranscriptResult) {})
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	defer client.Close()
+
+	var c Client = client
+	ep, ok := c.(PartialsEmitter)
+	if !ok {
+		t.Fatal("openaiClient does not satisfy PartialsEmitter")
+	}
+	if ep.EmitsPartials() {
+		t.Error("openaiClient EmitsPartials = true, want false (batch transcription is finals-only)")
+	}
+}

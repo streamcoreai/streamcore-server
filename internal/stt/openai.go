@@ -190,6 +190,12 @@ func (c *openaiClient) Close() {
 	log.Println("[stt:openai] closed")
 }
 
+// EmitsPartials reports whether this client streams interim results. The
+// transcription API is batch-oriented — only finals ever arrive — so this
+// is false and the pipeline runs barge-in in its VAD-only degraded mode
+// (issue #75).
+func (c *openaiClient) EmitsPartials() bool { return false }
+
 // rmsEnergy calculates the root-mean-square energy of linear16 PCM samples.
 func rmsEnergy(data []byte) float64 {
 	if len(data) < 2 {

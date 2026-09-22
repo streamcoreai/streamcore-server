@@ -159,8 +159,8 @@ api_key = ""
 voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"        # Any catalog voice from GET /v2/text-to-speech/voices; availability varies by account
 voice_speed = 1.0                    # Playback-rate multiplier, clamped to 0.8-1.2
 transcription_engine = "Deepgram"    # STT engine, verified values: "Deepgram" (partials, barge-in works; the default) or
-                                     # "Telnyx" (in-house, finals-only: barge-in and live captions are off, and a startup
-                                     # log line says so). Case-sensitive, sent verbatim
+                                     # "Telnyx" (in-house, finals-only: live captions show finals only and barge-in waits
+                                     # out the backchannel window on VAD alone; a startup log line says so). Case-sensitive, sent verbatim
 
 [minimax]
 api_key = ""

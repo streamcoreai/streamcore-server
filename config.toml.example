@@ -221,9 +221,9 @@ voice = "Telnyx.Qwen3TTS.d9348e0d-988a-42cc-a64e-18093fe45c03"  # Any catalog vo
 voice_speed = 1.0       # Playback-rate multiplier, clamped to 0.8-1.2 like the per-utterance delivery tags
 transcription_engine = "Deepgram"  # STT. Transcription engine when stt.provider = "telnyx".
                           # Verified values: "Deepgram" (streams partials, so barge-in and live captions
-                          # work) or "Telnyx" (in-house, finals-only, so barge-in and live captions are
-                          # off and a startup log line says so). Case-sensitive, sent verbatim; other
-                          # hosted engines the endpoint fronts pass through untested
+                          # work) or "Telnyx" (in-house, finals-only: live captions show finals only and
+                          # barge-in waits out the backchannel window on VAD alone; a startup log line
+                          # says so). Case-sensitive, sent verbatim; other hosted engines pass through untested
 
 [mimo]
 api_key = ""            # Required if tts.provider = "mimo"

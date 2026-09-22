@@ -12,8 +12,8 @@
 
 注意：
 
-- `stt.provider = "openai"` 使用批量最终转写而不是流式中间结果，打断（barge-in）与实时字幕都依赖中间结果，因此都不工作；可通过 `openai.stt_model` 选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
-- `stt.provider = "telnyx"` 通过一条 WebSocket、一个 key 前置自研与十余种托管转写引擎。`transcription_engine` 默认 `Deepgram`，打断与实时字幕开箱即用；自研 `Telnyx` 引擎只出最终结果，选中它时两者关闭。见 [Telnyx STT](#telnyx-stt)。
+- `stt.provider = "openai"` 使用批量最终转写而不是流式中间结果，因此实时字幕只显示最终结果，打断降级为等满 600ms 回应窗口后仅凭 VAD 触发（没有文本，无法对短促语做分类）；可通过 `openai.stt_model` 选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
+- `stt.provider = "telnyx"` 通过一条 WebSocket、一个 key 前置自研与十余种托管转写引擎。`transcription_engine` 默认 `Deepgram`，打断与实时字幕开箱即用；自研 `Telnyx` 引擎只出最终结果，实时字幕只显示最终结果，打断降级为等满回应窗口后仅凭 VAD 触发。见 [Telnyx STT](#telnyx-stt)。
 - `llm.provider = "ollama"` 通过 `base_url` 指向任何兼容 Ollama 的端点 —— 本地或你自己的基础设施均可。
 - `llm.provider = "agent"` 把每一轮对话 POST 到你托管的 HTTP 端点；记忆、提示词与工具都由你的智能体掌控，回复以 SSE、分块文本或 JSON 流式返回。见[接入你自己的智能体](./bring-your-own-agent.zh-CN.md)。
 - `stt.provider = "vibevoice"` 与 `tts.provider = "vibevoice"` 使用本地模型；请先启动 Python 边车进程。
@@ -164,8 +164,8 @@ transcription_engine = "Deepgram"   # 已验证取值："Deepgram"（有中间�
 
 有三件事必须弄对：
 
-- **默认是 `Deepgram`。** 它像内置的 Deepgram 服务商一样流式输出中间结果，打断（barge-in）与实时字幕开箱即用。一个只出最终结果的默认引擎，会让任何只改了 provider 就开始说话的人悄无声息地失去这两项能力。
-- **自研 `Telnyx` 引擎只出最终结果。** 它在来电者停止说话后才发出唯一一帧 final —— 没有中间结果、没有时间戳、置信度为 `null`。打断与实时字幕依赖中间结果（流水线以部分文本来判定打断），因此**这两项在该引擎下不工作**：打断永远不会触发，客户端字幕也要等到 final 落地才有内容。因为该引擎只在整个话语结束后才应答，客户端自己做端点检测（`internal/vad`，即流水线在用的同一个检测器，静音窗口与 `openai.go` 相同），每个话语开一条新连接，final 落地后由客户端关闭（服务端会一直握着连接不放）。启动时日志里会写明本会话的打断与实时字幕已关闭，运维从日志就能知道，而不用等到来电者对着智能体说话却毫无反应。取舍讨论见[设计讨论](https://github.com/streamcoreai/streamcore-server/issues/75)。
+- **默认是 `Deepgram`。** 它像内置的 Deepgram 服务商一样流式输出中间结果，打断（barge-in）与实时字幕开箱即用。一个只出最终结果的默认引擎，会让任何只改了 provider 就开始说话的人悄无声息地让这两项能力降级：打断退化为仅凭 VAD，实时字幕只剩最终结果。
+- **自研 `Telnyx` 引擎只出最终结果。** 它在来电者停止说话后才发出唯一一帧 final —— 没有中间结果、没有时间戳、置信度为 `null`。客户端字幕要等到 final 落地才有内容。打断没有中间文本可判定，因此是降级而不是关闭：来电者压过智能体说话时，抑制窗口仅凭 VAD 打开，只有说话持续超过整个 600ms 回应窗口后才确认打断；窗口内结束的短促语一律按回应词处理 —— 没有文本就无法把它和 "嗯嗯" 区分开。持续抢话可以打断，短促抢话不能。因为该引擎只在整个话语结束后才应答，客户端自己做端点检测（`internal/vad`，即流水线在用的同一个检测器，静音窗口与 `openai.go` 相同），每个话语开一条新连接，final 落地后由客户端关闭（服务端会一直握着连接不放）。启动时日志里会写明本会话的打断以仅凭 VAD 的降级模式运行，运维从日志就能知道。取舍讨论见[设计讨论](https://github.com/streamcoreai/streamcore-server/issues/75)。
 - **引擎名大小写敏感，原样透传。** `telnyx` 会被一帧结构化错误拒绝，错误里列出支持的引擎。此处只验证了 `Deepgram` 与 `Telnyx` 两个取值；该端点前置的其他托管引擎（AssemblyAI、Azure 及列表中的其余引擎）可透传但未经测试。
 
 置信度：自研引擎返回 `null`，托管引擎返回 0-1 浮点数；流水线把 `null` 视为未知而不是低置信。

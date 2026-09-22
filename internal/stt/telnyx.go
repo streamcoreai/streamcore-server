@@ -33,8 +33,9 @@ const (
 	telnyxInHouseEngine = "Telnyx"
 	// telnyxDefaultEngine is what an unset transcription_engine falls back
 	// to. It streams partials, so barge-in and live captions work without
-	// any extra configuration; a finals-only default would silently switch
-	// both off for anyone who just sets the provider and starts talking.
+	// any extra configuration; a finals-only default would silently degrade
+	// both (barge-in to VAD-only, captions to finals only) for anyone who
+	// just sets the provider and starts talking.
 	telnyxDefaultEngine = "Deepgram"
 
 	// Client-side endpointing for the in-house engine, which transcribes
@@ -98,7 +99,7 @@ func NewTelnyxClient(ctx context.Context, cfg config.TelnyxConfig, onResult func
 	}
 
 	if engine == telnyxInHouseEngine {
-		log.Printf("[stt] telnyx in-house engine emits finals only: no interim results, so barge-in and live captions are off for this session")
+		log.Printf("[stt] telnyx in-house engine emits finals only: no interim results, so live captions show finals only and barge-in runs VAD-only after the backchannel window")
 		return newTelnyxUtteranceClient(ctx, cfg.APIKey, onResult), nil
 	}
 	return newTelnyxSessionClient(ctx, engine, cfg.APIKey, onResult)
@@ -187,6 +188,11 @@ func (c *telnyxSessionClient) Close() {
 	_ = c.conn.Close()
 	c.cancel()
 }
+
+// EmitsPartials reports whether this client streams interim results. Every
+// hosted engine streams interims exactly like deepgram.go does, which is
+// what barge-in's partial-text gate and live captions read.
+func (c *telnyxSessionClient) EmitsPartials() bool { return true }
 
 // telnyxUtteranceClient is the in-house-engine half: one socket per
 // utterance with client-side endpointing.
@@ -379,6 +385,12 @@ func (c *telnyxUtteranceClient) Close() {
 
 	c.wg.Wait()
 }
+
+// EmitsPartials reports whether this client streams interim results. The
+// in-house engine emits exactly one final per utterance and nothing before
+// it, so this is false: the pipeline falls back to VAD-only barge-in
+// (issue #75).
+func (c *telnyxUtteranceClient) EmitsPartials() bool { return false }
 
 // telnyxSTTEndpoint builds the dial URL. The engine value is URL-encoded
 // because it reaches the server as a query parameter, and interim_results
