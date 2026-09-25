@@ -1,0 +1,8 @@
+# Moonshine TTS sidecar.
+#
+# moonshine-voice ships the native runtime and pulls numpy in with it; voices
+# are downloaded on first use and cached.
+moonshine-voice>=0.1.5
+fastapi>=0.110.0
+uvicorn>=0.27.0
+numpy>=1.24.0

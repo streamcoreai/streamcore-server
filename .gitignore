@@ -14,11 +14,14 @@ node_modules/
 .terraform/
 plugins/plugins/*/.env
 plugins/plugins/*/.env.*
-plugins/plugins/*/.venv
 plugins/plugins/*/token.json
-external/vibeVoice/.venv
 # Local server config (API keys); keep *example* files tracked
 config.toml
+
+# Python virtualenvs and bytecode (external sidecars, plugins)
+.venv/
+__pycache__/
+*.pyc
 
 # Go build / test artifacts
 *.exe

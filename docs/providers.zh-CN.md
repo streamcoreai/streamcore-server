@@ -4,9 +4,9 @@
 
 | 角色 | 服务商 | 所需凭据 |
 |------|-----------|----------------------|
-| STT | `aliyun`、`assemblyai`、`deepgram`、`openai`、`telnyx`、`vibevoice`、`volcengine` | 对应服务商的 API key，或一个本地 VibeVoice ASR 服务 |
+| STT | `aliyun`、`assemblyai`、`deepgram`、`moonshine`、`openai`、`telnyx`、`vibevoice`、`volcengine` | 对应服务商的 API key，或一个本地 Moonshine / VibeVoice ASR 服务 |
 | LLM | `openai`、`ollama`、`agent` | OpenAI API key、你自己掌控的 Ollama 实例，或你自己的 HTTP 智能体端点 |
-| TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`speechify`、`telnyx`、`vibevoice` | 对应服务商的 API key，或一个本地 VibeVoice TTS 服务 |
+| TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`moonshine`、`speechify`、`telnyx`、`vibevoice` | 对应服务商的 API key，或一个本地 Moonshine / VibeVoice TTS 服务 |
 | 语音到语音 | `grok` | xAI API key —— 一并取代 STT、LLM 与 TTS |
 | RAG（可选） | `pgvector`、`supabase` | Postgres 连接串或 Supabase URL + key，另需 OpenAI key 用于 embedding |
 
@@ -17,6 +17,7 @@
 - `llm.provider = "ollama"` 通过 `base_url` 指向任何兼容 Ollama 的端点 —— 本地或你自己的基础设施均可。
 - `llm.provider = "agent"` 把每一轮对话 POST 到你托管的 HTTP 端点；记忆、提示词与工具都由你的智能体掌控，回复以 SSE、分块文本或 JSON 流式返回。见[接入你自己的智能体](./bring-your-own-agent.zh-CN.md)。
 - `stt.provider = "vibevoice"` 与 `tts.provider = "vibevoice"` 使用本地模型；请先启动 Python 边车进程。
+- `stt.provider = "moonshine"` 与 `tts.provider = "moonshine"` 是另一组完全本地的方案，同样基于 Python 边车进程。STT 边车按 Deepgram 的线格式应答，因此走的是与 Deepgram 相同的转写处理路径。见[本地 Moonshine 配置](#本地-moonshine-配置)。
 - `tts.provider = "minimax"` 覆盖 40+ 语言，是中文场景下最强的选项。区域与套餐相关的坑见 [MiniMax TTS](#minimax-tts)。
 - `tts.provider = "telnyx"` 是 Telnyx 托管合成，每个话语一条 WebSocket 连接；音色可用性因账号而异。连接模型与音色目录见 [Telnyx TTS](#telnyx-tts)。
 - `tts.provider = "mimo"` 是小米 MiMo TTS，中英文音色齐备，付费模型还支持声音克隆。
@@ -176,9 +177,9 @@ VibeVoice 提供完全本地、无需 API key 的 STT 与 TTS：识别用 [VibeV
 
 ```bash
 # Apple Silicon (MLX)
-pip install mlx-audio numpy websockets fastapi uvicorn
+pip install mlx-audio numpy websockets onnxruntime requests fastapi uvicorn
 # 或 PyTorch（Linux / CUDA）
-pip install torch transformers librosa numpy websockets fastapi uvicorn
+pip install torch "transformers>=5.3.0" accelerate librosa numpy websockets onnxruntime requests fastapi uvicorn
 
 python external/vibeVoice/vibeVoiceAsr/server.py   # ws://127.0.0.1:8200
 python external/vibeVoice/vibeVoiceTTS/server.py   # http://127.0.0.1:8300
@@ -198,3 +199,34 @@ voice = "en-Emma_woman"
 ```
 
 ASR 服务通过 WebSocket 接收实时 PCM 并输出 JSON 转写事件。TTS 服务接收 HTTP POST 并返回裸 PCM。
+
+## 本地 Moonshine 配置
+
+[Moonshine](https://moonshine.ai) 是另一组完全本地的方案：流式 STT 与 TTS 来自同一个 pip 包，无需 API key，也无需账号。模型首次运行时下载并缓存。英语 STT 模型为 MIT 许可，其他语言使用非商业的 [Moonshine Community License](https://www.moonshine.ai/license)。
+
+```bash
+pip install -r external/moonshine/moonshineStt/requirements.txt
+pip install -r external/moonshine/moonshineTts/requirements.txt
+
+python external/moonshine/moonshineStt/server.py   # ws://127.0.0.1:8210
+python external/moonshine/moonshineTts/server.py   # http://127.0.0.1:8310
+```
+
+```toml
+[stt]
+provider = "moonshine"
+
+[tts]
+provider = "moonshine"
+
+[moonshine]
+stt_url = "ws://127.0.0.1:8210"
+tts_url = "http://127.0.0.1:8310"
+voice = "kokoro_af_heart"
+```
+
+语言与模型的选择放在边车进程的命令行参数里，而不是配置项里，因为两者都在模型加载时就固定下来，并非按请求选择：STT 用 `--language`、`--model-arch`，TTS 用 `--language`、`--voice`。英语默认解析到 `medium-streaming`；`--model-arch tiny-streaming` 以准确率换取小得多的占用。某个 TTS 音色的首次请求会触发下载，因此除了初次尝试，建议加上 `--preload`。
+
+两个边车都使用 Deepgram 的线格式。STT 服务发送 `Results`、`SpeechStarted` 与 `UtteranceEnd` 帧，服务端将其解析为 Deepgram 自己的类型并交给同一个累加器 —— 重叠的 final 会被合并，紧随其后的重复会被抑制，与 Deepgram 完全一致。它不提供 confidence，帧里也就不带这个字段，而不是编造一个；管线把缺失值理解为「未知」而非「低置信度」。TTS 服务对齐 `/v1/speak`，边合成边写出无头 PCM，因此播放可以从第一个短句开始。
+
+在 M 系列 Mac 上实测：首个 TTS 分块约 130 ms，合成速度约为播放速度的 9 倍。

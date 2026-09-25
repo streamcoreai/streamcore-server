@@ -126,9 +126,9 @@ ollama pull gpt-oss:20b
 
 ```bash
 # Apple Silicon (MLX)
-pip install mlx-audio numpy websockets fastapi uvicorn
+pip install mlx-audio numpy websockets onnxruntime requests fastapi uvicorn
 # OR Linux / CUDA
-# pip install torch transformers librosa numpy websockets fastapi uvicorn
+# pip install torch "transformers>=5.3.0" accelerate librosa numpy websockets onnxruntime requests fastapi uvicorn
 
 python external/vibeVoice/vibeVoiceAsr/server.py   # ws://127.0.0.1:8200
 python external/vibeVoice/vibeVoiceTTS/server.py   # http://127.0.0.1:8300
@@ -161,6 +161,26 @@ go run .
 ```
 
 Fully local realtime voice, no external API dependencies. Model and sidecar details in [Providers → Local VibeVoice setup](./providers.md#local-vibevoice-setup).
+
+Moonshine is the other local option, and the sidecars swap in without touching the rest of this config:
+
+```bash
+pip install -r external/moonshine/moonshineStt/requirements.txt
+pip install -r external/moonshine/moonshineTts/requirements.txt
+
+python external/moonshine/moonshineStt/server.py   # ws://127.0.0.1:8210
+python external/moonshine/moonshineTts/server.py   # http://127.0.0.1:8310
+```
+
+```toml
+[stt]
+provider = "moonshine"
+
+[tts]
+provider = "moonshine"
+```
+
+See [Providers → Local Moonshine setup](./providers.md#local-moonshine-setup).
 
 ---
 

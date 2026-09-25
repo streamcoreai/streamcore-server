@@ -144,6 +144,7 @@ def load_model(model_name):
         try:
             from mlx_audio.stt.utils import load
 
+            model_name = model_name or "mlx-community/VibeVoice-ASR-4bit"
             logger.info("Using MLX backend")
             logger.info(f"Loading model: {model_name}")
             _model = load(model_name)
@@ -153,34 +154,35 @@ def load_model(model_name):
         except ImportError:
             logger.warning("mlx-audio not installed, falling back to PyTorch")
 
-    # PyTorch fallback
+    # PyTorch fallback. The original microsoft/VibeVoice-ASR checkpoint ships no
+    # transformers remote code, so AutoModelForCausalLM can't load it; the -HF
+    # checkpoint works with the native class added in transformers 5.3.
     try:
         import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor
+        from transformers import AutoProcessor, VibeVoiceAsrForConditionalGeneration
 
+        model_name = model_name or "microsoft/VibeVoice-ASR-HF"
         logger.info("Using PyTorch backend")
         logger.info(f"Loading model: {model_name}")
 
+        model = VibeVoiceAsrForConditionalGeneration.from_pretrained(
+            model_name,
+            device_map="auto" if torch.cuda.is_available() else None,
+        )
+        model.eval()
         _model = {
-            "processor": AutoProcessor.from_pretrained(
-                model_name, trust_remote_code=True
-            ),
-            "model": AutoModelForCausalLM.from_pretrained(
-                model_name,
-                trust_remote_code=True,
-                torch_dtype=(
-                    torch.float16 if torch.cuda.is_available() else torch.float32
-                ),
-                device_map="auto" if torch.cuda.is_available() else None,
-            ),
+            "processor": AutoProcessor.from_pretrained(model_name),
+            "model": model,
         }
         _backend = "pytorch"
-        logger.info("Model loaded successfully")
+        logger.info(f"Model loaded on {model.device} ({model.dtype})")
     except Exception as e:
         raise RuntimeError(
             f"Failed to load model: {e}\n"
             "Install mlx-audio (Apple Silicon): pip install mlx-audio\n"
-            "Install PyTorch: pip install torch transformers"
+            'Install PyTorch: pip install torch "transformers>=5.3.0" accelerate librosa\n'
+            "The PyTorch backend needs a transformers-format checkpoint such as "
+            "microsoft/VibeVoice-ASR-HF"
         )
 
 
@@ -213,23 +215,22 @@ def transcribe_audio(wav_path):
         import torch
         import librosa
 
-        audio, sr = librosa.load(wav_path, sr=16000)
         processor = _model["processor"]
         model = _model["model"]
 
-        inputs = processor(
-            audios=audio,
-            sampling_rate=sr,
-            return_tensors="pt",
-            trust_remote_code=True,
+        # The acoustic tokenizer runs at 24 kHz and the processor passes numpy
+        # arrays through without resampling, so upsample the 16 kHz capture here.
+        audio, _ = librosa.load(wav_path, sr=processor.feature_extractor.sampling_rate)
+
+        inputs = processor.apply_transcription_request(audio=audio).to(
+            model.device, model.dtype
         )
-        if torch.cuda.is_available():
-            inputs = {k: v.cuda() for k, v in inputs.items()}
 
         with torch.no_grad():
             output_ids = model.generate(**inputs, max_new_tokens=8192)
 
-        raw = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
+        generated_ids = output_ids[:, inputs["input_ids"].shape[1] :]
+        raw = processor.decode(generated_ids, return_format="transcription_only")[0]
         text = _extract_text(raw)
         return "" if _is_noise_only(text) else text
 
@@ -396,7 +397,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VibeVoice ASR WebSocket Server")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host")
     parser.add_argument("--port", type=int, default=8200, help="Bind port")
-    parser.add_argument("--model", default=None, help="Model name or path")
+    parser.add_argument("--model", default=None, help="Model name or path (default depends on backend)")
     parser.add_argument(
         "--silence-timeout",
         type=float,
@@ -416,12 +417,5 @@ if __name__ == "__main__":
         level=getattr(logging, args.log_level.upper()),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
-
-    if args.model is None:
-        args.model = (
-            "mlx-community/VibeVoice-ASR-4bit"
-            if is_apple_silicon()
-            else "microsoft/VibeVoice-ASR"
-        )
 
     asyncio.run(main(args.host, args.port, args.model))

@@ -9,7 +9,9 @@ Live streaming speech-to-text server using Microsoft VibeVoice-ASR. Accepts raw 
 | Platform | Model | Backend |
 |----------|-------|---------|
 | Apple Silicon | `mlx-community/VibeVoice-ASR-4bit` | mlx-audio |
-| Linux / CUDA | `microsoft/VibeVoice-ASR` | PyTorch + transformers |
+| Linux / CUDA | `microsoft/VibeVoice-ASR-HF` | PyTorch + transformers ≥ 5.3 |
+
+The PyTorch backend loads the model with transformers' native `VibeVoiceAsrForConditionalGeneration`, so it needs the `-HF` checkpoint. The original `microsoft/VibeVoice-ASR` checkpoint only loads through Microsoft's `vibevoice` package and won't work here.
 
 ## Install
 
@@ -19,7 +21,7 @@ pip install -r requirements.txt
 # Then install one backend:
 pip install mlx-audio          # Apple Silicon
 # OR
-pip install torch transformers librosa  # PyTorch
+pip install torch "transformers>=5.3.0" accelerate librosa  # PyTorch
 ```
 
 ## Run
@@ -29,7 +31,7 @@ python server.py
 # ws://127.0.0.1:8200
 
 python server.py --port 9000 --model mlx-community/VibeVoice-ASR-bf16
-python server.py --silence-timeout 1.0 --energy-threshold 400
+python server.py --silence-timeout 1.0 --vad-threshold 0.6
 ```
 
 ## Protocol
@@ -42,7 +44,7 @@ python server.py --silence-timeout 1.0 --energy-threshold 400
 {"text": "hello how are you doing", "is_final": true}
 ```
 
-The server buffers incoming audio, detects speech boundaries via energy-based VAD, and transcribes when silence is detected (~800 ms default). Partial results are emitted every ~3 seconds during long utterances.
+The server buffers incoming audio, detects speech boundaries with Silero VAD, and transcribes when silence is detected (~800 ms default). Only final results are emitted.
 
 ## Options
 
@@ -52,5 +54,5 @@ The server buffers incoming audio, detects speech boundaries via energy-based VA
 | `--port` | `8200` | Bind port |
 | `--model` | auto (MLX 4-bit or PyTorch) | HuggingFace model name |
 | `--silence-timeout` | `0.8` | Seconds of silence before final result |
-| `--energy-threshold` | `500` | RMS energy threshold for speech detection |
+| `--vad-threshold` | `0.5` | Silero VAD speech probability threshold (0.0-1.0) |
 | `--log-level` | `INFO` | Logging level |

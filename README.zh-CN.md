@@ -113,7 +113,7 @@ StreamCore 位于「提示词 + 工具」类框架的下一层：媒体链路。
 
 详情与代码：[接入你自己的智能体](./docs/bring-your-own-agent.zh-CN.md) · [智能体运行时](./docs/agent-runtime.zh-CN.md)。
 
-服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Telnyx、Ollama、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见[服务商](./docs/providers.zh-CN.md)。
+服务商：Deepgram、AssemblyAI、OpenAI、Cartesia、ElevenLabs、MiniMax、Speechify、Telnyx、Ollama、Moonshine（本地）、VibeVoice（本地）、xAI Grok Voice（语音到语音），检索支持 pgvector / Supabase。见[服务商](./docs/providers.zh-CN.md)。
 
 OpenAI STT 可通过独立的 `openai.stt_model` 配置选择 `whisper-1`、`gpt-4o-transcribe` 或 `gpt-4o-mini-transcribe`。
 
@@ -128,7 +128,7 @@ Telnyx STT 用一个 key 前置十余种引擎（`telnyx.transcription_engine`�
 | [接入你自己的智能体](./docs/bring-your-own-agent.zh-CN.md) | 掌控智能体的五种方式，含 HTTP 智能体端点与 `llm.Client` 接口 |
 | [智能体运行时](./docs/agent-runtime.zh-CN.md) | 插件、技能、RAG、文档入库 |
 | [开发者智能体](./docs/developer-agent.zh-CN.md) | 可选的 GitHub App 与 Codex 集成：CI 排查、隔离 worktree、需确认的 Pull Request |
-| [服务商](./docs/providers.zh-CN.md) | Grok 语音到语音、MiniMax、本地 VibeVoice 及各服务商注意事项 |
+| [服务商](./docs/providers.zh-CN.md) | Grok 语音到语音、MiniMax、本地 Moonshine 与 VibeVoice 及各服务商注意事项 |
 | [配置](./docs/configuration.zh-CN.md) | 完整带注释的 `config.toml` 参考 |
 | [协议](./docs/protocol.zh-CN.md) | WHIP 信令、DataChannel 事件、鉴权 |
 | [架构](./docs/architecture.zh-CN.md) | 媒体流转、为什么用 Go、包结构 |

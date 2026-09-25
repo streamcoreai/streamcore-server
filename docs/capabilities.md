@@ -114,9 +114,9 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 
 | AI integration | Providers |
 |----------------|-----------|
-| Streaming STT | Deepgram, AssemblyAI, OpenAI, VibeVoice (local) |
+| Streaming STT | Deepgram, AssemblyAI, OpenAI, Moonshine (local), VibeVoice (local) |
 | LLM | OpenAI, Ollama (local or self-hosted), or your own HTTP agent endpoint (`agent`) |
-| Streaming TTS | Cartesia, Deepgram, ElevenLabs, MiniMax, Speechify, VibeVoice (local) |
+| Streaming TTS | Cartesia, Deepgram, ElevenLabs, MiniMax, Moonshine (local), Speechify, VibeVoice (local) |
 | Speech-to-speech | xAI Grok Voice (replaces STT + LLM + TTS in one model) |
 | Retrieval | pgvector, Supabase |
 | Custom tools | Python / TypeScript / JavaScript plugins, native Go tools |

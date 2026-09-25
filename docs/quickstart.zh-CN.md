@@ -125,9 +125,9 @@ ollama pull gpt-oss:20b
 
 ```bash
 # Apple Silicon (MLX)
-pip install mlx-audio numpy websockets fastapi uvicorn
+pip install mlx-audio numpy websockets onnxruntime requests fastapi uvicorn
 # 或 Linux / CUDA
-# pip install torch transformers librosa numpy websockets fastapi uvicorn
+# pip install torch "transformers>=5.3.0" accelerate librosa numpy websockets onnxruntime requests fastapi uvicorn
 
 python external/vibeVoice/vibeVoiceAsr/server.py   # ws://127.0.0.1:8200
 python external/vibeVoice/vibeVoiceTTS/server.py   # http://127.0.0.1:8300
@@ -160,6 +160,26 @@ go run .
 ```
 
 完全本地的实时语音，不依赖任何外部 API。模型与边车进程的细节见[服务商 → 本地 VibeVoice 配置](./providers.zh-CN.md#本地-vibevoice-配置)。
+
+Moonshine 是另一个本地选项，边车进程可以直接替换，其余配置不动：
+
+```bash
+pip install -r external/moonshine/moonshineStt/requirements.txt
+pip install -r external/moonshine/moonshineTts/requirements.txt
+
+python external/moonshine/moonshineStt/server.py   # ws://127.0.0.1:8210
+python external/moonshine/moonshineTts/server.py   # http://127.0.0.1:8310
+```
+
+```toml
+[stt]
+provider = "moonshine"
+
+[tts]
+provider = "moonshine"
+```
+
+见[服务商 → 本地 Moonshine 配置](./providers.zh-CN.md#本地-moonshine-配置)。
 
 ---
 

@@ -100,8 +100,10 @@ func newProviderClient(cfg *config.Config) (Client, error) {
 			cfg.Volcengine.TTSResourceID, cfg.Volcengine.TTSURL), nil
 	case "vibevoice":
 		return NewVibeVoiceClient(cfg.VibeVoice.TTSURL, cfg.VibeVoice.Voice), nil
+	case "moonshine":
+		return NewMoonshineClient(cfg.Moonshine.TTSURL, cfg.Moonshine.Voice), nil
 	default:
-		return nil, fmt.Errorf("unknown tts provider %q (supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, telnyx, vibevoice, volcengine)", cfg.TTS.Provider)
+		return nil, fmt.Errorf("unknown tts provider %q (supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, moonshine, speechify, telnyx, vibevoice, volcengine)", cfg.TTS.Provider)
 	}
 }
 
