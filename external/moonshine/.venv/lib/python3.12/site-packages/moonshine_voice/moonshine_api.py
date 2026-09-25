@@ -1,0 +1,1306 @@
+import ctypes
+import json
+import platform
+from dataclasses import dataclass
+from enum import IntEnum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+from moonshine_voice.errors import MoonshineError
+
+# ---------------------------------------------------------------------------
+# Constants (moonshine-c-api.h)
+# ---------------------------------------------------------------------------
+
+MOONSHINE_HEADER_VERSION = 30000
+
+MOONSHINE_ERROR_NONE = 0
+MOONSHINE_ERROR_UNKNOWN = -1
+MOONSHINE_ERROR_INVALID_HANDLE = -2
+MOONSHINE_ERROR_INVALID_ARGUMENT = -3
+
+# Statuses from ``moonshine_tts_next_chunk``. Positive, so the usual
+# "negative means failure" test still separates them from real errors.
+MOONSHINE_TTS_NEED_TEXT = 1
+MOONSHINE_TTS_END_OF_STREAM = 2
+# Sent once after a cancel discarded a reply, so a consumer pulling chunks can
+# tell an interruption from having run out of text.
+MOONSHINE_TTS_CANCELLED = 3
+
+MOONSHINE_FLAG_FORCE_UPDATE = 1 << 0
+# Mirror of ``MOONSHINE_FLAG_SPELLING_MODE`` from
+# core/moonshine-c-api.h. When set, completed transcript lines are
+# replaced in place with the resolved single-character output of the
+# alphanumeric spelling fuser. Has no effect unless the transcriber was
+# constructed with a spelling model.
+MOONSHINE_FLAG_SPELLING_MODE = 1 << 1
+
+MOONSHINE_EMBEDDING_MODEL_ARCH_GEMMA_300M = 0
+
+
+def _decode_utf8_from_c(buf: bytes) -> str:
+    """Decode C malloc NUL-terminated bytes; tolerate rare invalid UTF-8 from native G2P output."""
+    try:
+        return buf.decode("utf-8")
+    except UnicodeDecodeError:
+        return buf.decode("utf-8", errors="replace")
+
+
+def moonshine_free(address: Optional[int]) -> None:
+    """Release memory allocated by the Moonshine C API (``malloc``). Pass the raw pointer value (integer).
+
+    Frees through the library's own ``moonshine_free_buffer`` export rather than
+    the C runtime's ``free`` directly. On Windows the library and this Python
+    process can be linked against different C runtimes with independent heaps, so
+    freeing a library-allocated pointer with the host CRT's ``free`` corrupts the
+    heap (a deferred, hard-to-diagnose crash). Routing the free back through the
+    library keeps the allocation and deallocation in the same runtime.
+    """
+    if address:
+        _MoonshineLib().lib.moonshine_free_buffer(ctypes.c_void_p(address))
+
+
+# C structure definitions matching moonshine-c-api.h
+
+
+class TranscriptWordC(ctypes.Structure):
+    """C structure for transcript_word_t."""
+
+    _fields_ = [
+        ("text", ctypes.POINTER(ctypes.c_char)),
+        ("start", ctypes.c_float),
+        ("end", ctypes.c_float),
+        ("confidence", ctypes.c_float),
+    ]
+
+
+class TtsChunkC(ctypes.Structure):
+    """C structure for tts_chunk_t."""
+
+    _fields_ = [
+        ("audio_data", ctypes.POINTER(ctypes.c_float)),
+        ("audio_data_count", ctypes.c_uint64),
+        ("sample_rate", ctypes.c_int32),
+        ("text", ctypes.c_char_p),
+        ("utterance_id", ctypes.c_uint64),
+        ("is_final", ctypes.c_int8),
+    ]
+
+
+class SpeakerSpanC(ctypes.Structure):
+    """C structure for speaker_span_t."""
+
+    _fields_ = [
+        ("start_time", ctypes.c_float),
+        ("duration", ctypes.c_float),
+        ("speaker_id", ctypes.c_uint64),
+        ("speaker_index", ctypes.c_uint32),
+        ("start_char", ctypes.c_uint64),
+        ("end_char", ctypes.c_uint64),
+    ]
+
+
+class TranscriptLineC(ctypes.Structure):
+    """C structure for transcript_line_t."""
+
+    _fields_ = [
+        ("text", ctypes.POINTER(ctypes.c_char)),
+        ("audio_data", ctypes.POINTER(ctypes.c_float)),
+        ("audio_data_count", ctypes.c_size_t),
+        ("start_time", ctypes.c_float),
+        ("duration", ctypes.c_float),
+        ("id", ctypes.c_uint64),
+        ("is_complete", ctypes.c_int8),
+        ("is_updated", ctypes.c_int8),
+        ("is_new", ctypes.c_int8),
+        ("has_text_changed", ctypes.c_int8),
+        ("have_speakers_changed", ctypes.c_int8),
+        ("speaker_spans", ctypes.POINTER(SpeakerSpanC)),
+        ("speaker_span_count", ctypes.c_uint64),
+        ("last_transcription_latency_ms", ctypes.c_uint32),
+        ("words", ctypes.POINTER(TranscriptWordC)),
+        ("word_count", ctypes.c_uint64),
+    ]
+
+
+class TranscriptC(ctypes.Structure):
+    """C structure for transcript_t."""
+
+    _fields_ = [
+        ("lines", ctypes.POINTER(TranscriptLineC)),
+        ("line_count", ctypes.c_uint64),
+    ]
+
+
+def _require_struct_size(name, struct, expected, note=""):
+    """Fail fast if a ctypes struct drifts from the compiled C ABI.
+
+    A mismatch here means the Python binding walks native arrays with the
+    wrong stride, which crashes with SIGSEGV instead of a clear error (see
+    https://github.com/moonshine-ai/moonshine/issues/158). We only enforce on
+    the 64-bit ABI these sizes were computed for; other ABIs (32-bit pointers,
+    different size_t) legitimately produce different sizes and are skipped
+    rather than misdiagnosed as binding drift.
+    """
+    actual = ctypes.sizeof(struct)
+    if actual != expected:
+        detail = f" {note}" if note else ""
+        raise ImportError(
+            f"moonshine_voice ABI mismatch: {name} is {actual} bytes but the "
+            f"compiled C ABI expects {expected} bytes. This usually means the "
+            f"installed Python binding is out of sync with libmoonshine. "
+            f"(sizeof void*={ctypes.sizeof(ctypes.c_void_p)}, "
+            f"size_t={ctypes.sizeof(ctypes.c_size_t)}){detail}"
+        )
+
+
+# Only the LP64/LLP64 layout (8-byte pointers and size_t) that these expected
+# sizes were derived from is validated; skip other ABIs to avoid false alarms.
+if ctypes.sizeof(ctypes.c_void_p) == 8 and ctypes.sizeof(ctypes.c_size_t) == 8:
+    _require_struct_size("TranscriptWordC", TranscriptWordC, 24)
+    _require_struct_size("SpeakerSpanC", SpeakerSpanC, 40)
+    _require_struct_size(
+        "TranscriptLineC",
+        TranscriptLineC,
+        88,
+        "See https://github.com/moonshine-ai/moonshine/issues/158",
+    )
+    _require_struct_size("TranscriptC", TranscriptC, 16)
+
+
+class TranscriberOptionC(ctypes.Structure):
+    """C structure for moonshine_option_t."""
+
+    _fields_ = [
+        ("name", ctypes.c_char_p),
+        ("value", ctypes.c_char_p),
+    ]
+
+
+# Alias matching the C header name ``moonshine_option_t``.
+MoonshineOptionC = TranscriberOptionC
+
+
+class SpeechClipC(ctypes.Structure):
+    """C structure for moonshine_speech_clip_t."""
+
+    _fields_ = [
+        ("audio_data", ctypes.POINTER(ctypes.c_float)),
+        ("audio_length", ctypes.c_uint64),
+        ("start_time", ctypes.c_float),
+        ("speech_duration", ctypes.c_float),
+        ("is_complete", ctypes.c_int32),
+        ("transcript", ctypes.c_char_p),
+    ]
+
+
+class ModelArch(IntEnum):
+    """Model architecture types."""
+
+    TINY = 0
+    BASE = 1
+    TINY_STREAMING = 2
+    BASE_STREAMING = 3
+    SMALL_STREAMING = 4
+    MEDIUM_STREAMING = 5
+
+
+def model_arch_to_string(model_arch: ModelArch) -> str:
+    """Convert a model architecture to a string."""
+    if model_arch == ModelArch.TINY:
+        return "tiny"
+    elif model_arch == ModelArch.BASE:
+        return "base"
+    elif model_arch == ModelArch.TINY_STREAMING:
+        return "tiny-streaming"
+    elif model_arch == ModelArch.BASE_STREAMING:
+        return "base-streaming"
+    elif model_arch == ModelArch.MEDIUM_STREAMING:
+        return "medium-streaming"
+    elif model_arch == ModelArch.SMALL_STREAMING:
+        return "small-streaming"
+    else:
+        raise ValueError(f"Invalid model architecture: {model_arch}")
+
+
+def string_to_model_arch(model_arch_string: str) -> ModelArch:
+    """Convert a string to a model architecture."""
+    if model_arch_string == "tiny":
+        return ModelArch.TINY
+    elif model_arch_string == "base":
+        return ModelArch.BASE
+    elif model_arch_string == "tiny-streaming":
+        return ModelArch.TINY_STREAMING
+    elif model_arch_string == "base-streaming":
+        return ModelArch.BASE_STREAMING
+    elif model_arch_string == "small-streaming":
+        return ModelArch.SMALL_STREAMING
+    elif model_arch_string == "medium-streaming":
+        return ModelArch.MEDIUM_STREAMING
+    else:
+        raise ValueError(f"Invalid model architecture string: {model_arch_string}")
+
+
+@dataclass
+class WordTiming:
+    """A single word with timing information."""
+
+    word: str
+    start: float
+    end: float
+    confidence: float
+
+    def __str__(self) -> str:
+        return f"[{self.start:.3f}s - {self.end:.3f}s] {self.word} (conf: {self.confidence:.2f})"
+
+
+@dataclass
+class SpeakerSpan:
+    """One contiguous span of speech within a line attributed to one speaker.
+
+    Only populated when the ``identify_speakers`` option is enabled. Spans
+    for recent audio are mutable: streaming diarization re-clusters a
+    sliding window (``diarization_cluster_window_sec``, default 120s) as more
+    speech arrives, so spans can be revised on any transcription update.
+    Assignments for audio older than the window are frozen. Watch
+    ``TranscriptLine.have_speakers_changed`` (or the ``LineSpeakersChanged``
+    event) to detect revisions.
+
+    ``identify_speakers`` also enables word timestamps automatically. Use
+    ``line.text[span.start_char:span.end_char]`` to get the UTF-8 substring
+    for a span (byte offsets, like Python string slicing).
+    """
+
+    start_time: float
+    duration: float
+    speaker_id: int
+    speaker_index: int
+    start_char: int = 0
+    end_char: int = 0
+
+    def __str__(self) -> str:
+        char_range = (
+            f", chars {self.start_char}:{self.end_char}"
+            if self.end_char > self.start_char
+            else ""
+        )
+        return (
+            f"[{self.start_time:.2f}s +{self.duration:.2f}s] "
+            f"Speaker {self.speaker_index} ({self.speaker_id}){char_range}"
+        )
+
+
+@dataclass
+class TranscriptLine:
+    """A single line of transcription."""
+
+    text: str
+    start_time: float
+    duration: float
+    line_id: int
+    is_complete: bool
+    is_updated: bool = False
+    is_new: bool = False
+    has_text_changed: bool = False
+    have_speakers_changed: bool = False
+    speaker_spans: Optional[List[SpeakerSpan]] = None
+    audio_data: Optional[List[float]] = None
+    last_transcription_latency_ms: int = 0
+    words: Optional[List[WordTiming]] = None
+
+    def __str__(self) -> str:
+        spans_str = (
+            "[" + ", ".join(str(span) for span in self.speaker_spans) + "]"
+            if self.speaker_spans
+            else "[]"
+        )
+        return f"[{self.start_time:.2f}s]: '{self.text}', metadata: [duration={self.duration:.2f}s, line_id={self.line_id}, is_complete={self.is_complete}, is_updated={self.is_updated}, is_new={self.is_new}, has_text_changed={self.has_text_changed}, have_speakers_changed={self.have_speakers_changed}, speaker_spans={spans_str}, audio_data_len={len(self.audio_data) if self.audio_data else 0}, last_transcription_latency_ms={self.last_transcription_latency_ms}, words={len(self.words) if self.words else 0}]"
+
+
+@dataclass
+class Transcript:
+    """A complete transcript containing multiple lines."""
+
+    lines: List[TranscriptLine]
+
+    def __str__(self) -> str:
+        """Return a string representation of the transcript."""
+        return "\n".join(f"[{line.start_time:.2f}s] {line.text}" for line in self.lines)
+
+
+def moonshine_options_array(
+    options: Optional[Dict[str, Union[str, int, float, bool]]],
+) -> Tuple[Optional[Any], int, List[bytes]]:
+    """Build a ``moonshine_option_t`` array. Keep the returned list alive until the C call completes."""
+    if not options:
+        return None, 0, []
+    keepalive: List[bytes] = []
+    structs = []
+    for name, value in options.items():
+        nb = name.encode("utf-8")
+        vb = str(value).encode("utf-8")
+        keepalive.extend((nb, vb))
+        structs.append(TranscriberOptionC(name=nb, value=vb))
+    arr = (TranscriberOptionC * len(structs))(*structs)
+    return arr, len(structs), keepalive
+
+
+def moonshine_c_string_array(
+    strings: Sequence[str],
+) -> Tuple[ctypes.Array, int, List[bytes]]:
+    """Build ``const char *filenames[]`` for TTS/G2P create-from-files helpers."""
+    encoded = [s.encode("utf-8") for s in strings]
+    arr = (ctypes.c_char_p * len(encoded))(*encoded)
+    return arr, len(encoded), encoded
+
+
+def moonshine_memory_arrays(
+    buffers: Sequence[Optional[bytes]],
+) -> Tuple[ctypes.Array, ctypes.Array, List[Optional[ctypes.Array]]]:
+    """Build parallel ``uint8_t*`` and ``uint64_t`` size arrays for in-memory TTS/G2P creation.
+
+    Buffers are copied into internal ctypes buffers; keep the returned third list alive until
+    the synthesizer or phonemizer is freed (per C API lifetime rules).
+    """
+    n = len(buffers)
+    ptr_arr = (ctypes.POINTER(ctypes.c_uint8) * n)()
+    size_arr = (ctypes.c_uint64 * n)()
+    holders: List[Optional[ctypes.Array]] = []
+    for i, buf in enumerate(buffers):
+        if buf is not None and len(buf) > 0:
+            raw = ctypes.create_string_buffer(buf, len(buf))
+            holders.append(raw)
+            ptr_arr[i] = ctypes.cast(raw, ctypes.POINTER(ctypes.c_uint8))
+            size_arr[i] = len(buf)
+        else:
+            holders.append(None)
+            ptr_arr[i] = None
+            size_arr[i] = 0
+    return ptr_arr, size_arr, holders
+
+
+def moonshine_get_g2p_dependencies_string(
+    languages: Optional[str] = None,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> str:
+    """Call ``moonshine_get_g2p_dependencies`` and return the comma-separated key list (UTF-8)."""
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    lang_b = languages.encode("utf-8") if languages is not None else None
+    out_p = ctypes.c_void_p()
+    err = lib.moonshine_get_g2p_dependencies(lang_b, opt_arr, opt_n, ctypes.byref(out_p))
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_g2p_dependencies failed ({err})"
+        )
+    addr = out_p.value
+    if not addr:
+        return ""
+    try:
+        return ctypes.string_at(addr).decode("utf-8")
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_get_tts_dependencies_string(
+    languages: Optional[str] = None,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> str:
+    """Call ``moonshine_get_tts_dependencies`` and return the JSON string (UTF-8)."""
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    lang_b = languages.encode("utf-8") if languages is not None else None
+    out_p = ctypes.c_void_p()
+    err = lib.moonshine_get_tts_dependencies(lang_b, opt_arr, opt_n, ctypes.byref(out_p))
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_tts_dependencies failed ({err})"
+        )
+    addr = out_p.value
+    if not addr:
+        return ""
+    try:
+        return ctypes.string_at(addr).decode("utf-8")
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_get_stt_dependencies_string(
+    language: str,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> str:
+    """Call ``moonshine_get_stt_dependencies`` and return the JSON manifest (UTF-8)."""
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    lang_b = language.encode("utf-8") if language is not None else None
+    out_p = ctypes.c_void_p()
+    err = lib.moonshine_get_stt_dependencies(lang_b, opt_arr, opt_n, ctypes.byref(out_p))
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_stt_dependencies failed ({err})"
+        )
+    addr = out_p.value
+    if not addr:
+        return ""
+    try:
+        return ctypes.string_at(addr).decode("utf-8")
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_get_embedding_dependencies_string(
+    model_name: Optional[str] = None,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> str:
+    """Call ``moonshine_get_embedding_dependencies`` and return the JSON manifest (UTF-8)."""
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    name_b = model_name.encode("utf-8") if model_name is not None else None
+    out_p = ctypes.c_void_p()
+    err = lib.moonshine_get_embedding_dependencies(
+        name_b, opt_arr, opt_n, ctypes.byref(out_p)
+    )
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_embedding_dependencies failed ({err})"
+        )
+    addr = out_p.value
+    if not addr:
+        return ""
+    try:
+        return ctypes.string_at(addr).decode("utf-8")
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_get_diarization_dependencies_string() -> str:
+    """Call ``moonshine_get_diarization_dependencies`` and return the JSON manifest (UTF-8)."""
+    lib = _MoonshineLib().lib
+    out_p = ctypes.c_void_p()
+    err = lib.moonshine_get_diarization_dependencies(ctypes.byref(out_p))
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_diarization_dependencies failed ({err})"
+        )
+    addr = out_p.value
+    if not addr:
+        return ""
+    try:
+        return ctypes.string_at(addr).decode("utf-8")
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_get_stt_catalog_string() -> str:
+    """Call ``moonshine_get_stt_catalog`` and return the JSON catalog (UTF-8)."""
+    lib = _MoonshineLib().lib
+    out_p = ctypes.c_void_p()
+    err = lib.moonshine_get_stt_catalog(ctypes.byref(out_p))
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_stt_catalog failed ({err})"
+        )
+    addr = out_p.value
+    if not addr:
+        return ""
+    try:
+        return ctypes.string_at(addr).decode("utf-8")
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_get_embedding_catalog_string() -> str:
+    """Call ``moonshine_get_embedding_catalog`` and return the JSON catalog (UTF-8)."""
+    lib = _MoonshineLib().lib
+    out_p = ctypes.c_void_p()
+    err = lib.moonshine_get_embedding_catalog(ctypes.byref(out_p))
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_embedding_catalog failed ({err})"
+        )
+    addr = out_p.value
+    if not addr:
+        return ""
+    try:
+        return ctypes.string_at(addr).decode("utf-8")
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_try_get_tts_voices(
+    languages: Optional[str] = None,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> Tuple[int, str]:
+    """
+    Call ``moonshine_get_tts_voices`` without raising.
+
+    Returns ``(error_code, json_text)``. On success, ``error_code`` is ``MOONSHINE_ERROR_NONE`` and
+    ``json_text`` is the JSON object. On failure, ``json_text`` is ``""``.
+    """
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    lang_b = languages.encode("utf-8") if languages is not None else None
+    out_p = ctypes.c_void_p()
+    err = int(lib.moonshine_get_tts_voices(lang_b, opt_arr, opt_n, ctypes.byref(out_p)))
+    addr = out_p.value
+    if err != MOONSHINE_ERROR_NONE:
+        if addr:
+            moonshine_free(addr)
+        return err, ""
+    if not addr:
+        return err, "{}"
+    try:
+        text = ctypes.string_at(addr).decode("utf-8")
+        return err, text if text else "{}"
+    finally:
+        moonshine_free(addr)
+
+
+def moonshine_get_tts_voices_string(
+    languages: Optional[str] = None,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> str:
+    """Call ``moonshine_get_tts_voices`` and return the JSON object string (UTF-8)."""
+    err, text = moonshine_try_get_tts_voices(languages, options)
+    if err != MOONSHINE_ERROR_NONE:
+        lib = _MoonshineLib().lib
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_get_tts_voices failed ({err})"
+        )
+    return text if text else "{}"
+
+
+@dataclass
+class SpeechClip:
+    """The best short window of speech found in a recording.
+
+    ``audio`` is 16 kHz mono PCM, and is ``None`` until the recording holds
+    enough speech, which is how incremental capture knows to keep listening.
+    ``speech_duration`` is useful for showing progress while it does.
+    ``transcript`` is filled when the TTS synthesizer owns clone ASR and the
+    window was complete enough to refine; otherwise ``None``.
+    """
+
+    audio: Optional[List[float]]
+    start_time: float
+    speech_duration: float
+    transcript: Optional[str] = None
+
+    @property
+    def is_complete(self) -> bool:
+        return self.audio is not None
+
+
+def _float_array(audio: Any) -> Tuple[Any, int, Any]:
+    """Coerce a sequence of floats to a C float array, its length, and the
+    object that owns the memory.
+
+    The owner has to stay referenced for as long as the pointer is in use:
+    numpy's ``data_as`` borrows from the array rather than copying it.
+    """
+    try:
+        import numpy as np  # type: ignore
+
+        flat = np.ascontiguousarray(audio, dtype=np.float32).ravel()
+        pointer = flat.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        return pointer, int(flat.size), flat
+    except ImportError:
+        buffer = (ctypes.c_float * len(audio))(*audio)
+        return buffer, len(buffer), buffer
+
+
+def moonshine_extract_speech_clip(
+    audio: Any,
+    sample_rate: int,
+    tts_synthesizer_handle: int,
+    *,
+    clip_duration_seconds: float = 4.0,
+    minimum_speech_seconds: float = 2.0,
+    tail_pad_seconds: float = 0.0,
+) -> SpeechClip:
+    """Find the best short window of speech in ``audio``, for voice cloning.
+
+    Wraps ``moonshine_extract_speech_clip``, which runs the built-in
+    voice-activity detector on ``tts_synthesizer_handle``. When that synthesizer
+    was created as ZipVoice with ``clone_asr/...`` assets under ``g2p_root``,
+    a complete window is
+    further refined with owned ASR and ``transcript`` may be filled.
+
+    ``tail_pad_seconds`` appends extra audio after the VAD window so refine can
+    finish the last word when the TTS owns clone ASR.
+    """
+    lib = _MoonshineLib().lib
+    buffer, length, _owner = _float_array(audio)
+    options = {
+        "clip_duration_seconds": str(clip_duration_seconds),
+        "minimum_speech_seconds": str(minimum_speech_seconds),
+        "tail_pad_seconds": str(tail_pad_seconds),
+    }
+    opt_arr, opt_n, _keep = moonshine_options_array(options)
+    clip = SpeechClipC()
+    err = lib.moonshine_extract_speech_clip(
+        buffer,
+        ctypes.c_uint64(length),
+        ctypes.c_int32(int(sample_rate)),
+        ctypes.c_int32(int(tts_synthesizer_handle)),
+        opt_arr,
+        opt_n,
+        ctypes.byref(clip),
+    )
+    if err != MOONSHINE_ERROR_NONE:
+        message = lib.moonshine_error_to_string(err)
+        raise MoonshineError(
+            message.decode("utf-8")
+            if message
+            else f"moonshine_extract_speech_clip failed ({err})"
+        )
+
+    samples: Optional[List[float]] = None
+    count = int(clip.audio_length)
+    if clip.is_complete and clip.audio_data and count > 0:
+        try:
+            block = ctypes.cast(
+                clip.audio_data, ctypes.POINTER(ctypes.c_float * count)
+            ).contents
+            samples = list(block)
+        finally:
+            moonshine_free(ctypes.cast(clip.audio_data, ctypes.c_void_p).value)
+
+    transcript: Optional[str] = None
+    if clip.transcript:
+        try:
+            transcript = ctypes.string_at(clip.transcript).decode(
+                "utf-8", errors="ignore"
+            )
+        finally:
+            moonshine_free(ctypes.cast(clip.transcript, ctypes.c_void_p).value)
+
+    return SpeechClip(
+        audio=samples,
+        start_time=float(clip.start_time),
+        speech_duration=float(clip.speech_duration),
+        transcript=transcript,
+    )
+
+
+def moonshine_text_to_speech_samples(
+    tts_synthesizer_handle: int,
+    text: str,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> Tuple[List[float], int]:
+    """Call ``moonshine_text_to_speech``; returns ``(samples, sample_rate_hz)``. Frees the native audio buffer."""
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    text_b = text.encode("utf-8")
+    out_audio = ctypes.POINTER(ctypes.c_float)()
+    out_size = ctypes.c_uint64()
+    out_sr = ctypes.c_int32()
+    err = lib.moonshine_text_to_speech(
+        ctypes.c_int32(tts_synthesizer_handle),
+        text_b,
+        opt_arr,
+        opt_n,
+        ctypes.byref(out_audio),
+        ctypes.byref(out_size),
+        ctypes.byref(out_sr),
+    )
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_text_to_speech failed ({err})"
+        )
+    n = int(out_size.value)
+    if n <= 0 or not out_audio:
+        return [], int(out_sr.value)
+    try:
+        chunk = ctypes.cast(out_audio, ctypes.POINTER(ctypes.c_float * n)).contents
+        return list(chunk), int(out_sr.value)
+    finally:
+        moonshine_free(ctypes.cast(out_audio, ctypes.c_void_p).value)
+
+
+def moonshine_phonemes_to_speech_samples(
+    tts_synthesizer_handle: int,
+    phonemes: str,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> Tuple[List[float], int]:
+    """Call ``moonshine_phonemes_to_speech``; returns ``(samples, sample_rate_hz)``.
+
+    ``phonemes`` is an IPA string as produced by
+    ``moonshine_text_to_phonemes_string``. Frees the native audio buffer.
+    """
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    phonemes_b = phonemes.encode("utf-8")
+    out_audio = ctypes.POINTER(ctypes.c_float)()
+    out_size = ctypes.c_uint64()
+    out_sr = ctypes.c_int32()
+    err = lib.moonshine_phonemes_to_speech(
+        ctypes.c_int32(tts_synthesizer_handle),
+        phonemes_b,
+        opt_arr,
+        opt_n,
+        ctypes.byref(out_audio),
+        ctypes.byref(out_size),
+        ctypes.byref(out_sr),
+    )
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(
+            lib.moonshine_error_to_string(err).decode("utf-8")
+            if lib.moonshine_error_to_string(err)
+            else f"moonshine_phonemes_to_speech failed ({err})"
+        )
+    n = int(out_size.value)
+    if n <= 0 or not out_audio:
+        return [], int(out_sr.value)
+    try:
+        chunk = ctypes.cast(out_audio, ctypes.POINTER(ctypes.c_float * n)).contents
+        return list(chunk), int(out_sr.value)
+    finally:
+        moonshine_free(ctypes.cast(out_audio, ctypes.c_void_p).value)
+
+
+def moonshine_tts_split_utterances_list(
+    text: str,
+    language: Optional[str] = None,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> List[str]:
+    """Call ``moonshine_tts_split_utterances``; returns the units as a list of strings."""
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    lang_b = language.encode("utf-8") if language else None
+    out_p = ctypes.c_void_p()
+    err = int(
+        lib.moonshine_tts_split_utterances(
+            lang_b, text.encode("utf-8"), opt_arr, opt_n, ctypes.byref(out_p)
+        )
+    )
+    addr = out_p.value
+    if err != MOONSHINE_ERROR_NONE:
+        if addr:
+            moonshine_free(addr)
+        raise MoonshineError(f"moonshine_tts_split_utterances failed ({err})")
+    if not addr:
+        return []
+    try:
+        raw = _decode_utf8_from_c(ctypes.string_at(addr))
+    finally:
+        moonshine_free(addr)
+    parsed = json.loads(raw) if raw else []
+    return [str(item) for item in parsed]
+
+
+def _check_tts_stream_call(err: int, name: str) -> None:
+    if err != MOONSHINE_ERROR_NONE:
+        raise MoonshineError(f"{name} failed ({err})")
+
+
+def moonshine_tts_push_text(tts_synthesizer_handle: int, text: str) -> None:
+    """Append text, starting a generation if none is running."""
+    lib = _MoonshineLib().lib
+    _check_tts_stream_call(
+        int(
+            lib.moonshine_tts_push_text(
+                ctypes.c_int32(tts_synthesizer_handle),
+                text.encode("utf-8"),
+            )
+        ),
+        "moonshine_tts_push_text",
+    )
+
+
+def moonshine_tts_flush(tts_synthesizer_handle: int) -> None:
+    """Queue the buffered fragment even though it has no terminator."""
+    lib = _MoonshineLib().lib
+    _check_tts_stream_call(
+        int(lib.moonshine_tts_flush(ctypes.c_int32(tts_synthesizer_handle))),
+        "moonshine_tts_flush",
+    )
+
+
+def moonshine_tts_end_input(tts_synthesizer_handle: int) -> None:
+    """Declare that no more text is coming."""
+    lib = _MoonshineLib().lib
+    _check_tts_stream_call(
+        int(lib.moonshine_tts_end_input(ctypes.c_int32(tts_synthesizer_handle))),
+        "moonshine_tts_end_input",
+    )
+
+
+def moonshine_tts_cancel(tts_synthesizer_handle: int) -> None:
+    """Drop queued text and abandon the generation in progress."""
+    lib = _MoonshineLib().lib
+    _check_tts_stream_call(
+        int(lib.moonshine_tts_cancel(ctypes.c_int32(tts_synthesizer_handle))),
+        "moonshine_tts_cancel",
+    )
+
+
+def moonshine_tts_is_streaming(tts_synthesizer_handle: int) -> bool:
+    """Whether a streaming generation is in flight."""
+    lib = _MoonshineLib().lib
+    return int(lib.moonshine_tts_is_streaming(ctypes.c_int32(tts_synthesizer_handle))) == 1
+
+
+def moonshine_tts_next_chunk(
+    tts_synthesizer_handle: int,
+) -> Tuple[int, Optional[Tuple[List[float], int, str, int, bool]]]:
+    """Call ``moonshine_tts_next_chunk``, copying the chunk out of native memory.
+
+    Returns ``(status, chunk)`` where ``chunk`` is
+    ``(samples, sample_rate_hz, text, utterance_id, is_final)``, or ``None`` when
+    the status is ``MOONSHINE_TTS_NEED_TEXT`` / ``MOONSHINE_TTS_END_OF_STREAM``.
+    The native buffer is only valid until the next call on this synthesizer, so
+    the samples are copied before returning.
+    """
+    lib = _MoonshineLib().lib
+    out_chunk = ctypes.POINTER(TtsChunkC)()
+    status = int(
+        lib.moonshine_tts_next_chunk(
+            ctypes.c_int32(tts_synthesizer_handle),
+            0,
+            ctypes.byref(out_chunk),
+        )
+    )
+    if status < 0:
+        raise MoonshineError(f"moonshine_tts_next_chunk failed ({status})")
+    if status != MOONSHINE_ERROR_NONE or not out_chunk:
+        return status, None
+    c = out_chunk.contents
+    n = int(c.audio_data_count)
+    samples: List[float] = []
+    if n > 0 and c.audio_data:
+        samples = list(
+            ctypes.cast(c.audio_data, ctypes.POINTER(ctypes.c_float * n)).contents
+        )
+    text = c.text.decode("utf-8", errors="replace") if c.text else ""
+    return status, (samples, int(c.sample_rate), text, int(c.utterance_id), bool(c.is_final))
+
+
+def moonshine_text_to_phonemes_string(
+    grapheme_to_phonemizer_handle: int,
+    text: str,
+    options: Optional[Dict[str, Union[str, int, float, bool]]] = None,
+) -> str:
+    """Call ``moonshine_text_to_phonemes``; returns the IPA string (single segment)."""
+    lib = _MoonshineLib().lib
+    opt_arr, opt_n, opt_keep = moonshine_options_array(options)
+    text_b = text.encode("utf-8")
+    out_ph = ctypes.c_char_p()
+    out_count = ctypes.c_uint64()
+    err = lib.moonshine_text_to_phonemes(
+        ctypes.c_int32(grapheme_to_phonemizer_handle),
+        text_b,
+        opt_arr,
+        opt_n,
+        ctypes.byref(out_ph),
+        ctypes.byref(out_count),
+    )
+    if err != MOONSHINE_ERROR_NONE:
+        raw = lib.moonshine_error_to_string(err)
+        msg = raw.decode("utf-8") if raw else f"moonshine_text_to_phonemes failed ({err})"
+        if err == MOONSHINE_ERROR_UNKNOWN and msg == "Unknown error":
+            msg = (
+                "G2P failed (unknown error; the native layer usually logs the cause on stderr, "
+                "e.g. tokenizer / WordPiece alignment)"
+            )
+        raise MoonshineError(msg)
+    if not out_ph.value:
+        return ""
+    addr = ctypes.cast(out_ph, ctypes.c_void_p).value
+    try:
+        return _decode_utf8_from_c(ctypes.string_at(addr))
+    finally:
+        moonshine_free(addr)
+
+
+class _MoonshineLib:
+    """Internal class to load and wrap the Moonshine C library."""
+
+    _instance = None
+    _lib = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._load_library()
+        return cls._instance
+
+    def _load_library(self):
+        """Load the Moonshine shared library."""
+        if self._lib is not None:
+            return
+
+        system = platform.system()
+        if system == "Darwin":
+            lib_name = "libmoonshine.dylib"
+        elif system == "Linux":
+            lib_name = "libmoonshine.so"
+        elif system == "Windows":
+            lib_name = "moonshine.dll"
+        else:
+            raise MoonshineError(f"Unsupported platform: {system}")
+
+        # Try to find the library in common locations
+        possible_paths = [
+            # In the package directory
+            Path(__file__).parent / lib_name,
+            Path(__file__).parent.parent.parent / lib_name,
+            # In the build directory (for development). In a source checkout this
+            # file sits at language-bindings/python/src/moonshine_voice/, so the repo root
+            # is five levels up. Chained .parent rather than parents[4] so an
+            # installed wheel in a shallow path saturates at "/" instead of raising.
+            Path(__file__).parent.parent.parent.parent.parent
+            / "core"
+            / "build"
+            / lib_name,
+            # System library paths
+            Path("/usr/local/lib") / lib_name,
+            Path("/usr/lib") / lib_name,
+        ]
+
+        lib_path = None
+        for path in possible_paths:
+            if path.exists():
+                lib_path = path
+                break
+
+        if lib_path is None:
+            # Try loading by name (will use system search paths)
+            lib_path = lib_name
+
+        try:
+            self._lib = ctypes.CDLL(str(lib_path))
+        except OSError as e:
+            raise MoonshineError(
+                f"Failed to load Moonshine library from {lib_path}: {e}. "
+                "Make sure the library is built and available."
+            ) from e
+
+        self._setup_function_signatures()
+
+    def _setup_function_signatures(self):
+        """Setup ctypes function signatures for the C API."""
+        lib = self._lib
+
+        lib.moonshine_get_version.restype = ctypes.c_int32
+        lib.moonshine_get_version.argtypes = []
+
+        lib.moonshine_error_to_string.restype = ctypes.c_char_p
+        lib.moonshine_error_to_string.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_free_buffer.restype = None
+        lib.moonshine_free_buffer.argtypes = [ctypes.c_void_p]
+
+        lib.moonshine_transcript_to_string.restype = ctypes.c_char_p
+        lib.moonshine_transcript_to_string.argtypes = [
+            ctypes.POINTER(TranscriptC),
+        ]
+
+        lib.moonshine_load_transcriber_from_files.restype = ctypes.c_int32
+        lib.moonshine_load_transcriber_from_files.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_uint32,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_load_transcriber_from_memory.restype = ctypes.c_int32
+        lib.moonshine_load_transcriber_from_memory.argtypes = [
+            ctypes.POINTER(ctypes.c_uint8),  # encoder_model_data
+            ctypes.c_size_t,                  # encoder_model_data_size
+            ctypes.POINTER(ctypes.c_uint8),  # decoder_model_data
+            ctypes.c_size_t,                  # decoder_model_data_size
+            ctypes.POINTER(ctypes.c_uint8),  # tokenizer_data
+            ctypes.c_size_t,                  # tokenizer_data_size
+            # Spelling-CNN .ort buffer (NULL/0 to disable spelling mode).
+            ctypes.POINTER(ctypes.c_uint8),  # spelling_model_data
+            ctypes.c_size_t,                  # spelling_model_data_size
+            ctypes.c_uint32,                  # model_arch
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_free_transcriber.restype = None
+        lib.moonshine_free_transcriber.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_transcribe_without_streaming.restype = ctypes.c_int32
+        lib.moonshine_transcribe_without_streaming.argtypes = [
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.POINTER(TranscriptC)),
+        ]
+
+        lib.moonshine_create_stream.restype = ctypes.c_int32
+        lib.moonshine_create_stream.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_uint32,
+        ]
+
+        lib.moonshine_free_stream.restype = ctypes.c_int32
+        lib.moonshine_free_stream.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_start_stream.restype = ctypes.c_int32
+        lib.moonshine_start_stream.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_stop_stream.restype = ctypes.c_int32
+        lib.moonshine_stop_stream.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_transcriber_set_keyterms.restype = ctypes.c_int32
+        lib.moonshine_transcriber_set_keyterms.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_char_p,
+        ]
+
+        lib.moonshine_transcriber_set_context.restype = ctypes.c_int32
+        lib.moonshine_transcriber_set_context.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_char_p,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_transcribe_add_audio_to_stream.restype = ctypes.c_int32
+        lib.moonshine_transcribe_add_audio_to_stream.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+            ctypes.c_uint32,
+        ]
+
+        lib.moonshine_transcribe_stream.restype = ctypes.c_int32
+        lib.moonshine_transcribe_stream.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_int32,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.POINTER(TranscriptC)),
+        ]
+
+        lib.moonshine_create_embedding_model.restype = ctypes.c_int32
+        lib.moonshine_create_embedding_model.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_uint32,
+            ctypes.c_char_p,
+        ]
+
+        lib.moonshine_free_embedding_model.restype = None
+        lib.moonshine_free_embedding_model.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_create_tts_synthesizer_from_files.restype = ctypes.c_int32
+        lib.moonshine_create_tts_synthesizer_from_files.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_uint64,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_create_tts_synthesizer_from_memory.restype = ctypes.c_int32
+        lib.moonshine_create_tts_synthesizer_from_memory.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),
+            ctypes.POINTER(ctypes.c_uint64),
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_free_tts_synthesizer.restype = None
+        lib.moonshine_free_tts_synthesizer.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_get_g2p_dependencies.restype = ctypes.c_int32
+        lib.moonshine_get_g2p_dependencies.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_get_tts_dependencies.restype = ctypes.c_int32
+        lib.moonshine_get_tts_dependencies.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_get_tts_voices.restype = ctypes.c_int32
+        lib.moonshine_get_tts_voices.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_get_stt_dependencies.restype = ctypes.c_int32
+        lib.moonshine_get_stt_dependencies.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_get_embedding_dependencies.restype = ctypes.c_int32
+        lib.moonshine_get_embedding_dependencies.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_get_diarization_dependencies.restype = ctypes.c_int32
+        lib.moonshine_get_diarization_dependencies.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_get_stt_catalog.restype = ctypes.c_int32
+        lib.moonshine_get_stt_catalog.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_get_embedding_catalog.restype = ctypes.c_int32
+        lib.moonshine_get_embedding_catalog.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_extract_speech_clip.restype = ctypes.c_int32
+        lib.moonshine_extract_speech_clip.argtypes = [
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+            ctypes.c_int32,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(SpeechClipC),
+        ]
+
+        lib.moonshine_text_to_speech.restype = ctypes.c_int32
+        lib.moonshine_text_to_speech.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_float)),
+            ctypes.POINTER(ctypes.c_uint64),
+            ctypes.POINTER(ctypes.c_int32),
+        ]
+
+        lib.moonshine_phonemes_to_speech.restype = ctypes.c_int32
+        lib.moonshine_phonemes_to_speech.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_float)),
+            ctypes.POINTER(ctypes.c_uint64),
+            ctypes.POINTER(ctypes.c_int32),
+        ]
+
+        lib.moonshine_tts_split_utterances.restype = ctypes.c_int32
+        lib.moonshine_tts_split_utterances.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+
+        lib.moonshine_tts_push_text.restype = ctypes.c_int32
+        lib.moonshine_tts_push_text.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_char_p,
+        ]
+
+        lib.moonshine_tts_flush.restype = ctypes.c_int32
+        lib.moonshine_tts_flush.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_tts_end_input.restype = ctypes.c_int32
+        lib.moonshine_tts_end_input.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_tts_cancel.restype = ctypes.c_int32
+        lib.moonshine_tts_cancel.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_tts_is_streaming.restype = ctypes.c_int32
+        lib.moonshine_tts_is_streaming.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_tts_next_chunk.restype = ctypes.c_int32
+        lib.moonshine_tts_next_chunk.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.POINTER(TtsChunkC)),
+        ]
+
+        lib.moonshine_create_grapheme_to_phonemizer_from_files.restype = ctypes.c_int32
+        lib.moonshine_create_grapheme_to_phonemizer_from_files.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_uint64,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_create_grapheme_to_phonemizer_from_memory.restype = ctypes.c_int32
+        lib.moonshine_create_grapheme_to_phonemizer_from_memory.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),
+            ctypes.POINTER(ctypes.c_uint64),
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.c_int32,
+        ]
+
+        lib.moonshine_free_grapheme_to_phonemizer.restype = None
+        lib.moonshine_free_grapheme_to_phonemizer.argtypes = [ctypes.c_int32]
+
+        lib.moonshine_text_to_phonemes.restype = ctypes.c_int32
+        lib.moonshine_text_to_phonemes.argtypes = [
+            ctypes.c_int32,
+            ctypes.c_char_p,
+            ctypes.POINTER(TranscriberOptionC),
+            ctypes.c_uint64,
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.POINTER(ctypes.c_uint64),
+        ]
+
+    @property
+    def lib(self):
+        """Get the loaded library."""
+        return self._lib

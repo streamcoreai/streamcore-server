@@ -4,9 +4,9 @@
 
 | Role | Providers | Required credentials |
 |------|-----------|----------------------|
-| STT | `aliyun`, `assemblyai`, `deepgram`, `openai`, `telnyx`, `vibevoice`, `volcengine` | Matching provider API key, or a local VibeVoice ASR server |
+| STT | `aliyun`, `assemblyai`, `deepgram`, `moonshine`, `openai`, `telnyx`, `vibevoice`, `volcengine` | Matching provider API key, or a local Moonshine / VibeVoice ASR server |
 | LLM | `openai`, `ollama`, `agent` | OpenAI API key, an Ollama instance you control, or your own HTTP agent endpoint |
-| TTS | `cartesia`, `deepgram`, `elevenlabs`, `mimo`, `minimax`, `speechify`, `telnyx`, `vibevoice` | Matching provider API key, or a local VibeVoice TTS server |
+| TTS | `cartesia`, `deepgram`, `elevenlabs`, `mimo`, `minimax`, `moonshine`, `speechify`, `telnyx`, `vibevoice` | Matching provider API key, or a local Moonshine / VibeVoice TTS server |
 | Speech-to-speech | `grok` | xAI API key — replaces STT, LLM, and TTS together |
 | RAG (optional) | `pgvector`, `supabase` | Postgres connection string or Supabase URL + key, plus an OpenAI key for embeddings |
 
@@ -17,6 +17,7 @@ Notes:
 - `llm.provider = "ollama"` targets any Ollama-compatible endpoint via `base_url` — local or on your own infrastructure.
 - `llm.provider = "agent"` POSTs each turn to an HTTP endpoint you host; your agent owns memory, prompting, and tools, and replies stream back as SSE, chunked text, or JSON. See [Bring your own agent](./bring-your-own-agent.md).
 - `stt.provider = "vibevoice"` and `tts.provider = "vibevoice"` use local models; start the Python sidecars first.
+- `stt.provider = "moonshine"` and `tts.provider = "moonshine"` are the other fully local pair, also behind Python sidecars. The STT sidecar answers in Deepgram's wire format, so it runs through the same transcript handling as Deepgram itself. See [Local Moonshine setup](#local-moonshine-setup).
 - `tts.provider = "minimax"` covers 40+ languages and is the strongest option for Mandarin. See [MiniMax TTS](#minimax-tts) for the region and model-plan caveats.
 - `tts.provider = "telnyx"` is Telnyx hosted synthesis over a per-utterance WebSocket; voice availability varies by account. See [Telnyx TTS](#telnyx-tts) for the connection model and the voice catalog.
 - `tts.provider = "mimo"` is Xiaomi's MiMo TTS, with Chinese and English voices and optional voice cloning on the paid models.
@@ -176,9 +177,9 @@ VibeVoice provides fully local STT and TTS with no API keys, using [VibeVoice-AS
 
 ```bash
 # Apple Silicon (MLX)
-pip install mlx-audio numpy websockets fastapi uvicorn
+pip install mlx-audio numpy websockets onnxruntime requests fastapi uvicorn
 # OR PyTorch (Linux / CUDA)
-pip install torch transformers librosa numpy websockets fastapi uvicorn
+pip install torch "transformers>=5.3.0" accelerate librosa numpy websockets onnxruntime requests fastapi uvicorn
 
 python external/vibeVoice/vibeVoiceAsr/server.py   # ws://127.0.0.1:8200
 python external/vibeVoice/vibeVoiceTTS/server.py   # http://127.0.0.1:8300
@@ -198,3 +199,34 @@ voice = "en-Emma_woman"
 ```
 
 The ASR server accepts live PCM over WebSocket and emits JSON transcript events. The TTS server accepts HTTP POST and returns raw PCM.
+
+## Local Moonshine setup
+
+[Moonshine](https://moonshine.ai) is the other fully local pair: streaming STT and TTS from one pip package, no API key and no account. Models are downloaded on first run and cached. English STT models are MIT; other languages load under the non-commercial [Moonshine Community License](https://www.moonshine.ai/license).
+
+```bash
+pip install -r external/moonshine/moonshineStt/requirements.txt
+pip install -r external/moonshine/moonshineTts/requirements.txt
+
+python external/moonshine/moonshineStt/server.py   # ws://127.0.0.1:8210
+python external/moonshine/moonshineTts/server.py   # http://127.0.0.1:8310
+```
+
+```toml
+[stt]
+provider = "moonshine"
+
+[tts]
+provider = "moonshine"
+
+[moonshine]
+stt_url = "ws://127.0.0.1:8210"
+tts_url = "http://127.0.0.1:8310"
+voice = "kokoro_af_heart"
+```
+
+Language and model selection are sidecar flags rather than config keys, because both are fixed when the model loads rather than chosen per request: `--language`, `--model-arch` for STT, `--language` and `--voice` for TTS. English resolves to `medium-streaming` by default; `--model-arch tiny-streaming` trades accuracy for a much smaller footprint. The first request for a TTS voice downloads it, so `--preload` is worth setting for anything but a first try.
+
+Both sidecars speak Deepgram's wire format. The STT server sends `Results`, `SpeechStarted` and `UtteranceEnd` frames, which the server decodes into Deepgram's own types and routes through the same accumulator — so overlapping finals are merged and an immediate repeat is suppressed exactly as they are for Deepgram. It reports no confidence, and the frames leave the field out rather than inventing one; the pipeline reads the absent value as unknown, not as low. The TTS server mirrors `/v1/speak`, writing raw headerless PCM as it synthesizes, so playback starts on the first clause.
+
+Measured on an M-series Mac: first TTS chunk at ~130ms with synthesis running about 9x faster than playback.

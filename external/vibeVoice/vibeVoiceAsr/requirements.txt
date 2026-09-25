@@ -11,5 +11,5 @@ requests             # For downloading VAD model
 # Default model: mlx-community/VibeVoice-ASR-4bit
 
 # PyTorch (Linux / Windows / CUDA)
-# pip install torch transformers librosa
-# Default model: microsoft/VibeVoice-ASR
+# pip install torch "transformers>=5.3.0" accelerate librosa
+# Default model: microsoft/VibeVoice-ASR-HF

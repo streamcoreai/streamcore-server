@@ -37,6 +37,7 @@ type Config struct {
 	Ollama     OllamaConfig     `toml:"ollama"`
 	Agent      AgentConfig      `toml:"agent"`
 	VibeVoice  VibeVoiceConfig  `toml:"vibevoice"`
+	Moonshine  MoonshineConfig  `toml:"moonshine"`
 	Volcengine VolcengineConfig `toml:"volcengine"`
 	Aliyun     AliyunConfig     `toml:"aliyun"`
 	Cartesia   CartesiaConfig   `toml:"cartesia"`
@@ -475,6 +476,15 @@ type VibeVoiceConfig struct {
 	Voice  string `toml:"voice"`   // TTS voice name
 }
 
+// MoonshineConfig points at the two local Moonshine sidecars. Language and
+// model selection live on the sidecars' own flags, since both are fixed when
+// the model loads rather than per request.
+type MoonshineConfig struct {
+	STTURL string `toml:"stt_url"` // WebSocket URL for the STT server
+	TTSURL string `toml:"tts_url"` // HTTP URL for the TTS server
+	Voice  string `toml:"voice"`   // TTS voice id, e.g. kokoro_af_heart
+}
+
 // AliyunConfig configures Alibaba Cloud Model Studio (DashScope), which serves
 // both streaming ASR and streaming TTS from the same endpoint and key.
 type AliyunConfig struct {
@@ -588,6 +598,8 @@ func Load(path string) (*Config, error) {
 	setDefault(&cfg.Ollama.SystemPrompt, "You are a helpful AI voice assistant having a natural phone conversation. Keep responses to 1-2 sentences unless asked for detail. When interrupted (indicated by bracketed context), respond the way a patient human would: if they say 'no', address the disagreement; if they redirect, follow their lead. Never repeat what you already said, never ask 'would you like me to continue', and never mention that you were interrupted.")
 	setDefault(&cfg.VibeVoice.ASRURL, "ws://127.0.0.1:8200")
 	setDefault(&cfg.VibeVoice.TTSURL, "http://127.0.0.1:8300")
+	setDefault(&cfg.Moonshine.STTURL, "ws://127.0.0.1:8210")
+	setDefault(&cfg.Moonshine.TTSURL, "http://127.0.0.1:8310")
 
 	setDefault(&cfg.Display.Plugin, "display-projector")
 	if cfg.Display.Projector.TimeoutMs == 0 {
@@ -600,6 +612,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("[display.projector] timeout_ms and fast_path_max_chars must be positive")
 	}
 	setDefault(&cfg.VibeVoice.Voice, "en-Emma_woman")
+	setDefault(&cfg.Moonshine.Voice, "kokoro_af_heart")
 
 	setDefault(&cfg.Codex.Binary, "codex")
 	setDefault(&cfg.Codex.ModelProvider, "openai")

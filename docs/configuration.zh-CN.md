@@ -59,13 +59,13 @@ turn_merge_ms = 350                  # Debounce window for merging finals into o
 provider = ""                        # "grok", or empty for the classic pipeline
 
 [stt]
-provider = "deepgram"                # aliyun | assemblyai | deepgram | openai | telnyx | vibevoice | volcengine
+provider = "deepgram"                # aliyun | assemblyai | deepgram | moonshine | openai | telnyx | vibevoice | volcengine
 
 [llm]
 provider = "openai"                  # openai | ollama | agent
 
 [tts]
-provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | speechify | telnyx | vibevoice
+provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | moonshine | speechify | telnyx | vibevoice
 
 # [grok]                             # Used when realtime.provider = "grok"
 # api_key = ""
@@ -157,6 +157,11 @@ model = ""                           # Defaults to speech-2.6-turbo (low latency
 asr_url = "ws://127.0.0.1:8200"
 tts_url = "http://127.0.0.1:8300"
 voice = "en-Emma_woman"
+
+[moonshine]
+stt_url = "ws://127.0.0.1:8210"
+tts_url = "http://127.0.0.1:8310"
+voice = "kokoro_af_heart"            # Prefix picks the vocoder: kokoro_, piper_, or zipvoice_
 
 # RAG is optional — omit the [rag] section to disable it entirely.
 # [rag]

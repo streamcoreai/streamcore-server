@@ -9,7 +9,9 @@
 | 平台 | 模型 | 后端 |
 |----------|-------|---------|
 | Apple Silicon | `mlx-community/VibeVoice-ASR-4bit` | mlx-audio |
-| Linux / CUDA | `microsoft/VibeVoice-ASR` | PyTorch + transformers |
+| Linux / CUDA | `microsoft/VibeVoice-ASR-HF` | PyTorch + transformers ≥ 5.3 |
+
+PyTorch 后端通过 transformers 原生的 `VibeVoiceAsrForConditionalGeneration` 加载模型，因此需要 `-HF` 版本的权重。原始的 `microsoft/VibeVoice-ASR` 只能通过微软的 `vibevoice` 包加载，在这里无法使用。
 
 ## 安装
 
@@ -19,7 +21,7 @@ pip install -r requirements.txt
 # Then install one backend:
 pip install mlx-audio          # Apple Silicon
 # OR
-pip install torch transformers librosa  # PyTorch
+pip install torch "transformers>=5.3.0" accelerate librosa  # PyTorch
 ```
 
 ## 运行
@@ -29,7 +31,7 @@ python server.py
 # ws://127.0.0.1:8200
 
 python server.py --port 9000 --model mlx-community/VibeVoice-ASR-bf16
-python server.py --silence-timeout 1.0 --energy-threshold 400
+python server.py --silence-timeout 1.0 --vad-threshold 0.6
 ```
 
 ## 协议
@@ -42,7 +44,7 @@ python server.py --silence-timeout 1.0 --energy-threshold 400
 {"text": "hello how are you doing", "is_final": true}
 ```
 
-服务端会缓冲进入的音频，用基于能量的 VAD 检测语音边界，并在检测到静音时（默认约 800 ms）进行转写。长句期间每约 3 秒发出一次中间结果。
+服务端会缓冲进入的音频，用 Silero VAD 检测语音边界，并在检测到静音时（默认约 800 ms）进行转写。只发出最终结果。
 
 ## 选项
 
@@ -52,5 +54,5 @@ python server.py --silence-timeout 1.0 --energy-threshold 400
 | `--port` | `8200` | 绑定端口 |
 | `--model` | 自动（MLX 4-bit 或 PyTorch） | HuggingFace 模型名 |
 | `--silence-timeout` | `0.8` | 出最终结果前的静音秒数 |
-| `--energy-threshold` | `500` | 语音检测的 RMS 能量阈值 |
+| `--vad-threshold` | `0.5` | Silero VAD 语音概率阈值（0.0-1.0） |
 | `--log-level` | `INFO` | 日志级别 |

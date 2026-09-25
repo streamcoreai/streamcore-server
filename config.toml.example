@@ -110,13 +110,13 @@ turn_merge_ms = 350          # Debounce window for merging finals into one turn.
 provider = ""           # Supported: grok (empty = classic pipeline)
 
 [stt]
-provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, openai, telnyx, vibevoice, volcengine
+provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, moonshine, openai, telnyx, vibevoice, volcengine
 
 [llm]
 provider = "openai"     # Supported: openai, ollama, agent
 
 [tts]
-provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, speechify, telnyx, vibevoice, volcengine
+provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, moonshine, speechify, telnyx, vibevoice, volcengine
 
 # Provider credentials
 
@@ -247,6 +247,18 @@ model = ""              # Optional; defaults to speech-2.6-turbo (low latency). 
 asr_url = "ws://127.0.0.1:8200"    # WebSocket URL for VibeVoice ASR server
 tts_url = "http://127.0.0.1:8300"  # HTTP URL for VibeVoice TTS server
 voice = "en-Emma_woman"             # TTS voice name
+
+# Moonshine — local STT and TTS via external Python services, no API key.
+# Start the servers first:
+#   python external/moonshine/moonshineStt/server.py   (default port 8210)
+#   python external/moonshine/moonshineTts/server.py   (default port 8310)
+# Language and model selection are sidecar flags, not config keys: both are
+# fixed when the model loads rather than chosen per request.
+[moonshine]
+stt_url = "ws://127.0.0.1:8210"    # WebSocket URL for the Moonshine STT server
+tts_url = "http://127.0.0.1:8310"  # HTTP URL for the Moonshine TTS server
+voice = "kokoro_af_heart"          # TTS voice id. The prefix picks the vocoder:
+                                   # kokoro_, piper_, or zipvoice_
 
 # Alibaba Cloud Model Studio (DashScope). One endpoint and one key serve both
 # streaming ASR (stt.provider = "aliyun") and streaming TTS

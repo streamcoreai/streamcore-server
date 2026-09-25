@@ -76,7 +76,9 @@ func NewClient(ctx context.Context, cfg *config.Config, onResult func(Transcript
 		return NewTelnyxClient(ctx, cfg.Telnyx, onResult)
 	case "vibevoice":
 		return NewVibeVoiceClient(ctx, cfg.VibeVoice.ASRURL, onResult)
+	case "moonshine":
+		return NewMoonshineClient(ctx, cfg.Moonshine.STTURL, onResult)
 	default:
-		return nil, fmt.Errorf("unknown stt provider %q (supported: aliyun, assemblyai, deepgram, openai, telnyx, vibevoice, volcengine)", cfg.STT.Provider)
+		return nil, fmt.Errorf("unknown stt provider %q (supported: aliyun, assemblyai, deepgram, moonshine, openai, telnyx, vibevoice, volcengine)", cfg.STT.Provider)
 	}
 }
