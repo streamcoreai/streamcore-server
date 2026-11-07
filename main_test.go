@@ -248,6 +248,63 @@ func TestDebugServerRejectsPublicBindWithoutAcknowledgement(t *testing.T) {
 	}
 }
 
+// The loopback check runs before the port is claimed (#64 item 5).
+//
+// The public port is taken first by the test itself. A server that binds
+// before checking fails with "address already in use"; one that checks first
+// never touches the socket and reports the allow_public guidance instead.
+func TestDebugServerRejectsPublicBindBeforeListening(t *testing.T) {
+	held, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("hold a public port: %v", err)
+	}
+	defer held.Close()
+
+	_, err = startDebugServer(config.DebugConfig{Bind: held.Addr().String()})
+	if err == nil {
+		t.Fatal("public debug bind was accepted without allow_public")
+	}
+	if !strings.Contains(err.Error(), "debug.allow_public = true") {
+		t.Fatalf("error = %q; want the allow_public guidance, not a listen error", err)
+	}
+}
+
+func TestDebugServerNamesAnAllInterfacesBind(t *testing.T) {
+	_, err := startDebugServer(config.DebugConfig{Bind: ":0"})
+	if err == nil {
+		t.Fatal(`":0" was accepted without allow_public`)
+	}
+	if !strings.Contains(err.Error(), "every interface") {
+		t.Fatalf("error = %q, want it to say the bind covers every interface", err)
+	}
+}
+
+func TestDebugServerRejectsAMalformedBind(t *testing.T) {
+	_, err := startDebugServer(config.DebugConfig{Bind: "6060"})
+	if err == nil || !strings.Contains(err.Error(), "debug.bind") {
+		t.Fatalf("error = %v, want a debug.bind parse error", err)
+	}
+}
+
+func TestDebugServerAcceptsLoopbackBinds(t *testing.T) {
+	for _, bind := range []string{"127.0.0.1:0", "[::1]:0", "localhost:0"} {
+		t.Run(bind, func(t *testing.T) {
+			if bind == "[::1]:0" {
+				if l, err := net.Listen("tcp", bind); err != nil {
+					t.Skipf("no IPv6 loopback here: %v", err)
+				} else {
+					l.Close()
+				}
+			}
+			srv, err := startDebugServer(config.DebugConfig{Bind: bind})
+			if err != nil {
+				t.Fatalf("startDebugServer(%q): %v", bind, err)
+			}
+			srv.Close()
+		})
+	}
+}
+
 // failingListener returns a permanent Accept error, the shape of a listener
 // that has died under a running server. net/http retries temporary errors, so
 // a plain error is what actually terminates Serve.

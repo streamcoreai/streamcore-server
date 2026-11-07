@@ -174,11 +174,19 @@ func startDebugServer(cfg config.DebugConfig) (*http.Server, error) {
 		return nil, fmt.Errorf("mutex_profile_fraction must not be negative")
 	}
 
+	if !cfg.AllowPublic {
+		if err := checkLoopbackBind(cfg.Bind); err != nil {
+			return nil, err
+		}
+	}
+
 	listener, err := net.Listen("tcp", cfg.Bind)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %q: %w", cfg.Bind, err)
 	}
 	if !cfg.AllowPublic {
+		// Backstop: a hostname can resolve differently between
+		// checkLoopbackBind and the bind itself.
 		addr, ok := listener.Addr().(*net.TCPAddr)
 		if !ok || !addr.IP.IsLoopback() {
 			listener.Close()
@@ -196,6 +204,36 @@ func startDebugServer(cfg config.DebugConfig) (*http.Server, error) {
 	}
 	go serveDebug(srv, listener)
 	return srv, nil
+}
+
+// checkLoopbackBind rejects a non-loopback debug bind before any socket is
+// opened.
+//
+// Checking only after net.Listen meant "0.0.0.0:6060" was really bound, and
+// accepting into the backlog, for the moment before the check closed it. Not
+// an exposure, since Serve never started, but a public port should not be
+// claimed at all, and ":6060" deserves a clearer error than "resolves to a
+// non-loopback address". A hostname must resolve to loopback addresses only.
+func checkLoopbackBind(bind string) error {
+	host, _, err := net.SplitHostPort(bind)
+	if err != nil {
+		return fmt.Errorf("debug.bind %q: %w", bind, err)
+	}
+	if host == "" {
+		return fmt.Errorf("bind %q listens on every interface; use 127.0.0.1 or set debug.allow_public = true to acknowledge public pprof exposure", bind)
+	}
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else if ips, err = net.LookupIP(host); err != nil {
+		return fmt.Errorf("debug.bind %q: %w", bind, err)
+	}
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			return fmt.Errorf("bind %q resolves to a non-loopback address; set debug.allow_public = true to acknowledge public pprof exposure", bind)
+		}
+	}
+	return nil
 }
 
 // serveDebug runs the pprof listener until it stops.
