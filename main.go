@@ -110,6 +110,9 @@ func main() {
 	stop()
 	log.Println("Shutting down...")
 
+	// First, and outside the graceful budget below: see stopDebugServer.
+	stopDebugServer(debugSrv)
+
 	// Safety net: force exit after timeout if graceful shutdown stalls.
 	go func() {
 		time.Sleep(5 * time.Second)
@@ -129,11 +132,6 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
-	}
-	if debugSrv != nil {
-		if err := debugSrv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("debug HTTP shutdown error: %v", err)
-		}
 	}
 	log.Println("Server stopped")
 }
@@ -214,6 +212,27 @@ func serveDebug(srv *http.Server, listener net.Listener) {
 	log.Printf("Debug pprof server listening on %s", srv.Addr)
 	if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 		log.Printf("debug server error: %v; continuing without pprof", err)
+	}
+}
+
+// stopDebugServer closes the pprof listener and every connection on it.
+//
+// Close, not Shutdown. Shutdown waits for in-flight requests, and a pprof
+// request can be a CPU profile or trace that runs for as many seconds as the
+// caller asked. Sharing main's five-second shutdown context, one in-flight
+// profile ran that context out: every such shutdown took the full five
+// seconds, logged a debug shutdown error, and finished in a race with the
+// force-exit watchdog, which is armed for the same five seconds and exits 1
+// if it wins. A profile cut short by a server that is going away is worth
+// nothing, so the debug server takes no part in the graceful budget. Closing
+// the connection cancels the request context, which ends pprof's wait and
+// releases the CPU profiler.
+func stopDebugServer(srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	if err := srv.Close(); err != nil {
+		log.Printf("debug HTTP close error: %v", err)
 	}
 }
 

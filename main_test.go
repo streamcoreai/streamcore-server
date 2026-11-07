@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime/pprof"
 	"strings"
 	"testing"
 	"time"
@@ -321,6 +323,82 @@ func TestPublicMuxStillServesAfterTheDebugListenerDies(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
+}
+
+// Shutdown must not wait on a pprof request.
+//
+// A CPU profile holds its request open for as many seconds as the caller asked.
+// The test asks for 30 and requires stopDebugServer to return in well under the
+// five seconds main gives the whole shutdown, and the profile request to end
+// with it. Waiting on the CPU profiler itself makes "the profile is in flight"
+// a fact rather than a sleep: StartCPUProfile fails while the handler holds it.
+// That probe briefly holds the profiler too, so a request that lands inside it
+// is refused with a 500 and simply asked again.
+func TestStopDebugServerDoesNotWaitForAnInFlightProfile(t *testing.T) {
+	srv, err := startDebugServer(config.DebugConfig{Bind: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatalf("startDebugServer: %v", err)
+	}
+	t.Cleanup(func() { srv.Close() })
+
+	profileDone := make(chan struct{})
+	go func() {
+		defer close(profileDone)
+		client := &http.Client{Timeout: 40 * time.Second}
+		for {
+			resp, err := client.Get("http://" + srv.Addr + "/debug/pprof/profile?seconds=30")
+			if err != nil {
+				return // the debug server closed the connection
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusInternalServerError {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+
+	waitForCPUProfiler(t, true)
+
+	start := time.Now()
+	stopDebugServer(srv)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("stopDebugServer took %v with a profile in flight; want under 1s", elapsed)
+	}
+
+	select {
+	case <-profileDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("profile request still open after the debug server stopped")
+	}
+	// The handler must also let go of the profiler, or the next profile fails.
+	waitForCPUProfiler(t, false)
+}
+
+func TestStopDebugServerAcceptsNil(t *testing.T) {
+	stopDebugServer(nil)
+}
+
+// waitForCPUProfiler waits until the process-wide CPU profiler is held by
+// someone else (busy) or is free again (!busy).
+func waitForCPUProfiler(t *testing.T, busy bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := pprof.StartCPUProfile(io.Discard); err != nil {
+			if busy {
+				return
+			}
+		} else {
+			pprof.StopCPUProfile()
+			if !busy {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("CPU profiler busy=%v never observed", busy)
 }
 
 // Display projection moved out of the binary into a plugin. A deployment that
