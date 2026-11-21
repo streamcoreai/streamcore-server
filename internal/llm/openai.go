@@ -610,3 +610,16 @@ func (c *openaiClient) OneShot(ctx context.Context, system, user string) (string
 	}
 	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
 }
+
+func (c *openaiClient) DropUnheardReply(reply string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := len(c.history) - 1; i >= 0; i-- {
+		m := c.history[i]
+		if m.Role == openai.ChatMessageRoleAssistant && len(m.ToolCalls) == 0 && m.Content != "" && strings.HasSuffix(reply, m.Content) {
+			c.history = append(c.history[:i], c.history[i+1:]...)
+			return true
+		}
+	}
+	return false
+}

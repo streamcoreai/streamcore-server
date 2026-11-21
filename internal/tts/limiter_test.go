@@ -3,9 +3,62 @@ package tts
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
+
+// Close has to get through both wrappers to the Cartesia socket, and a client
+// closed while a reply is still unwinding must not dial a new one.
+func TestCloseReachesCartesiaSocketThroughWrappers(t *testing.T) {
+	opened := make(chan struct{}, 4)
+	gone := make(chan struct{}, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		opened <- struct{}{}
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				gone <- struct{}{}
+				return
+			}
+		}
+	}))
+	defer server.Close()
+
+	ws := NewCartesiaWSClient("key", "voice", "ws"+strings.TrimPrefix(server.URL, "http")).(*cartesiaWSClient)
+	client := &sanitizingClient{inner: newLimitedClient(ws, newConcurrencyLimiter(1))}
+	if err := ws.ensureConnected(context.Background()); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	<-opened
+
+	Close(client)
+	select {
+	case <-gone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Cartesia socket still open after Close")
+	}
+
+	if err := ws.ensureConnected(context.Background()); err == nil {
+		t.Error("closed client dialled again")
+	}
+	select {
+	case <-opened:
+		t.Error("closed client opened a second socket")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Providers that hold nothing open are untouched.
+	Close(&sanitizingClient{inner: &fakeStreamClient{}})
+	Close(nil)
+}
 
 // fakeStreamClient is a controllable TTS Client for exercising the limiter
 // decorator. Each SynthesizeStream returns a channel the test closes via the

@@ -3,26 +3,28 @@ package procstat
 import "log"
 
 // TurnTiming is the per-turn latency breakdown for one user→agent exchange.
-// All durations are milliseconds measured from the turn boundary (the first
-// final transcript). It is the baseline measuring stick for latency work: it
+// EndpointMs runs from the caller's last voiced frame to the first final
+// transcript; everything after it is measured from that final (the turn
+// boundary). It is the baseline measuring stick for latency work: it
 // separates the embedding network hop from the vector query and from LLM/TTS
 // time so regressions and wins are attributable to a single stage.
 //
 // A zero field means "not measured this turn" (e.g. RAG was skipped, or the
 // turn was cancelled before that stage ran).
 type TurnTiming struct {
-	RAGSkipped     bool
-	RAGSkipReason  string
-	RAGPrefetched  bool  // retrieval overlapped the turn-merge window
-	EndpointMs     int64 // caller's last VAD speech → first STT final (provider endpointing)
-	MergeWaitMs    int64 // first STT final → turn fired (turn-buffer debounce)
-	QuietWaitMs    int64 // pre-LLM quiet grace
-	EmbeddingMs    int64 // embedding provider round-trip (public-internet hop)
-	VectorSearchMs int64 // vector store query
-	RAGChunks      int
-	MaxSimilarity  float64 // best chunk similarity this turn (0 if skipped/miss)
-	LLMTTFTMs      int64   // turn boundary → first LLM token
-	TTSFirstByteMs int64   // turn boundary → first audio frame (total user-to-speech)
+	RAGSkipped      bool
+	RAGSkipReason   string
+	RAGPrefetched   bool  // retrieval overlapped the turn-merge window
+	EndpointMs      int64 // caller's last VAD speech → first STT final (provider endpointing)
+	MergeWaitMs     int64 // first STT final → turn fired (turn-buffer debounce)
+	QuietWaitMs     int64 // pre-LLM quiet grace
+	EmbeddingMs     int64 // embedding provider round-trip (public-internet hop)
+	VectorSearchMs  int64 // vector store query
+	RAGChunks       int
+	MaxSimilarity   float64 // best chunk similarity this turn (0 if skipped/miss)
+	LLMTTFTMs       int64   // turn boundary → first LLM token
+	FirstSentenceMs int64   // turn boundary → first sentence handed to TTS
+	TTSFirstByteMs  int64   // turn boundary → first audio frame queued
 }
 
 // Log emits a single structured line per turn. Cheap and allocation-light so it
@@ -40,6 +42,6 @@ func (t *TurnTiming) Log() {
 	// TTSFirstByteMs is measured from the turn boundary (first STT final),
 	// which already includes the merge-window hold, so the caller-perceived
 	// silence is endpointing + turn-boundary→first-audio.
-	log.Printf("[turn-timing] rag=%s endpoint_ms=%d merge_wait_ms=%d quiet_wait_ms=%d embed_ms=%d vsearch_ms=%d rag_chunks=%d max_sim=%.2f llm_ttft_ms=%d tts_ttfb_ms=%d total_user_to_speech_ms=%d",
-		rag, t.EndpointMs, t.MergeWaitMs, t.QuietWaitMs, t.EmbeddingMs, t.VectorSearchMs, t.RAGChunks, t.MaxSimilarity, t.LLMTTFTMs, t.TTSFirstByteMs, t.EndpointMs+t.TTSFirstByteMs)
+	log.Printf("[turn-timing] rag=%s endpoint_ms=%d merge_wait_ms=%d quiet_wait_ms=%d embed_ms=%d vsearch_ms=%d rag_chunks=%d max_sim=%.2f llm_ttft_ms=%d first_sentence_ms=%d tts_ttfb_ms=%d total_user_to_speech_ms=%d",
+		rag, t.EndpointMs, t.MergeWaitMs, t.QuietWaitMs, t.EmbeddingMs, t.VectorSearchMs, t.RAGChunks, t.MaxSimilarity, t.LLMTTFTMs, t.FirstSentenceMs, t.TTSFirstByteMs, t.EndpointMs+t.TTSFirstByteMs)
 }

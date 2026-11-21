@@ -119,6 +119,12 @@ func newLimitedClient(inner Client, limiter *concurrencyLimiter) Client {
 	return &limitedClient{inner: inner, limiter: limiter}
 }
 
+// Close closes the wrapped client. The limiter is process-wide and stays.
+func (c *limitedClient) Close() { Close(c.inner) }
+
+// Warm dials ahead without taking a generation slot.
+func (c *limitedClient) Warm(ctx context.Context) { Warm(ctx, c.inner) }
+
 func (c *limitedClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	if err := c.limiter.acquire(ctx); err != nil {
 		return nil, err

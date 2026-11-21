@@ -67,8 +67,9 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 
 - Bidirectional Opus audio over WebRTC (`sendrecv`)
 - WHIP signaling ([RFC 9725](https://www.rfc-editor.org/rfc/rfc9725.html)) — one HTTP `POST` for SDP exchange, no persistent signaling socket
-- Full ICE gathering on both sides, no trickle ICE
+- Full ICE gathering on both sides, no trickle ICE; a caller on the same machine or LAN is answered without waiting on the public STUN server
 - ICE restart over `PATCH /whip/{sessionId}` — a network handover or NAT rebind is recovered on the same connection, so the conversation, the pipeline, and the LLM client all survive it
+- An STT connection that drops mid-call is reopened with backoff, so the caller is still heard after a provider blip instead of talking to an agent that has gone deaf
 - Idle sessions reaped after a configurable grace period, so a client that vanishes mid-call is collected without cutting short one that is reconnecting
 - Session resume for drops past the point ICE restart can help — a redial carrying a single-use token reattaches to the running conversation. Every SDK runs the two as a ladder (restart while recoverable, redial once not), so a backgrounded phone or a slept laptop rejoins the same conversation rather than starting a new one
 - Built-in STUN/TURN server using Pion (UDP **and TCP** 3478, relay range 50001–60000) — TCP so callers behind UDP-blocking firewalls still connect
@@ -79,7 +80,7 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 
 - Opus decode → PCM → pipeline → PCM → Opus encode → RTP
 - Energy-based VAD with configurable onset/offset frame counts, adapting to each call's noise floor so a quiet caller on a clean line and a caller beside a road both register
-- Barge-in on a faster VAD profile: agent audio ducks while the caller talks over it and recovers if the interruption turns out to be a backchannel
+- Barge-in on a faster VAD profile: agent audio ducks while the caller talks over it and recovers if the interruption turns out to be a backchannel; once the live transcript reads as a real interruption it cuts through at once
 - Echo reference for paths with no AEC, such as SIP/PCMU telephony: the barge-in threshold is bounded by the RMS the server just sent, so the agent stops interrupting itself on its own returning voice. Applied per session from a client hint, so one instance serves browsers and phone calls without either compromising the other
 - Turn debounce that merges consecutive final transcripts, so "I want to… um… book a table" is answered once, not twice
 - Sentence-boundary chunking so TTS starts before the LLM finishes, and chunk-level streaming so audio plays before a sentence is fully synthesized

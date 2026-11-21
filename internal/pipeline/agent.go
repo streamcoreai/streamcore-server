@@ -43,9 +43,10 @@ func (p *Pipeline) runAgent() {
 			}
 
 			log.Printf("[agent] user: %s", ev.Text)
+			p.turnCommittedAt.Store(time.Now().UnixNano())
 			gen := p.supersedeResponse()
 			p.sendEvent(stateMsg{Type: "state", State: "thinking"})
-			go func() { defer p.recoverPanic("respond"); p.respond(gen, ev.Text, ev.TurnStart) }()
+			go func() { defer p.recoverPanic("respond"); p.respond(gen, ev.Text, ev.TurnStart, ev.SpeechEndAt) }()
 
 		case <-p.interruptCh:
 			// Capture what agent was saying for interruption context
@@ -88,7 +89,7 @@ func (p *Pipeline) isPassiveAcknowledgement(ev TranscriptEvent) bool {
 // gen is the response generation issued by supersedeResponse; it scopes every
 // mutation of shared speaking state to this response, so a barge-in or a newer
 // turn cleanly takes ownership of the audio path.
-func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
+func (p *Pipeline) respond(gen uint64, userText string, turnStart, speechEnd time.Time) {
 	respCtx, cancel := context.WithCancel(p.ctx)
 
 	// Superseded between the turn being dispatched and this goroutine getting
@@ -136,7 +137,14 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 
 	timing := &procstat.TurnTiming{}
 	if !turnStart.IsZero() {
-		timing.EndpointMs = time.Since(turnStart).Milliseconds()
+		// From the first final to here is the turn buffer's hold.
+		timing.MergeWaitMs = time.Since(turnStart).Milliseconds()
+		if !speechEnd.IsZero() && speechEnd.Before(turnStart) {
+			timing.EndpointMs = turnStart.Sub(speechEnd).Milliseconds()
+		}
+	}
+	if p.ragClient == nil {
+		timing.RAGSkipped, timing.RAGSkipReason = true, "off"
 	}
 
 	// Retrieve relevant context via RAG before calling the LLM. Turns with no
@@ -200,24 +208,34 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 	sentences := make(chan string, 8)
 	var responseText strings.Builder
 
+	heard := false // set by the synthesis goroutine, read after wg.Wait
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		defer p.recoverPanic("synthesizeSentences")
-		p.synthesizeSentences(respCtx, sentences, turnStart)
+		first, quietWait := p.synthesizeSentences(respCtx, sentences, turnStart)
+		heard = !first.IsZero()
+		timing.QuietWaitMs = quietWait.Milliseconds()
+		if !first.IsZero() && !turnStart.IsZero() {
+			timing.TTSFirstByteMs = first.Sub(turnStart).Milliseconds()
+		}
 	}()
 
 	llmFirstToken := true
+	firstSentence := true
 	_, err := p.llmClient.Chat(respCtx, turn,
 		func(chunk string) {
-			if llmFirstToken && p.cfg.Pipeline.Debug && !turnStart.IsZero() {
+			if llmFirstToken && !turnStart.IsZero() {
 				llmFirstToken = false
-				p.sendEvent(timingMsg{
-					Type:  "timing",
-					Stage: "llm_first_token",
-					Ms:    time.Since(turnStart).Milliseconds(),
-				})
+				timing.LLMTTFTMs = time.Since(turnStart).Milliseconds()
+				if p.cfg.Pipeline.Debug {
+					p.sendEvent(timingMsg{
+						Type:  "timing",
+						Stage: "llm_first_token",
+						Ms:    timing.LLMTTFTMs,
+					})
+				}
 			}
 			// Accumulate response text for interruption context. Delivery tags
 			// are stripped: this text is quoted back to the LLM verbatim when
@@ -235,6 +253,10 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 			})
 		},
 		func(sentence string) {
+			if firstSentence && !turnStart.IsZero() {
+				firstSentence = false
+				timing.FirstSentenceMs = time.Since(turnStart).Milliseconds()
+			}
 			select {
 			case sentences <- sentence:
 			case <-respCtx.Done():
@@ -248,6 +270,20 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 	}
 
 	wg.Wait()
+
+	// Replaced by the caller's next turn before a word played: the usual end
+	// of a reply held while the caller finished their sentence. Nobody heard
+	// it, so it comes out of the model's history, the transcript and the
+	// plugin events rather than steering what the agent says next.
+	if !heard && respCtx.Err() != nil {
+		if d, ok := p.llmClient.(llm.UnheardDropper); ok && responseText.Len() > 0 && d.DropUnheardReply(responseText.String()) {
+			log.Printf("[agent] dropped a reply nobody heard from history")
+		}
+		if p.cfg.Pipeline.Debug {
+			timing.Log()
+		}
+		return
+	}
 
 	if p.transcriptLog != nil {
 		if txt, _ := p.lastAgentText.Load().(string); txt != "" {
@@ -264,9 +300,12 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart time.Time) {
 
 // synthesizeSentences reads sentences from the channel, calls TTS for each,
 // and pushes the resulting PCM frames into outPCMCh for the sender goroutine.
-func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan string, turnStart time.Time) {
+// It returns when the first frame was queued (zero if none was) and how long
+// the quiet gate held the first sentence.
+func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan string, turnStart time.Time) (firstFrameAt time.Time, quietWait time.Duration) {
 	emittedTTSTiming := false
 	emittedSpeaking := false
+	gated := turnStart.IsZero() // the greeting answers no one
 
 	// leftover holds samples that did not fill a complete frame. Streaming
 	// chunks arrive on arbitrary byte boundaries, so the remainder carries
@@ -276,8 +315,21 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 	talkspurtSent := false
 
 	emitFrame := func(frame PCMFrame) bool {
+		// Second look before the caller hears anything. The first check ran
+		// before the TTS request; with short endpointing a fast reply can be
+		// ready before the VAD has registered the caller starting again
+		// (it needs 200ms of speech), and this catches that.
+		if !emittedSpeaking && !turnStart.IsZero() {
+			quietWait += p.waitCallerQuietUpTo(ctx, callerContinuedFrameMax, false)
+			if ctx.Err() != nil {
+				return false
+			}
+		}
 		select {
 		case p.outPCMCh <- frame:
+			if firstFrameAt.IsZero() {
+				firstFrameAt = time.Now()
+			}
 			if !emittedTTSTiming && p.cfg.Pipeline.Debug && !turnStart.IsZero() {
 				emittedTTSTiming = true
 				p.sendEvent(timingMsg{
@@ -303,6 +355,15 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 	for sentence := range sentences {
 		if ctx.Err() != nil {
 			return
+		}
+		// Before the first TTS request rather than the first frame: holding
+		// frames would back up the TTS stream, and the Cartesia socket reader
+		// drops chunks it cannot hand off within 3s.
+		if !gated {
+			gated = true
+			if quietWait = p.waitCallerQuiet(ctx); ctx.Err() != nil {
+				return
+			}
 		}
 
 		// The LLM may prefix a sentence with a delivery tag ([warm], [calm], …)
@@ -370,6 +431,71 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 		}
 		copy(frame.Samples, leftover)
 		emitFrame(frame)
+	}
+	return firstFrameAt, quietWait
+}
+
+// callerQuietMaxWait bounds the quiet gate. A caller who keeps talking past it
+// produces another final, which supersedes this response anyway; the cap is
+// for a line the VAD never hears go quiet.
+const callerQuietMaxWait = 1500 * time.Millisecond
+
+// callerContinuedQuiet and callerContinuedMaxWait replace the quiet gate's
+// numbers when the caller spoke again after their turn was committed: a
+// hesitation, not a finished sentence. Their next final normally lands about
+// 0.8s after they stop and supersedes this reply, so it waits long enough for
+// that. The cap covers a sound that never becomes a final (a cough).
+const (
+	callerContinuedQuiet   = 1500 * time.Millisecond
+	callerContinuedMaxWait = 4 * time.Second
+	continuedMargin        = 350 * time.Millisecond
+	// callerContinuedFrameMax caps the second check, made just before the
+	// first frame plays. TTS is already streaming then; the Cartesia reader
+	// drops a chunk it cannot hand over within 3s, so this stays under that.
+	callerContinuedFrameMax = 2500 * time.Millisecond
+)
+
+// waitCallerQuiet blocks until the caller has been quiet for
+// pipeline.user_speech_quiet_ms and reports how long it waited. By the time a
+// first sentence exists the caller has usually been quiet for well over a
+// second, so this only holds when they started talking again after the final.
+func (p *Pipeline) waitCallerQuiet(ctx context.Context) time.Duration {
+	return p.waitCallerQuietUpTo(ctx, callerContinuedMaxWait, true)
+}
+
+// waitCallerQuietUpTo is waitCallerQuiet with its own cap for the case where
+// the caller spoke again after the commit. With ordinary false it holds only
+// in that case, so a second check does not make a noisy line wait twice.
+func (p *Pipeline) waitCallerQuietUpTo(ctx context.Context, continuedMax time.Duration, ordinary bool) time.Duration {
+	if p.cfg == nil {
+		return 0
+	}
+	quiet := time.Duration(p.cfg.Pipeline.UserSpeechQuietMs) * time.Millisecond
+	if quiet <= 0 {
+		return 0
+	}
+	start := time.Now()
+	for {
+		at := p.callerVoiceAt.Load()
+		need, limit := quiet, callerQuietMaxWait
+		continued := false
+		// The margin covers the VAD's 300ms hangover, which can still be
+		// refreshing the stamp just after a commit; real speech goes past it.
+		if committed := p.turnCommittedAt.Load(); at != 0 && committed != 0 && at > committed+int64(continuedMargin) {
+			need, limit = max(quiet, callerContinuedQuiet), continuedMax
+			continued = true
+		}
+		if !continued && !ordinary {
+			return time.Since(start)
+		}
+		if at == 0 || time.Since(time.Unix(0, at)) >= need || time.Since(start) >= limit {
+			return time.Since(start)
+		}
+		select {
+		case <-ctx.Done():
+			return time.Since(start)
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 

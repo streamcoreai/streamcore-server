@@ -303,7 +303,7 @@ func TestProjectionFailureOrLatencyDoesNotBlockVoiceResponse(t *testing.T) {
 	respondDone := make(chan struct{})
 	go func() {
 		defer close(respondDone)
-		p.respond(gen, "What is the capital of France?", time.Time{})
+		p.respond(gen, "What is the capital of France?", time.Time{}, time.Time{})
 	}()
 
 	select {

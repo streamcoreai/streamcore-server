@@ -43,6 +43,11 @@ type deepgramCallback struct {
 	// message of this utterance, so the UtteranceEnd flush path — which has
 	// no message of its own — can still report one.
 	lastChunkConfidence float64
+
+	// spanStart/spanEnd cover the is_final segments of the utterance being
+	// built, so its final can say which audio it came from.
+	spanStart, spanEnd float64
+	hasSpan            bool
 }
 
 func (cb *deepgramCallback) Open(or *msginterfaces.OpenResponse) error {
@@ -52,12 +57,21 @@ func (cb *deepgramCallback) Open(or *msginterfaces.OpenResponse) error {
 
 func (cb *deepgramCallback) Message(mr *msginterfaces.MessageResponse) error {
 	if len(mr.Channel.Alternatives) == 0 {
+		if mr.FromFinalize {
+			cb.flushFinalized()
+		}
 		return nil
 	}
 
 	alt := mr.Channel.Alternatives[0]
 	text := strings.TrimSpace(alt.Transcript)
 	if text == "" {
+		// A requested finalize can come back empty when Deepgram had
+		// already finalised every segment; what was merged so far is the
+		// utterance.
+		if mr.FromFinalize {
+			cb.flushFinalized()
+		}
 		return nil
 	}
 	confidence := alt.Confidence
@@ -67,14 +81,15 @@ func (cb *deepgramCallback) Message(mr *msginterfaces.MessageResponse) error {
 	cb.mu.Lock()
 	cb.lastChunkConfidence = confidence
 	if mr.IsFinal {
+		cb.noteSpanLocked(speechSpan(alt, mr))
 		cb.finalized = mergeTranscriptChunks(cb.finalized, text)
-		if mr.SpeechFinal {
+		if mr.SpeechFinal || mr.FromFinalize {
 			combined := strings.TrimSpace(cb.finalized)
 			if combined == "" {
 				combined = text
 			}
 			if !cb.shouldSuppressRecentFinalLocked(combined) {
-				emit = &TranscriptResult{Text: combined, IsFinal: true, Confidence: confidence}
+				emit = &TranscriptResult{Text: combined, IsFinal: true, Confidence: confidence, AudioStart: cb.spanStart, AudioEnd: cb.spanEnd}
 			}
 			cb.resetUtteranceLocked(combined)
 		} else {
@@ -101,6 +116,23 @@ func (cb *deepgramCallback) Message(mr *msginterfaces.MessageResponse) error {
 
 // partialResultLocked builds an interim result, dropping repeats and anything
 // that merely restates a final we just emitted.
+// flushFinalized emits the merged is_final segments as a final, if any.
+func (cb *deepgramCallback) flushFinalized() {
+	cb.mu.Lock()
+	combined := strings.TrimSpace(cb.finalized)
+	emit := combined != "" && !cb.shouldSuppressRecentFinalLocked(combined)
+	confidence := cb.lastChunkConfidence
+	spanStart, spanEnd := cb.spanStart, cb.spanEnd
+	if combined != "" {
+		cb.resetUtteranceLocked(combined)
+	}
+	cb.mu.Unlock()
+	if emit {
+		log.Printf("[stt] finalize flush: %q (conf=%.2f)", combined, confidence)
+		cb.onResult(TranscriptResult{Text: combined, IsFinal: true, Confidence: confidence, AudioStart: spanStart, AudioEnd: spanEnd})
+	}
+}
+
 func (cb *deepgramCallback) partialResultLocked(text string, confidence float64) *TranscriptResult {
 	text = strings.TrimSpace(text)
 	if text == "" ||
@@ -114,8 +146,33 @@ func (cb *deepgramCallback) partialResultLocked(text string, confidence float64)
 
 // resetUtteranceLocked clears per-utterance accumulation and records the final
 // text so an immediate repeat can be suppressed.
+// speechSpan is where in the audio a segment's words were spoken. A segment's
+// own start and duration cover the whole chunk Deepgram processed, silence
+// before the first word included, which for a short word like "stop" is most
+// of it; the word timings are what was actually said.
+func speechSpan(alt msginterfaces.Alternative, mr *msginterfaces.MessageResponse) (float64, float64) {
+	if n := len(alt.Words); n > 0 && alt.Words[n-1].End > alt.Words[0].Start {
+		return alt.Words[0].Start, alt.Words[n-1].End
+	}
+	return mr.Start, mr.Start + mr.Duration
+}
+
+func (cb *deepgramCallback) noteSpanLocked(start, end float64) {
+	if end <= start {
+		return
+	}
+	if !cb.hasSpan || start < cb.spanStart {
+		cb.spanStart = start
+	}
+	if !cb.hasSpan || end > cb.spanEnd {
+		cb.spanEnd = end
+	}
+	cb.hasSpan = true
+}
+
 func (cb *deepgramCallback) resetUtteranceLocked(finalText string) {
 	cb.finalized = ""
+	cb.spanStart, cb.spanEnd, cb.hasSpan = 0, 0, false
 	cb.lastEmittedPartial = ""
 	cb.speechActive = false
 	cb.lastChunkConfidence = 0
@@ -155,12 +212,13 @@ func (cb *deepgramCallback) UtteranceEnd(ur *msginterfaces.UtteranceEndResponse)
 	combined := strings.TrimSpace(cb.finalized)
 	emit := combined != "" && !cb.shouldSuppressRecentFinalLocked(combined)
 	confidence := cb.lastChunkConfidence
+	start, end := cb.spanStart, cb.spanEnd
 	cb.resetUtteranceLocked(combined)
 	cb.mu.Unlock()
 
 	if emit {
 		log.Printf("[stt] utterance end flush: %q (conf=%.2f)", combined, confidence)
-		cb.onResult(TranscriptResult{Text: combined, IsFinal: true, Confidence: confidence})
+		cb.onResult(TranscriptResult{Text: combined, IsFinal: true, Confidence: confidence, AudioStart: start, AudioEnd: end})
 	}
 	return nil
 }
@@ -255,6 +313,12 @@ func nova3Language(locale string) string {
 }
 
 // SendAudio sends raw linear16 PCM bytes to Deepgram.
+// Finalize asks Deepgram to finalise the audio it has now. The result comes
+// back marked from_finalize and is emitted as a final.
+func (c *deepgramClient) Finalize() error {
+	return c.ws.Finalize()
+}
+
 func (c *deepgramClient) SendAudio(data []byte) error {
 	_, err := c.ws.Write(data)
 	return err
