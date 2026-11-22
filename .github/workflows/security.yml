@@ -1,0 +1,51 @@
+# Security — govulncheck on every pull request and every push to main, plus a
+# weekly scan of main.
+#
+# The weekly run is not redundant: the Go vulnerability database learns about
+# new CVEs continuously, so a dependency that was clean when a release shipped
+# can become vulnerable without a single commit landing. Gating on PRs alone
+# would never notice.
+#
+# govulncheck reports only vulnerabilities on code paths actually reachable
+# from this module, which keeps the false-positive rate low enough to fail the
+# build on rather than merely report.
+#
+# Scope: this scans the root module only. The Go plugin modules under
+# plugins/plugins/*/ resolve the plugin SDK through a `replace` pointing at a
+# sibling checkout outside this repo, which does not exist in CI — Dependabot
+# covers what it can and their manifests stay with the plugin SDK repo.
+
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# Same convention as ci.yml: a newer push to the same ref cancels the older
+# in-flight run, and the ref keeps unrelated runs from cancelling each other.
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+
+    steps:
+      # The action checks out the repo and installs Go itself
+      # (repo-checkout defaults to true), so it is the only step needed. The Go
+      # version comes from go.mod, matching ci.yml's go-version-file convention.
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+          go-package: ./...

@@ -14,6 +14,7 @@ One Go binary. Bring your own agent.
 No install, no signup — browser mic, and you can cut it off mid-sentence.
 
 [![CI](https://github.com/streamcoreai/streamcore-server/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/streamcoreai/streamcore-server/actions/workflows/ci.yml)
+[![Security](https://github.com/streamcoreai/streamcore-server/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/streamcoreai/streamcore-server/actions/workflows/security.yml)
 [![Go](https://img.shields.io/github/go-mod/go-version/streamcoreai/streamcore-server?logo=go&logoColor=white)](./go.mod)
 [![WHIP RFC 9725](https://img.shields.io/badge/WHIP-RFC%209725-6f42c1)](https://www.rfc-editor.org/rfc/rfc9725.html)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)

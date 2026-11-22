@@ -2,7 +2,10 @@
 #
 # Triggers when a GitHub release is published, or manually via workflow_dispatch.
 # Pushing to main no longer deploys — cut a release to ship.
-# Connects to EC2 via SSH, pulls the latest Docker image, and restarts.
+# Builds and pushes the image, scans it with Trivy and attaches a CycloneDX
+# SBOM to the release, then connects to EC2 via SSH, pulls the latest Docker
+# image, and restarts. A HIGH or CRITICAL finding fails the scan job, which
+# blocks the deploy until the CVE is fixed or allowlisted in .trivyignore.
 #
 # Required GitHub environment secrets (environment: aws-ec2):
 #   EC2_HOST          - Elastic IP or public DNS of the EC2 instance
@@ -62,9 +65,65 @@ jobs:
           push: true
           tags: ${{ steps.tags.outputs.tags }}
 
+  scan:
+    name: Scan image & generate SBOM
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # attach the SBOM to the published release
+      packages: read         # pull the image just pushed to ghcr.io
+      actions: read          # sbom-action lists this run's artifacts
+      security-events: write # upload Trivy SARIF to the Security tab
+
+    steps:
+      # Checkout is only for .trivyignore, which Trivy reads from the working
+      # directory.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # CycloneDX SBOM of the exact image that ships. On release triggers the
+      # action attaches it to the release; on manual runs it still uploads as a
+      # workflow artifact (both are the action's defaults).
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.24.3
+        with:
+          image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+          format: cyclonedx-json
+          artifact-name: streamcore-server-${{ github.sha }}.cyclonedx.json
+
+      # exit-code 1 fails this job — and therefore the release, since deploy
+      # needs it — on HIGH or CRITICAL findings. Unfixed findings are filtered
+      # out automatically; .trivyignore in the repo root is the documented
+      # escape hatch for anything genuinely unfixable in the
+      # node:22-bookworm-slim base.
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      # `if: always()` so findings still land in the Security tab when the scan
+      # itself fails the job.
+      - name: Upload Trivy results to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+
   deploy:
     name: Deploy to EC2
-    needs: build-and-push
+    needs: [build-and-push, scan]
     runs-on: ubuntu-latest
     environment: aws-ec2
 
