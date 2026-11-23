@@ -53,3 +53,30 @@ func TestWrappersForwardControlsCapability(t *testing.T) {
 		t.Error("limitedClient must implement ControllableStreamer")
 	}
 }
+
+func TestVoiceTagFilterAcrossChunks(t *testing.T) {
+	cases := []struct {
+		chunks []string
+		want   string
+	}{
+		{[]string{"[empathetic] I need", " your confirmation."}, "I need your confirmation."},
+		{[]string{"[emp", "athetic]", " I need", " that."}, "I need that."},
+		{[]string{"Sure. [", "warm] Thanks", "!"}, "Sure. Thanks!"},
+		{[]string{"[Excited] Great", "!"}, "Great!"},
+		// Brackets that are not tags pass through, held or not.
+		{[]string{"Booked for [12:30", "] today."}, "Booked for [12:30] today."},
+		{[]string{"Your slot [w", "eekday] is open."}, "Your slot [weekday] is open."},
+		{[]string{"A trailing [w"}, "A trailing [w"},
+	}
+	for _, c := range cases {
+		var f VoiceTagFilter
+		got := ""
+		for _, ch := range c.chunks {
+			got += f.Feed(ch)
+		}
+		got += f.Flush()
+		if got != c.want {
+			t.Errorf("chunks %q = %q, want %q", c.chunks, got, c.want)
+		}
+	}
+}

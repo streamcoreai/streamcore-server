@@ -225,6 +225,7 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart, speechEnd tim
 
 	llmFirstToken := true
 	firstSentence := true
+	var shown tts.VoiceTagFilter
 	_, err := p.llmClient.Chat(respCtx, turn,
 		func(chunk string) {
 			if llmFirstToken && !turnStart.IsZero() {
@@ -248,10 +249,12 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart, speechEnd tim
 			}
 			p.lastAgentText.Store(tts.StripVoiceTags(acc))
 			responseText.WriteString(chunk)
-			p.sendEvent(responseMsg{
-				Type: "response",
-				Text: chunk,
-			})
+			if text := shown.Feed(chunk); text != "" {
+				p.sendEvent(responseMsg{
+					Type: "response",
+					Text: text,
+				})
+			}
 		},
 		func(sentence string) {
 			if firstSentence && !turnStart.IsZero() {
@@ -265,6 +268,9 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart, speechEnd tim
 		},
 	)
 	close(sentences)
+	if text := shown.Flush(); text != "" {
+		p.sendEvent(responseMsg{Type: "response", Text: text})
+	}
 
 	if err != nil && respCtx.Err() == nil {
 		log.Printf("[agent] LLM error: %v", err)
