@@ -111,7 +111,7 @@ utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes
 [openai]
 api_key = ""
 model = "gpt-4o-mini"
-stt_model = "whisper-1"             # whisper-1 | gpt-4o-transcribe | gpt-4o-mini-transcribe
+stt_model = "gpt-transcribe"        # OpenAI 批量转写模型
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [ollama]
@@ -213,7 +213,7 @@ voice = "kokoro_af_heart"            # Prefix picks the vocoder: kokoro_, piper_
 - `pipeline.echo_guard_gain`、`pipeline.echo_guard_margin` 和 `pipeline.echo_guard_window_ms` 用于调节这个下限（仅对开启了该判定的会话生效）。gain 是回声相对于产生它的音频最多能有多响，margin 用于区分双讲与回声，window 应覆盖线路回声的往返时间。默认值（0.6、1.8、400ms）是在 8kHz µ-law 链路上实测得到的；只有拿到你自己链路的录音再去重新调参。该下限会自动跟随打断时的音量压低，因为它采样的是经过衰减后真正发到线路上的信号。
 - `deepgram.endpointing` 与 `deepgram.utterance_end_ms` 调节上游认定一轮结束的时机；轮次合并去抖运行在它们之上。
 - `deepgram.tts_model` 选择 Aura 音色；STT（`model`）与 TTS（`tts_model`）共用同一个 API key。音色命名规则为 `[family]-[voice]-[language]` —— 见 [Deepgram 音色列表](https://developers.deepgram.com/docs/tts-models)。
-- `openai.stt_model` 独立于对话 `model` 选择批量转写模型，默认值为 `whisper-1`。
+- `openai.stt_model` 独立于对话 `model` 选择批量转写模型，默认值为 `gpt-transcribe`。如需继续使用 OpenAI 仍提供的其他批量转写模型，请显式指定。
 - `cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致 —— Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。
 - `minimax.base_url` 用于选择区域。留空即使用全球端点；中国大陆账号必须指向 `https://api.minimaxi.com/v1`，因为两个平台的 key 不通用。
 - `minimax.model` 必须与你的套餐匹配：Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型走按量计费，余额为零时报错 `2056`。

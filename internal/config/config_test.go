@@ -220,13 +220,13 @@ api_key = "file-key"
 func TestLoadOpenAISTTModel(t *testing.T) {
 	clearEnvOverrides(t)
 
-	t.Run("defaults to whisper-1", func(t *testing.T) {
+	t.Run("defaults to gpt-transcribe", func(t *testing.T) {
 		cfg, err := Load(writeConfig(t, ""))
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
-		if cfg.OpenAI.STTModel != "whisper-1" {
-			t.Errorf("OpenAI.STTModel = %q, want %q", cfg.OpenAI.STTModel, "whisper-1")
+		if cfg.OpenAI.STTModel != "gpt-transcribe" {
+			t.Errorf("OpenAI.STTModel = %q, want %q", cfg.OpenAI.STTModel, "gpt-transcribe")
 		}
 	})
 

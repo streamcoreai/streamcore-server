@@ -115,7 +115,7 @@ Details and code: [Bring your own agent](./docs/bring-your-own-agent.md) · [Age
 
 Providers: Deepgram, AssemblyAI, OpenAI, Cartesia, ElevenLabs, MiniMax, Speechify, Telnyx, Ollama, Moonshine (local), VibeVoice (local), xAI Grok Voice (speech-to-speech), pgvector/Supabase for retrieval. See [Providers](./docs/providers.md).
 
-OpenAI STT supports `whisper-1`, `gpt-4o-transcribe`, and `gpt-4o-mini-transcribe` through the independent `openai.stt_model` setting.
+OpenAI STT defaults to `gpt-transcribe`. The independent `openai.stt_model` setting can select another OpenAI batch transcription model.
 
 Telnyx STT fronts a dozen engines behind one key (`telnyx.transcription_engine`, default `Deepgram` so barge-in and live captions work out of the box); the in-house `Telnyx` engine is finals-only, so live captions show finals only and barge-in waits out the full backchannel window on VAD alone, and a startup log line says so.
 

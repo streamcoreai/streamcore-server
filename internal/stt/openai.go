@@ -11,14 +11,15 @@ import (
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
+
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 const (
-	defaultOpenAISTTModel = "whisper-1"
-	sampleRate            = 16000
-	numChannels           = 1
-	bitsPerSample         = 16
-	bytesPerSample        = bitsPerSample / 8
+	sampleRate     = 16000
+	numChannels    = 1
+	bitsPerSample  = 16
+	bytesPerSample = bitsPerSample / 8
 
 	// VAD parameters
 	speechEnergyThreshold = 500.0                  // RMS threshold to detect speech
@@ -53,7 +54,7 @@ type openaiClient struct {
 func NewOpenAIClient(ctx context.Context, apiKey, model string, onResult func(TranscriptResult)) (*openaiClient, error) {
 	sttCtx, cancel := context.WithCancel(ctx)
 	if model == "" {
-		model = defaultOpenAISTTModel
+		model = config.DefaultOpenAISTTModel
 	}
 
 	c := &openaiClient{
@@ -88,7 +89,7 @@ func (c *openaiClient) vadLoop() {
 }
 
 // flushIfNeeded checks if speech has ended (silence after speech) and sends
-// the buffered audio to Whisper for transcription.
+// the buffered audio to OpenAI for transcription.
 func (c *openaiClient) flushIfNeeded(force bool) {
 	c.mu.Lock()
 
@@ -151,7 +152,7 @@ func (c *openaiClient) SendAudio(data []byte) error {
 	return nil
 }
 
-// transcribe encodes PCM as WAV and sends it to the Whisper API.
+// transcribe encodes PCM as WAV and sends it to the OpenAI transcription API.
 func (c *openaiClient) transcribe(pcmData []byte) {
 	if c.ctx.Err() != nil {
 		return
