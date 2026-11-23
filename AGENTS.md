@@ -38,7 +38,7 @@ One xAI key replaces STT + LLM + TTS. The classic three-provider pipeline needs 
 
 Minimum for the classic pipeline is **two** keys, not three: Deepgram covers STT (`nova-3`) and TTS (`aura-2-thalia-en`), plus one LLM key.
 
-There is **no OpenAI TTS provider**. An OpenAI key alone cannot drive the whole pipeline.
+A single OpenAI key can also cover all three stages (`openai` works as STT, LLM, and TTS provider), but OpenAI STT is batch/finals-only — barge-in runs degraded — so Deepgram STT is still the better default.
 
 ## Facts that are easy to get wrong
 

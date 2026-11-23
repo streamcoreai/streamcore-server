@@ -6,7 +6,7 @@
 |------|-----------|----------------------|
 | STT | `aliyun`、`assemblyai`、`deepgram`、`moonshine`、`openai`、`telnyx`、`vibevoice`、`volcengine` | 对应服务商的 API key，或一个本地 Moonshine / VibeVoice ASR 服务 |
 | LLM | `openai`、`ollama`、`agent` | OpenAI API key、你自己掌控的 Ollama 实例，或你自己的 HTTP 智能体端点 |
-| TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`moonshine`、`speechify`、`telnyx`、`vibevoice` | 对应服务商的 API key，或一个本地 Moonshine / VibeVoice TTS 服务 |
+| TTS | `cartesia`、`deepgram`、`elevenlabs`、`mimo`、`minimax`、`moonshine`、`openai`、`speechify`、`telnyx`、`vibevoice` | 对应服务商的 API key，或一个本地 Moonshine / VibeVoice TTS 服务 |
 | 语音到语音 | `grok` | xAI API key —— 一并取代 STT、LLM 与 TTS |
 | RAG（可选） | `pgvector`、`supabase` | Postgres 连接串或 Supabase URL + key，另需 OpenAI key 用于 embedding |
 
@@ -21,6 +21,7 @@
 - `tts.provider = "minimax"` 覆盖 40+ 语言，是中文场景下最强的选项。区域与套餐相关的坑见 [MiniMax TTS](#minimax-tts)。
 - `tts.provider = "telnyx"` 是 Telnyx 托管合成，每个话语一条 WebSocket 连接；音色可用性因账号而异。连接模型与音色目录见 [Telnyx TTS](#telnyx-tts)。
 - `tts.provider = "mimo"` 是小米 MiMo TTS，中英文音色齐备，付费模型还支持声音克隆。
+- `tts.provider = "openai"` 复用 `[openai] api_key`，一把 key 即可覆盖整条流水线。`openai.tts_model` 可选 `gpt-4o-mini-tts`（默认）、`tts-1` 或 `tts-1-hd`；`openai.tts_voice` 选择音色（默认 `alloy`）。该 provider 会跟随 `openai.base_url`，因此兼容端点必须实现 `/audio/speech` 才能正常合成。
 - `stt.provider = "aliyun"` 是阿里云百炼（DashScope）流式 ASR；`vocabulary_id` 可以把模型往你的领域词上带。
 - `stt.provider = "volcengine"` 是豆包流式 ASR —— 适合 Deepgram 访问慢、或它的中文识别不够好的场景。控制台有免费时长可以先试。
 - `realtime.provider = "grok"` 切换到语音到语音模式，并完全忽略 `[stt]`、`[llm]` 与 `[tts]`。

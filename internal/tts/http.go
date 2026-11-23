@@ -128,6 +128,50 @@ func streamHTTPResponse(ctx context.Context, resp *http.Response) <-chan StreamC
 	return ch
 }
 
+// pumpResampledStream is pumpPCMStream for providers that return linear16 at
+// 24 kHz instead of the pipeline's 16 kHz. Each read goes through a streaming
+// resampler so playback still starts on the first bytes, with the filter
+// state carried across reads — resampling each read independently would
+// zero-pad at every boundary and click once per chunk. The tail the resampler
+// holds back for context is emitted at EOF via Flush. Returns on EOF, read
+// error (reported on ch), or ctx cancellation. The caller owns closing ch
+// and body.
+func pumpResampledStream(ctx context.Context, body io.Reader, ch chan<- StreamChunk) {
+	var rs streamResampler24to16
+	buf := make([]byte, 8192)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		n, err := body.Read(buf)
+		if n > 0 {
+			if out := rs.Write(buf[:n]); len(out) > 0 {
+				select {
+				case ch <- StreamChunk{PCM: out}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				if out := rs.Flush(); len(out) > 0 {
+					select {
+					case ch <- StreamChunk{PCM: out}:
+					case <-ctx.Done():
+					}
+				}
+			} else if ctx.Err() == nil {
+				select {
+				case ch <- StreamChunk{Err: fmt.Errorf("tts stream read: %w", err)}:
+				case <-ctx.Done():
+				}
+			}
+			return
+		}
+	}
+}
+
 // streamWhole adapts a one-shot Synthesize into the streaming interface for
 // providers that return audio in a single envelope (a JSON body, say) and
 // therefore cannot emit partial audio.
