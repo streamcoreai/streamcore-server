@@ -162,7 +162,6 @@ type Pipeline struct {
 	// audio while the caller is talking over it.
 	duckChangeCh chan bool
 	audioMuted   atomic.Bool
-	processing   atomic.Bool
 
 	// responseGen identifies the response that currently owns the audio path.
 	// It is bumped every time a response is superseded (new turn or barge-in),

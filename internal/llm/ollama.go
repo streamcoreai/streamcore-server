@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -239,7 +240,7 @@ func (c *ollamaClient) streamCompletion(ctx context.Context, onChunk func(string
 		return nil
 	})
 
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return fullResponse.String(), nil, fmt.Errorf("ollama chat: %w", err)
 	}
 

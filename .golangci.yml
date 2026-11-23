@@ -1,0 +1,82 @@
+# golangci-lint configuration (v2 format — golangci-lint v2.x is also the
+# first release line that understands the Go version in go.mod).
+#
+# Deliberately conservative: on top of the defaults (errcheck, govet,
+# ineffassign, staticcheck, unused) we only enable linters aimed at the
+# failure modes that matter in a concurrent media server — HTTP response
+# bodies never closed, requests issued without a context, and error values
+# formatted with %v where %w is meant.
+version: "2"
+
+linters:
+  enable:
+    - bodyclose  # HTTP response bodies that are never closed
+    - errorlint  # %v on errors where %w is meant; ==/!= on wrapped errors
+    - misspell   # commonly misspelled English words in comments/strings
+    - noctx      # requests, listeners and exec calls that take no context
+
+  exclusions:
+    # Fail the lint run if an exclusion rule stops matching anything, so
+    # cleared findings leave no dead rules behind.
+    warn-unused: true
+
+    rules:
+      # TODO(bodyclose): these three streaming clients close resp.Body
+      # inside the pump goroutine they hand it to — correct ownership, but
+      # the analyser cannot follow the body across the go statement.
+      - linters:
+          - bodyclose
+        path: internal/tts/(cartesia|mimo|minimax)\.go$
+      # TODO(errcheck): ~90 pre-existing unchecked-error findings on main,
+      # too many to fix in one focused PR. Excluded per file (grouped by
+      # package) so an unchecked error introduced in any other file still
+      # fails CI. Fix a file's findings in a follow-up and drop its entry.
+      - linters:
+          - errcheck
+        path: _test\.go$
+      - linters:
+          - errcheck
+        path: ^main\.go$
+      - linters:
+          - errcheck
+        path: internal/llm/(agent|ollama|openai)\.go$
+      - linters:
+          - errcheck
+        path: internal/peer/peer\.go$
+      - linters:
+          - errcheck
+        path: internal/pipeline/(agent|realtime)\.go$
+      - linters:
+          - errcheck
+        path: internal/plugin/(external|manager|manifest)\.go$
+      - linters:
+          - errcheck
+        path: internal/rag/(embedding|supabase)\.go$
+      - linters:
+          - errcheck
+        path: internal/realtime/grok\.go$
+      - linters:
+          - errcheck
+        path: internal/signaling/handler\.go$
+      - linters:
+          - errcheck
+        path: internal/stt/(aliyun|moonshine|openai|telnyx|vibevoice|volcengine)\.go$
+      - linters:
+          - errcheck
+        path: internal/tts/(aliyun|cartesia|cartesia_ws|deepgram|elevenlabs|http|mimo|minimax|moonshine|speechify|telnyx|vibevoice|volcengine)\.go$
+      - linters:
+          - errcheck
+        path: internal/turn/server\.go$
+      # TODO(noctx): httptest.NewRequest / http.Get-style helpers in tests
+      # don't benefit from context plumbing (8 findings on main). The
+      # non-test findings were fixed; keep tests excluded.
+      - linters:
+          - noctx
+        path: _test\.go$
+      # exec.Command is deliberate: Start's ctx is a start-phase deadline
+      # (restart() cancels it the moment Start returns), so CommandContext
+      # would kill the plugin process as soon as startup finished. Process
+      # lifetime is owned by Stop().
+      - linters:
+          - noctx
+        path: internal/plugin/external\.go$

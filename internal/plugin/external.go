@@ -329,13 +329,7 @@ func (p *ExternalPlugin) HandleEvent(ctx context.Context, event PluginEvent) ([]
 		return nil, nil
 	}
 
-	payload, err := json.Marshal(eventParams{
-		Type:      event.Type,
-		SessionID: event.SessionID,
-		TurnID:    event.TurnID,
-		TurnSeq:   event.TurnSeq,
-		Data:      event.Data,
-	})
+	payload, err := json.Marshal(eventParams(event))
 	if err != nil {
 		return nil, fmt.Errorf("plugin %s: encode event: %w", p.manifest.Name, err)
 	}

@@ -79,8 +79,11 @@ func NewAssemblyAIClient(ctx context.Context, cfg config.AssemblyAIConfig, onRes
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.DialContext(sttCtx, endpoint, header)
+	conn, resp, err := dialer.DialContext(sttCtx, endpoint, header)
 	if err != nil {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		cancel()
 		return nil, fmt.Errorf("assemblyai: dial: %w", err)
 	}

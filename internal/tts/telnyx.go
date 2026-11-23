@@ -198,6 +198,9 @@ func (c *TelnyxClient) dial(ctx context.Context) (*websocket.Conn, error) {
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 	conn, resp, err := dialer.DialContext(ctx, endpoint, header)
 	if err != nil {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		if resp != nil && resp.StatusCode == http.StatusForbidden {
 			// A 403 at the handshake is how Telnyx reports an unknown
 			// voice or one the account is not provisioned for. Point

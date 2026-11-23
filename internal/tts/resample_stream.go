@@ -82,10 +82,7 @@ func (r *streamResampler24to16) emit(final bool) []byte {
 	outN := (r.n*resampleUp + resampleDown - 1) / resampleDown
 
 	out := make([]byte, 0, 64)
-	for {
-		if final && r.m >= outN {
-			break
-		}
+	for !final || r.m < outN {
 		center := r.m*resampleDown + half
 
 		hi := center / resampleUp

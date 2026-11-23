@@ -84,6 +84,7 @@ func NewGrokClient(ctx context.Context, cfg config.GrokConfig, opts Options, h H
 	})
 	if err != nil {
 		if resp != nil {
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("grok realtime dial: %w (status %s)", err, resp.Status)
 		}
 		return nil, fmt.Errorf("grok realtime dial: %w", err)
