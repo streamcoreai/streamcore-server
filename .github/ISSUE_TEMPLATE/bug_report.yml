@@ -1,0 +1,100 @@
+name: Bug report
+description: Report a defect in the server — media, signalling, providers, config.
+title: "[Bug]: "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A realtime media bug almost always needs three
+        things that are rarely volunteered: **which providers were
+        configured**, **what the transport was doing**, and **what the server
+        logged** — this form asks for all three up front.
+
+        Never paste API keys, `jwt_secret`, `turn_secret`, or a real
+        `config.toml`. Provider names only; rotate anything you have leaked.
+
+        Security-sensitive bugs (auth bypass, credential exposure) are not
+        public issues — use [private vulnerability reporting](https://github.com/streamcoreai/streamcore-server/security/advisories/new)
+        per [SECURITY.md](https://github.com/streamcoreai/streamcore-server/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+      placeholder: Caller connects over WHIP and hears the greeting, then audio stops after the first barge-in…
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Config changes from `config.toml.example` (no secrets), what the client did, and the timing that triggers it.
+      placeholder: |
+        1. Set tts.provider = "cartesia", stt.provider = "deepgram"
+        2. Connect from the browser demo, wait for the greeting
+        3. Interrupt mid-sentence — audio stops and never resumes
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: StreamCore version or commit SHA
+      description: Output of `git rev-parse HEAD` in your checkout, or the release tag / image digest you run.
+      placeholder: e.g. 456921f, or v1.2.3
+    validations:
+      required: true
+  - type: input
+    id: providers
+    attributes:
+      label: Configured providers
+      description: The `[stt]`, `[llm]`, `[tts]` provider values — or the `[realtime]` provider in speech-to-speech mode. Names only, never keys.
+      placeholder: stt=deepgram, llm=openai, tts=cartesia — or — realtime=grok
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Client used
+      description: Which SDK and version, or a browser speaking to /whip directly.
+      placeholder: e.g. @streamcore/js-sdk 0.4.0, streamcore (PyPI) 0.9.1, Chrome + raw WHIP, ESP32 firmware
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      description: Where the server is running.
+      options:
+        - Local process (`go run .`)
+        - Docker or docker-compose
+        - Cloud Run
+        - EC2 or another cloud VM
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: nat
+    attributes:
+      label: NAT traversal config
+      description: NAT traversal is a large share of "connects but no audio" reports — what are `server.public_ip` and `server.turn_secret` set to?
+      options:
+        - Both unset (local or direct connection)
+        - public_ip set, turn_secret unset
+        - public_ip and turn_secret set (built-in TURN)
+        - Behind NAT, unsure what's configured
+        - Not behind NAT
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server logs around the failure
+      description: Paste log lines from session connect through the failure. The per-turn latency breakdown is especially useful for pipeline issues. Redact secrets.
+      placeholder: |
+        [session 8f2a] peer connected
+        [session 8f2a] turn: endpointing=212ms llm=480ms tts=310ms
+        [session 8f2a] ICE disconnected, restarting…
+      render: shell
+    validations:
+      required: true

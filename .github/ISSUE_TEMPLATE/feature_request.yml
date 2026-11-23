@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose a new provider adapter, protocol feature, or capability.
+title: "[Feature]: "
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests scoped to this repo — the Go media runtime. Client SDKs,
+        the SIP bridge, examples, and ESP32 firmware live in their own repos
+        under [streamcoreai](https://github.com/streamcoreai).
+
+        Questions and "how do I…?" belong in [Discord](https://discord.gg/xKGFaGWawT),
+        not here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The use case or gap, not the implementation. "I can't run provider X because…" is more useful than "add a wrapper for Y".
+      placeholder: Our telephony provider only emits G.711 RTP, so we can't use the WHIP path for PSTN callers…
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What to add or change. For a new provider, name the adapter (stt, tts, llm, or realtime) and link its API docs. For anything touching the WHIP wire protocol, DataChannel events, or config keys, include the migration story.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried, or why an existing provider or plugin doesn't cover it.
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to implement this myself if it's accepted
+          required: false
