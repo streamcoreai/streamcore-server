@@ -125,7 +125,7 @@ utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes
 [openai]
 api_key = ""
 model = "gpt-4o-mini"
-stt_model = "whisper-1"             # whisper-1 | gpt-4o-transcribe | gpt-4o-mini-transcribe
+stt_model = "gpt-transcribe"        # OpenAI batch transcription model
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [ollama]
@@ -231,7 +231,7 @@ Notes:
 - `pipeline.echo_guard_gain`, `pipeline.echo_guard_margin`, and `pipeline.echo_guard_window_ms` tune that bound, for the sessions it applies to. The gain is how loud echo can be relative to the audio that produced it, the margin is what separates double-talk from echo, and the window should cover the round trip of the carrier's echo. The defaults (0.6, 1.8, 400ms) were measured on an 8kHz mu-law path; retune only against recordings of your own. The bound follows the barge-in duck on its own, since it is sampled from what goes on the wire after attenuation.
 - `deepgram.endpointing` and `deepgram.utterance_end_ms` tune when a turn is considered finished upstream; the turn-merge debounce runs on top of them.
 - `deepgram.tts_model` picks the Aura voice; STT (`model`) and TTS (`tts_model`) share the one API key. Voices are named `[family]-[voice]-[language]` — see [Deepgram's voice list](https://developers.deepgram.com/docs/tts-models).
-- `openai.stt_model` selects the batch transcription model independently of the chat `model`; it defaults to `whisper-1`.
+- `openai.stt_model` selects the batch transcription model independently of the chat `model`; it defaults to `gpt-transcribe`. Set it explicitly to keep using another batch transcription model while OpenAI still serves it.
 - `cartesia.max_concurrency` should match your plan's TTS concurrency limit — Cartesia counts active generations, not calls, and returns 429 past the limit.
 - `minimax.base_url` selects the region. Leave it unset for the global endpoint; mainland-China accounts must point it at `https://api.minimaxi.com/v1`, since keys do not work across the two platforms.
 - `minimax.model` must match your plan: a Token Plan key (`sk-cp-`) only covers `speech-2.8-hd`, while any other model bills pay-as-you-go and errors with `2056` on a zero balance.

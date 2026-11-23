@@ -349,12 +349,15 @@ type AssemblyAIConfig struct {
 	Keyterms []string `toml:"keyterms"`
 }
 
+// DefaultOpenAISTTModel is the native OpenAI batch transcription default.
+const DefaultOpenAISTTModel = "gpt-transcribe"
+
 type OpenAIConfig struct {
 	APIKey string `toml:"api_key"`
 	Model  string `toml:"model"`
 	// STTModel selects the transcription model used when stt.provider =
 	// "openai". It is separate from Model because chat and transcription use
-	// different model families. Empty defaults to whisper-1.
+	// different model families. Empty uses DefaultOpenAISTTModel.
 	STTModel     string `toml:"stt_model"`
 	SystemPrompt string `toml:"system_prompt"`
 	// BaseURL points the client at an OpenAI-compatible endpoint other than
@@ -591,7 +594,7 @@ func Load(path string) (*Config, error) {
 	setDefault(&cfg.LLM.Provider, "openai")
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")
-	setDefault(&cfg.OpenAI.STTModel, "whisper-1")
+	setDefault(&cfg.OpenAI.STTModel, DefaultOpenAISTTModel)
 	setDefault(&cfg.OpenAI.SystemPrompt, "You are a helpful AI voice assistant having a natural phone conversation. Keep responses to 1-2 sentences unless asked for detail. When interrupted (indicated by bracketed context), respond the way a patient human would: if they say 'no', address the disagreement; if they redirect, follow their lead. Never repeat what you already said, never ask 'would you like me to continue', and never mention that you were interrupted.")
 	setDefault(&cfg.Ollama.BaseURL, "http://localhost:11434")
 	setDefault(&cfg.Ollama.Model, "llama3.2")
