@@ -84,6 +84,7 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 - Echo reference for paths with no AEC, such as SIP/PCMU telephony: the barge-in threshold is bounded by the RMS the server just sent, so the agent stops interrupting itself on its own returning voice. Applied per session from a client hint, so one instance serves browsers and phone calls without either compromising the other
 - Turn debounce that merges consecutive final transcripts, so "I want to… um… book a table" is answered once, not twice
 - Sentence-boundary chunking so TTS starts before the LLM finishes, and chunk-level streaming so audio plays before a sentence is fully synthesized
+- Leading silence trimmed from synthesized speech: the near-silence a TTS provider puts before each sentence (80-600 ms with Cartesia) is cut to 60 ms before a reply's first word and at most 200 ms between sentences
 - Optional per-utterance delivery tags — the model may prefix a sentence with `[warm]`, `[empathetic]`, `[calm]`, or `[excited]`, which map to provider voice controls and are never spoken aloud
 - Thinking sound — an optional tone played through the RTP stream while a slow tool runs (500 ms grace period)
 

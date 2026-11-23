@@ -43,9 +43,32 @@ func TestSpeakerGateIgnoresTheRoom(t *testing.T) {
 	}
 
 	// With no committed turns the level decays, so a caller who really is
-	// quieter is heard again within a minute.
+	// quieter is heard again within a minute, once the line is quiet.
+	feedSpan(g, 10, 30)
 	if !g.near(800, now.Add(time.Minute)) {
 		t.Error("the learned level never relaxed")
+	}
+}
+
+// A minute of chatter with no caller turn must not lower the bar until the
+// chatter itself counts as the caller.
+func TestSpeakerGateDoesNotRelaxIntoTheRoom(t *testing.T) {
+	g := newSpeakerGate(10)
+	now := time.Now()
+	feedSpan(g, 2, 10000)
+	g.background(stt.TranscriptResult{IsFinal: true, AudioStart: 0, AudioEnd: 2}, now)
+
+	feedSpan(g, 20, 1300) // the room, 18dB down, with peaks 6dB over its floor
+	feedSpan(g, 2, 2600)
+	later := now.Add(time.Minute)
+	if _, _, bg := g.background(stt.TranscriptResult{IsFinal: true, AudioStart: 22, AudioEnd: 24}, later); !bg {
+		t.Error("after a minute of chatter its loudest moment was taken for the caller")
+	}
+	if g.near(2600, later) {
+		t.Error("after a minute of chatter a room-level frame counted as the caller")
+	}
+	if !g.near(6000, later) {
+		t.Error("the caller stopped counting")
 	}
 }
 

@@ -34,6 +34,17 @@ const (
 	// pauses between words inside one final cannot pull them under the bar,
 	// and one click is not enough to lift the room over it.
 	speakerSpanPeak = 5
+
+	// The decay above would also let the room in: after 40s of silence in a
+	// café the bar is 12dB lower and the chatter gets answered. So the bar
+	// never relaxes to within speakerFloorMargin of the background, measured
+	// as the 30th-percentile frame over the last 10s. Chatter's loudest 100ms
+	// sits about 6dB over that; in a quiet room the background is near zero
+	// and the decay works as before.
+	speakerFloorWindow     = 500 // frames, 10s
+	speakerFloorEvery      = 50  // frames between recomputing it
+	speakerFloorPercentile = 0.3
+	speakerFloorMargin     = 3.16 // 10dB
 )
 
 // speakerGate learns the caller's level and judges finals and frames against
@@ -52,6 +63,9 @@ type speakerGate struct {
 
 	level   float64 // caller level; 0 until a final has been committed
 	levelAt time.Time
+
+	floor   float64 // background level, see speakerFloorWindow
+	scratch []float64
 }
 
 // newSpeakerGate builds a gate that treats speech more than db below the
@@ -71,6 +85,15 @@ func (g *speakerGate) frame(rms float64) {
 	g.mu.Lock()
 	g.ring[g.total%speakerRing] = float32(rms)
 	g.total++
+	if g.total%speakerFloorEvery == 0 {
+		n := min(g.total, speakerFloorWindow)
+		g.scratch = g.scratch[:0]
+		for i := g.total - n; i < g.total; i++ {
+			g.scratch = append(g.scratch, float64(g.ring[i%speakerRing]))
+		}
+		sort.Float64s(g.scratch)
+		g.floor = g.scratch[int(speakerFloorPercentile*float64(n-1))]
+	}
 	g.mu.Unlock()
 }
 
@@ -111,7 +134,11 @@ func (g *speakerGate) currentLevelLocked(now time.Time) float64 {
 	if g.level == 0 {
 		return 0
 	}
-	return g.level * math.Pow(0.5, now.Sub(g.levelAt).Seconds()/speakerHalfLife.Seconds())
+	decayed := g.level * math.Pow(0.5, now.Sub(g.levelAt).Seconds()/speakerHalfLife.Seconds())
+	if g.fraction > 0 {
+		decayed = max(decayed, min(g.level, g.floor*speakerFloorMargin/g.fraction))
+	}
+	return decayed
 }
 
 // background reports whether a final came from the room rather than the

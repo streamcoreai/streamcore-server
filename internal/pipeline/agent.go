@@ -13,6 +13,7 @@ import (
 	"github.com/streamcoreai/streamcore-server/internal/procstat"
 	"github.com/streamcoreai/streamcore-server/internal/rag"
 	"github.com/streamcoreai/streamcore-server/internal/tts"
+	"github.com/streamcoreai/streamcore-server/internal/vad"
 )
 
 // runAgent is the central orchestrator goroutine. It receives transcript
@@ -388,6 +389,30 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 			return
 		}
 
+		// Emit complete frames only; the partial tail waits for the next
+		// chunk, or is flushed once every sentence is done.
+		push := func(pcm []int16) bool {
+			samples := append(leftover, pcm...)
+			leftover = nil
+			i := 0
+			for ; i+audio.FrameSize <= len(samples); i += audio.FrameSize {
+				frame := PCMFrame{
+					Samples:      make([]int16, audio.FrameSize),
+					NewTalkspurt: !talkspurtSent,
+				}
+				copy(frame.Samples, samples[i:i+audio.FrameSize])
+				talkspurtSent = true
+				if !emitFrame(frame) {
+					return false
+				}
+			}
+			if i < len(samples) {
+				leftover = append([]int16{}, samples[i:]...)
+			}
+			return true
+		}
+
+		lead := newLeadTrim(!talkspurtSent)
 		for chunk := range stream {
 			if chunk.Err != nil {
 				if ctx.Err() == nil {
@@ -398,27 +423,12 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 			if ctx.Err() != nil {
 				return
 			}
-
-			samples := append(leftover, audio.Linear16BytesToPCM(chunk.PCM)...)
-			leftover = nil
-
-			// Emit complete frames only; the partial tail waits for the next
-			// chunk, or is flushed once every sentence is done.
-			i := 0
-			for ; i+audio.FrameSize <= len(samples); i += audio.FrameSize {
-				frame := PCMFrame{
-					Samples:      make([]int16, audio.FrameSize),
-					NewTalkspurt: !talkspurtSent,
-				}
-				copy(frame.Samples, samples[i:i+audio.FrameSize])
-				talkspurtSent = true
-				if !emitFrame(frame) {
-					return
-				}
+			if !push(lead.feed(audio.Linear16BytesToPCM(chunk.PCM))) {
+				return
 			}
-			if i < len(samples) {
-				leftover = append([]int16{}, samples[i:]...)
-			}
+		}
+		if !push(lead.flush()) {
+			return
 		}
 	}
 
@@ -433,6 +443,63 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 		emitFrame(frame)
 	}
 	return firstFrameAt, quietWait
+}
+
+// Cartesia starts every sentence's audio with 80-600ms of near-silence (RMS
+// 5-30, speech starts in the hundreds). Before a reply's first sentence it is
+// time the caller waits for nothing; before a later one it stacks on the
+// previous sentence's tail into a gap long enough to sound like the agent
+// stopped. leadTrim keeps only the end of that silence.
+const (
+	leadVoiceRMS = 50
+	// Enough lead-in that a soft onset ("s", "sh", "h") is not clipped.
+	leadKeepFirst = 3 // frames, 60ms
+	// Between sentences the lead is the natural pause; only its long tail goes.
+	leadKeepLater = 10 // frames, 200ms
+	// Audio that is still quiet this far in is passed on untouched.
+	leadScanMax = 75 // frames, 1.5s
+)
+
+type leadTrim struct {
+	keep, scanned int // samples
+	held          []int16
+	done          bool
+}
+
+func newLeadTrim(firstOfReply bool) *leadTrim {
+	keep := leadKeepLater
+	if firstOfReply {
+		keep = leadKeepFirst
+	}
+	return &leadTrim{keep: keep * audio.FrameSize}
+}
+
+// feed takes the next PCM chunk of a sentence and returns what should be
+// played now: nothing while still inside the leading silence.
+func (t *leadTrim) feed(pcm []int16) []int16 {
+	if t.done {
+		return pcm
+	}
+	t.held = append(t.held, pcm...)
+	for ; t.scanned+audio.FrameSize <= len(t.held); t.scanned += audio.FrameSize {
+		if vad.RMSEnergy(t.held[t.scanned:t.scanned+audio.FrameSize]) >= leadVoiceRMS {
+			out := t.held[max(0, t.scanned-t.keep):]
+			t.held, t.done = nil, true
+			return out
+		}
+	}
+	if len(t.held) >= leadScanMax*audio.FrameSize {
+		return t.flush()
+	}
+	return nil
+}
+
+// flush hands back whatever is still held, for a sentence that ended (or ran
+// past leadScanMax) without a voiced frame.
+func (t *leadTrim) flush() []int16 {
+	out := t.held
+	t.held, t.done = nil, true
+	return out
 }
 
 // callerQuietMaxWait bounds the quiet gate. A caller who keeps talking past it
