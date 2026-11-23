@@ -46,6 +46,14 @@ func (p *Pipeline) gateToolCall(tool plugin.Tool, args json.RawMessage) (json.Ra
 // what lets locomotion, gestures and anything else that acts on the client be a
 // plugin rather than a branch in this file.
 func (p *Pipeline) runTool(ctx context.Context, tool plugin.Tool, args json.RawMessage) (string, error) {
+	// A tool asked for while the caller is still finishing their sentence
+	// would act on half an instruction ("pick up the red…"). Their next final
+	// supersedes this turn and cancels ctx; until then, wait. Holds only for
+	// a caller who spoke again after the turn was committed.
+	p.waitCallerQuietUpTo(ctx, callerContinuedMaxWait, false)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	raw, err := p.executeTool(ctx, tool, args)
 	if err != nil {
 		return "", err

@@ -15,6 +15,18 @@ type TranscriptResult struct {
 	// reported value was genuinely zero); callers must treat it as "unknown"
 	// rather than "low confidence".
 	Confidence float64
+	// AudioStart and AudioEnd bound the audio a final covers, in seconds of
+	// audio sent on the current connection. Both zero when the provider does
+	// not say, which turns off anything that needs them.
+	AudioStart, AudioEnd float64
+}
+
+// Finalizer is implemented by providers that can be told the speaker has
+// stopped, so they finalise what they have instead of waiting for silence in
+// the audio. Background chatter has no silence, so without this a turn's final
+// waits for the room to pause.
+type Finalizer interface {
+	Finalize() error
 }
 
 // Client is the interface that all STT providers must implement.

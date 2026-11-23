@@ -125,7 +125,7 @@ func (p *Pipeline) realtimeInstructionsSuffix() string {
 	if skills == "" {
 		return ""
 	}
-	log.Printf("[realtime] injected %d skills into system prompt", len(p.pluginMgr.Skills()))
+	log.Printf("[realtime] injected %d of %d skills into system prompt", len(p.pluginMgr.PromptSkills()), len(p.pluginMgr.Skills()))
 	return skills
 }
 

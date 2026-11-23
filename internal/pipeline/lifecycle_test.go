@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/streamcoreai/streamcore-server/internal/audio"
 	"github.com/streamcoreai/streamcore-server/internal/config"
 	"github.com/streamcoreai/streamcore-server/internal/llm"
 	"github.com/streamcoreai/streamcore-server/internal/plugin"
@@ -303,7 +304,7 @@ func TestProjectionFailureOrLatencyDoesNotBlockVoiceResponse(t *testing.T) {
 	respondDone := make(chan struct{})
 	go func() {
 		defer close(respondDone)
-		p.respond(gen, "What is the capital of France?", time.Time{})
+		p.respond(gen, "What is the capital of France?", time.Time{}, time.Time{})
 	}()
 
 	select {
@@ -322,4 +323,70 @@ func TestProjectionFailureOrLatencyDoesNotBlockVoiceResponse(t *testing.T) {
 		t.Fatal("voice pipeline was cancelled by a projection failure path")
 	}
 	close(release)
+}
+
+// frames builds PCM of n 20ms frames at one constant level.
+func frames(n int, level int16) []int16 {
+	pcm := make([]int16, n*audio.FrameSize)
+	for i := range pcm {
+		pcm[i] = level
+	}
+	return pcm
+}
+
+func TestLeadTrimFirstSentence(t *testing.T) {
+	// 400ms of noise floor, a soft onset, then speech: what is played starts
+	// 60ms before the onset, and the onset itself is untouched.
+	in := append(append(frames(20, 15), frames(1, 140)...), frames(10, 3000)...)
+	lt := newLeadTrim(true)
+	var out []int16
+	for i := 0; i < len(in); i += 500 { // chunks that cut frames in half
+		out = append(out, lt.feed(in[i:min(i+500, len(in))])...)
+	}
+	out = append(out, lt.flush()...)
+	want := (leadKeepFirst + 11) * audio.FrameSize
+	if len(out) != want {
+		t.Fatalf("played %d samples, want %d (60ms of lead-in, the onset, the speech)", len(out), want)
+	}
+	if out[leadKeepFirst*audio.FrameSize] != 140 {
+		t.Error("the soft onset was not where the lead-in ends")
+	}
+}
+
+func TestLeadTrimLaterSentenceKeepsAPause(t *testing.T) {
+	in := append(frames(30, 10), frames(5, 2000)...)
+	lt := newLeadTrim(false)
+	out := append(lt.feed(in), lt.flush()...)
+	if got := len(out) / audio.FrameSize; got != leadKeepLater+5 {
+		t.Errorf("played %d frames, want the speech plus a %d-frame pause", got, leadKeepLater)
+	}
+
+	short := append(frames(4, 10), frames(5, 2000)...)
+	lt = newLeadTrim(false)
+	if out := append(lt.feed(short), lt.flush()...); len(out) != len(short) {
+		t.Error("a pause shorter than the cap was shortened")
+	}
+}
+
+func TestLeadTrimLeavesOtherAudioAlone(t *testing.T) {
+	voiced := frames(10, 2000)
+	lt := newLeadTrim(true)
+	if out := append(lt.feed(voiced), lt.flush()...); len(out) != len(voiced) {
+		t.Error("audio that starts voiced was trimmed")
+	}
+
+	// A sentence that never gets loud is passed on whole, held at most 1.5s.
+	quiet := frames(leadScanMax+10, 20)
+	lt = newLeadTrim(true)
+	if out := lt.feed(quiet[:leadScanMax*audio.FrameSize]); len(out) != leadScanMax*audio.FrameSize {
+		t.Errorf("quiet audio held past %d frames", leadScanMax)
+	}
+	if out := lt.feed(quiet[leadScanMax*audio.FrameSize:]); len(out) != 10*audio.FrameSize {
+		t.Error("audio after the scan limit was not passed straight on")
+	}
+	lt = newLeadTrim(true)
+	lt.feed(frames(4, 20))
+	if out := lt.flush(); len(out) != 4*audio.FrameSize {
+		t.Error("a short quiet sentence was dropped at the end of its stream")
+	}
 }

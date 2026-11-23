@@ -22,6 +22,7 @@ type Manager struct {
 	plugins       map[string]Tool
 	eventHandlers map[string]EventHandler
 	hosts         []*ExternalPlugin
+	loaded        map[string]bool // names of plugins that loaded and are enabled
 	skills        []Skill
 	dir           string
 	sdkDir        string // set via PLUGIN_SDK_DIR env var (dev only)
@@ -54,6 +55,7 @@ func NewManager(pluginDir string) *Manager {
 	return &Manager{
 		plugins:       make(map[string]Tool),
 		eventHandlers: make(map[string]EventHandler),
+		loaded:        make(map[string]bool),
 		dir:           pluginDir,
 		sdkDir:        sdkDir,
 		confirmations: NewConfirmationStore(0),
@@ -239,13 +241,14 @@ func (m *Manager) SkillsPrompt() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if len(m.skills) == 0 {
+	skills := m.promptSkillsLocked()
+	if len(skills) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("\n\n--- Skills ---\n")
-	for _, s := range m.skills {
+	for _, s := range skills {
 		b.WriteString(fmt.Sprintf("\n## Skill: %s\n", s.Name))
 		if s.Description != "" {
 			b.WriteString(fmt.Sprintf("Description: %s\n", s.Description))
@@ -257,6 +260,41 @@ func (m *Manager) SkillsPrompt() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// PromptSkills returns the skills SkillsPrompt includes.
+func (m *Manager) PromptSkills() []Skill {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.promptSkillsLocked()
+}
+
+// promptSkillsLocked leaves out skills written for tools that are disabled or
+// failed to load, which would tell the model it can do things it cannot.
+func (m *Manager) promptSkillsLocked() []Skill {
+	var out []Skill
+	for _, s := range m.skills {
+		if m.skillToolsLoadedLocked(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// skillToolsLoadedLocked reports whether a skill has something to drive. A
+// skill lists plugin names or tool names ("gmail", "movement.forward"); one
+// match is enough. A skill that lists nothing is plain behaviour and always
+// applies. Callers hold m.mu.
+func (m *Manager) skillToolsLoadedLocked(s Skill) bool {
+	if len(s.Plugins) == 0 {
+		return true
+	}
+	for _, name := range s.Plugins {
+		if _, ok := m.plugins[name]; ok || m.loaded[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // Close stops every plugin process.
@@ -324,6 +362,10 @@ func (m *Manager) loadPlugins(ctx context.Context, dir string) error {
 		manifest.Normalize()
 		if err := m.load(ctx, manifest, pluginDir); err != nil {
 			log.Printf("[plugins] skipping %s: %v", entry.Name(), err)
+		} else if manifest.IsEnabled() {
+			m.mu.Lock()
+			m.loaded[manifest.Name] = true
+			m.mu.Unlock()
 		}
 	}
 

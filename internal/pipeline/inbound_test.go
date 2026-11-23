@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,6 +39,16 @@ import (
 // transcript, and discards the audio the pipeline streams at it.
 func fakeVibeVoiceASR(t *testing.T, sendPartial bool) *httptest.Server {
 	t.Helper()
+	if !sendPartial {
+		return fakeVibeVoiceASRSaying(t, "")
+	}
+	return fakeVibeVoiceASRSaying(t, "the billing question please")
+}
+
+// fakeVibeVoiceASRSaying sends partial as the one partial transcript, or
+// nothing when it is empty.
+func fakeVibeVoiceASRSaying(t *testing.T, partial string) *httptest.Server {
+	t.Helper()
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -45,9 +56,9 @@ func fakeVibeVoiceASR(t *testing.T, sendPartial bool) *httptest.Server {
 			return
 		}
 		defer conn.Close()
-		if sendPartial {
+		if partial != "" {
 			_ = conn.WriteMessage(websocket.TextMessage,
-				[]byte(`{"text":"the billing question please","is_final":false}`))
+				[]byte(`{"text":"`+partial+`","is_final":false}`))
 		}
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
@@ -72,6 +83,7 @@ func newInboundTestPipeline(t *testing.T, cfg *config.Config) *Pipeline {
 		ctx:          ctx,
 		cancel:       cancel,
 		cfg:          cfg,
+		vad:          vad.NewDefault(),
 		bargeInVAD:   vad.NewBargeIn(),
 		inPCMCh:      make(chan PCMFrame, 50),
 		finalCh:      make(chan TranscriptEvent, 10),
@@ -208,6 +220,77 @@ func TestInboundBargeInFiresOnSustainedSpeechWithPartials(t *testing.T) {
 	pushUntilInterrupt(t, p, loudSamples(), 10*time.Millisecond)
 }
 
+// "stop" cannot be a backchannel, so it cuts the agent off as soon as the
+// partial shows it instead of after the 600ms window.
+func TestInboundBargeInOnCommandSkipsBackchannelWindow(t *testing.T) {
+	server := fakeVibeVoiceASRSaying(t, "stop")
+
+	cfg := &config.Config{}
+	cfg.STT.Provider = "vibevoice"
+	cfg.VibeVoice.ASRURL = "ws" + strings.TrimPrefix(server.URL, "http")
+	bar := true
+	cfg.Pipeline.BargeIn = &bar
+
+	p := newInboundTestPipeline(t, cfg)
+	startInbound(t, p)
+
+	// The partial lands on connect; give it a moment so the window opens
+	// with the text already there, as it does when the caller says "stop".
+	time.Sleep(100 * time.Millisecond)
+	start := time.Now()
+	pushUntilInterrupt(t, p, loudSamples(), 10*time.Millisecond)
+	if took := time.Since(start); took >= backchannelWindowForTest {
+		t.Errorf("command barge-in took %v, want it inside the %v backchannel window", took, backchannelWindowForTest)
+	}
+}
+
+// A redirect with content ("actually, tell me about cats") is an
+// interruption as soon as the partial shows it.
+func TestInboundBargeInOnContentSkipsBackchannelWindow(t *testing.T) {
+	server := fakeVibeVoiceASRSaying(t, "actually tell me about cats instead")
+
+	cfg := &config.Config{}
+	cfg.STT.Provider = "vibevoice"
+	cfg.VibeVoice.ASRURL = "ws" + strings.TrimPrefix(server.URL, "http")
+	bar := true
+	cfg.Pipeline.BargeIn = &bar
+
+	p := newInboundTestPipeline(t, cfg)
+	startInbound(t, p)
+
+	time.Sleep(100 * time.Millisecond)
+	start := time.Now()
+	pushUntilInterrupt(t, p, loudSamples(), 10*time.Millisecond)
+	if took := time.Since(start); took >= backchannelWindowForTest {
+		t.Errorf("content barge-in took %v, want it inside the %v backchannel window", took, backchannelWindowForTest)
+	}
+}
+
+// A backchannel never reads as meaningful, so it still has to outlast the
+// window before it interrupts.
+func TestInboundBackchannelStillWaitsOutWindow(t *testing.T) {
+	server := fakeVibeVoiceASRSaying(t, "mm hmm")
+
+	cfg := &config.Config{}
+	cfg.STT.Provider = "vibevoice"
+	cfg.VibeVoice.ASRURL = "ws" + strings.TrimPrefix(server.URL, "http")
+	bar := true
+	cfg.Pipeline.BargeIn = &bar
+
+	p := newInboundTestPipeline(t, cfg)
+	startInbound(t, p)
+
+	time.Sleep(100 * time.Millisecond)
+	// 400ms of speech: long enough to open the window, short of closing it.
+	pushPaced(t, p, loudSamples(), 40, 10*time.Millisecond)
+	if interruptFired(p) {
+		t.Error("a backchannel partial fired barge-in inside the window")
+	}
+}
+
+// backchannelWindowForTest mirrors the window in runInbound.
+const backchannelWindowForTest = 600 * time.Millisecond
+
 // A finals-only provider opens the window on VAD alone, but the interrupt
 // must not fire before the full 600ms backchannel window has elapsed:
 // there is no text to classify a short burst with, so the window is the
@@ -255,5 +338,221 @@ func TestInboundVADOnlyBargeInSuppressesShortBurst(t *testing.T) {
 
 	if interruptFired(p) {
 		t.Error("short unclassifiable burst fired barge-in, want it suppressed as backchannel")
+	}
+}
+
+// The end-of-speech stamp is the last voiced frame, with the VAD's hangover
+// backed out, and it is kept with barge-in off.
+func TestInboundStampsCallerSpeechEnd(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.STT.Provider = "openai"
+	cfg.OpenAI.APIKey = "test-key"
+	off := false
+	cfg.Pipeline.BargeIn = &off
+
+	p := newInboundTestPipeline(t, cfg)
+	startInbound(t, p)
+
+	pushPaced(t, p, loudSamples(), 15, 10*time.Millisecond)
+	lastLoud := time.Now()
+	pushPaced(t, p, silentSamples(), 25, 10*time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+
+	at := p.callerVoiceAt.Load()
+	if at == 0 {
+		t.Fatal("no caller speech recorded")
+	}
+	// Frames are paced at 10ms while the hangover assumes 20ms, so the
+	// stamp lands before the real last frame; it must not land after it.
+	if end := time.Unix(0, at); end.After(lastLoud.Add(20 * time.Millisecond)) {
+		t.Errorf("speech end stamped %v after the last voiced frame", end.Sub(lastLoud))
+	}
+}
+
+func TestWaitCallerQuiet(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pipeline.UserSpeechQuietMs = 120
+	p := &Pipeline{cfg: cfg}
+
+	if got := p.waitCallerQuiet(context.Background()); got > 20*time.Millisecond {
+		t.Errorf("caller never spoke, gate held %v", got)
+	}
+
+	p.callerVoiceAt.Store(time.Now().UnixNano())
+	if got := p.waitCallerQuiet(context.Background()); got < 100*time.Millisecond || got > 300*time.Millisecond {
+		t.Errorf("caller just spoke, gate held %v, want about 120ms", got)
+	}
+
+	p.callerVoiceAt.Store(time.Now().Add(-time.Second).UnixNano())
+	if got := p.waitCallerQuiet(context.Background()); got > 20*time.Millisecond {
+		t.Errorf("caller quiet for 1s, gate held %v", got)
+	}
+
+	// A caller the VAD never hears stop cannot hold the agent forever.
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := make(chan struct{})
+	p.callerVoiceAt.Store(time.Now().UnixNano())
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				p.callerVoiceAt.Store(time.Now().UnixNano())
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+	}()
+	got := p.waitCallerQuiet(ctx)
+	close(stop)
+	cancel()
+	if got < callerQuietMaxWait || got > callerQuietMaxWait+200*time.Millisecond {
+		t.Errorf("endless speech held the gate %v, want the %v cap", got, callerQuietMaxWait)
+	}
+
+	p.callerVoiceAt.Store(time.Now().UnixNano())
+	ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+	if got := p.waitCallerQuiet(ctx); got > 50*time.Millisecond {
+		t.Errorf("cancelled gate held %v", got)
+	}
+}
+
+// A caller who spoke again after their turn was committed is mid-sentence:
+// the reply waits for their next final (which supersedes it) rather than the
+// ordinary short quiet period.
+func TestWaitCallerQuietHoldsForContinuation(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pipeline.UserSpeechQuietMs = 120
+	p := &Pipeline{cfg: cfg}
+
+	p.turnCommittedAt.Store(time.Now().Add(-time.Second).UnixNano())
+	p.callerVoiceAt.Store(time.Now().Add(-200 * time.Millisecond).UnixNano())
+	if got := p.waitCallerQuiet(context.Background()); got < callerContinuedQuiet-300*time.Millisecond {
+		t.Errorf("caller continued after the commit, gate held only %v", got)
+	}
+
+	// Superseded by the continuation's final: the gate lets go at once.
+	p.callerVoiceAt.Store(time.Now().UnixNano())
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+	if got := p.waitCallerQuiet(ctx); got > 400*time.Millisecond {
+		t.Errorf("superseded reply still held %v", got)
+	}
+
+	// Voice that ended before the commit is the turn itself, not more of it.
+	p.turnCommittedAt.Store(time.Now().UnixNano())
+	p.callerVoiceAt.Store(time.Now().Add(-time.Second).UnixNano())
+	if got := p.waitCallerQuiet(context.Background()); got > 20*time.Millisecond {
+		t.Errorf("finished turn held %v", got)
+	}
+}
+
+// An STT connection that drops mid-call is replaced, so the caller is still
+// heard afterwards.
+func TestInboundReconnectsDroppedSTT(t *testing.T) {
+	var conns atomic.Int32
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if conns.Add(1) == 1 {
+			return // the provider drops the first connection straight away
+		}
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.Config{}
+	cfg.STT.Provider = "vibevoice"
+	cfg.VibeVoice.ASRURL = "ws" + strings.TrimPrefix(server.URL, "http")
+	off := false
+	cfg.Pipeline.BargeIn = &off
+
+	p := newInboundTestPipeline(t, cfg)
+	startInbound(t, p)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for conns.Load() < 2 && time.Now().Before(deadline) {
+		select {
+		case p.inPCMCh <- PCMFrame{Samples: silentSamples()}:
+		case <-time.After(100 * time.Millisecond):
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if conns.Load() < 2 {
+		t.Fatalf("STT connections = %d, want a reconnect after the drop", conns.Load())
+	}
+}
+
+// The check made just before the first frame plays only ever holds for a
+// continuation, so a noisy line does not pay the quiet wait twice.
+func TestFirstFrameCheckOnlyHoldsForContinuation(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Pipeline.UserSpeechQuietMs = 600
+	p := &Pipeline{cfg: cfg}
+
+	p.turnCommittedAt.Store(time.Now().UnixNano())
+	p.callerVoiceAt.Store(time.Now().Add(-50 * time.Millisecond).UnixNano())
+	if got := p.waitCallerQuietUpTo(context.Background(), callerContinuedFrameMax, false); got > 20*time.Millisecond {
+		t.Errorf("no continuation, second check held %v", got)
+	}
+
+	p.turnCommittedAt.Store(time.Now().Add(-time.Second).UnixNano())
+	p.callerVoiceAt.Store(time.Now().UnixNano())
+	if got := p.waitCallerQuietUpTo(context.Background(), 300*time.Millisecond, false); got < 280*time.Millisecond {
+		t.Errorf("continuation, second check held only %v", got)
+	}
+}
+
+// With short endpointing "stop" can arrive as a final before any partial
+// does. It still cuts the agent off inside the window.
+func TestInboundBargeInOnFinalCommand(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		time.Sleep(150 * time.Millisecond)
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"text":"stop","is_final":true}`))
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &config.Config{}
+	cfg.STT.Provider = "vibevoice"
+	cfg.VibeVoice.ASRURL = "ws" + strings.TrimPrefix(server.URL, "http")
+	bar := true
+	cfg.Pipeline.BargeIn = &bar
+
+	p := newInboundTestPipeline(t, cfg)
+	startInbound(t, p)
+	go func() {
+		for {
+			select {
+			case <-p.finalCh: // the turn buffer is not running here
+			case <-p.ctx.Done():
+				return
+			}
+		}
+	}()
+
+	start := time.Now()
+	pushUntilInterrupt(t, p, loudSamples(), 10*time.Millisecond)
+	if took := time.Since(start); took >= backchannelWindowForTest {
+		t.Errorf("final-only command took %v, want it inside the %v window", took, backchannelWindowForTest)
 	}
 }
