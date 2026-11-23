@@ -11,11 +11,10 @@ version: 1
 #   enabled = true
 enabled: false
 
-# The published @streamcore/plugin on npm predates the result envelope, so it
-# cannot emit a card. This links the SDK in the tree by path, the way the Go
-# plugins do with a replace directive. Its dist/ is gitignored, so install it
-# first: that runs its prepare script and leaves a built package to link to.
-build: ["sh", "-c", "npm --prefix ../../../../plugin-sdk/typescript install && npm install"]
+# @streamcore/plugin 0.2.0 from npm has the result envelope the card needs.
+# Don't point this at ../plugin-sdk: the server image is built from this repo
+# alone, so the path is missing there and the plugin is skipped at startup.
+build: ["npm", "install"]
 exec: ["npx", "tsx", "index.ts"]
 
 # Room for the live Codex query: `codex app-server` answers
