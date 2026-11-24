@@ -155,6 +155,13 @@ type PipelineConfig struct {
 	// mid-thought after the transcript went final.
 	UserSpeechQuietMs int `toml:"user_speech_quiet_ms"`
 
+	// BackgroundSpeechDB is how far below the caller's usual level (in dB)
+	// speech is treated as someone else in the room: its transcripts are not
+	// answered and it does not count as the caller still talking. Needs an
+	// STT provider that reports which audio a transcript covers (Deepgram).
+	// Nil means 10; 0 turns it off.
+	BackgroundSpeechDB *float64 `toml:"background_speech_db"`
+
 	// TurnMergeMs is the debounce window for merging consecutive final
 	// transcripts into a single turn. A caller who pauses mid-sentence
 	// ("I want to... um... book a table") otherwise fires two turns and the
@@ -311,8 +318,9 @@ type DeepgramConfig struct {
 	// "multi". Empty defaults to English.
 	Language string `toml:"language"`
 	// Endpointing is how long (ms, as a string) Deepgram waits for silence
-	// before finalising a transcript. Lower is snappier but fragments natural
-	// mid-sentence pauses ("I want to… um… order a pizza").
+	// before finalising a transcript. Lower is snappier and fragments natural
+	// mid-sentence pauses ("I want to… um… order a pizza") into several
+	// finals, which the turn buffer merges back while the caller is talking.
 	Endpointing string `toml:"endpointing"`
 	// UtteranceEndMs asks Deepgram to emit an UtteranceEnd event after this
 	// much silence, which the callback uses to flush buffered chunks when no
@@ -581,10 +589,14 @@ func Load(path string) (*Config, error) {
 	}
 	setDefault(&cfg.STT.Provider, "deepgram")
 	setDefault(&cfg.Deepgram.Model, "nova-3")
-	// 300ms keeps the historical snappy endpointing. utterance_end_ms has no
-	// prior value; 1000 is Deepgram's minimum and switches on the UtteranceEnd
-	// flush that recovers a turn when no speech_final arrives.
-	setDefault(&cfg.Deepgram.Endpointing, "300")
+	// 25ms: Deepgram finalises at almost any pause and the turn buffer decides
+	// when the caller is done, from the VAD (hold counted from their last
+	// voiced frame, no commit while they talk, replies held when they carry
+	// on). Waiting 300ms upstream as well put every turn ~300ms behind.
+	// utterance_end_ms has no prior value; 1000 is Deepgram's minimum and
+	// switches on the UtteranceEnd flush that recovers a turn when no
+	// speech_final arrives.
+	setDefault(&cfg.Deepgram.Endpointing, "25")
 	setDefault(&cfg.Deepgram.UtteranceEndMs, "1000")
 	setDefault(&cfg.Deepgram.TTSModel, "aura-2-thalia-en")
 	setDefault(&cfg.AssemblyAI.Model, "u3-rt-pro")
@@ -641,6 +653,10 @@ func Load(path string) (*Config, error) {
 
 	// Quiet grace and turn-merge debounce. Both default to conservative values
 	// that measurably reduce the agent talking over a caller mid-thought.
+	if cfg.Pipeline.BackgroundSpeechDB == nil {
+		db := 10.0
+		cfg.Pipeline.BackgroundSpeechDB = &db
+	}
 	if cfg.Pipeline.UserSpeechQuietMs == 0 {
 		cfg.Pipeline.UserSpeechQuietMs = 600
 	}

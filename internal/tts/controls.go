@@ -65,6 +65,71 @@ func ParseVoiceTag(sentence string) (VoiceControls, string) {
 	return vc, strings.TrimSpace(trimmed[end+1:])
 }
 
+// VoiceTagFilter takes the tags out of a reply while it streams, for the text
+// sent to the client as it arrives. A tag can be split across chunks ("[emp",
+// "athetic]"), so a trailing bracket that could still become one is held back
+// until its closing bracket settles it.
+type VoiceTagFilter struct {
+	held      string
+	dropSpace bool // a tag ended the last chunk; the space after it comes next
+}
+
+// Feed returns the part of chunk that is safe to show.
+func (f *VoiceTagFilter) Feed(chunk string) string {
+	s := f.held + chunk
+	f.held = ""
+	if f.dropSpace && s != "" {
+		s = strings.TrimPrefix(s, " ")
+		f.dropSpace = false
+	}
+	var out strings.Builder
+	for {
+		i := strings.IndexByte(s, '[')
+		if i < 0 {
+			out.WriteString(s)
+			return out.String()
+		}
+		out.WriteString(s[:i])
+		s = s[i:]
+		end := strings.IndexByte(s, ']')
+		if end < 0 {
+			if couldBeVoiceTag(s[1:]) {
+				f.held = s
+				return out.String()
+			}
+		} else if _, ok := voiceTags[strings.ToLower(strings.TrimSpace(s[1:end]))]; ok {
+			s = s[end+1:]
+			if s == "" {
+				f.dropSpace = true
+			} else {
+				s = strings.TrimPrefix(s, " ")
+			}
+			continue
+		}
+		out.WriteByte('[')
+		s = s[1:]
+	}
+}
+
+// Flush returns whatever was still held when the reply ended, such as an
+// unclosed "[w" that never became a tag.
+func (f *VoiceTagFilter) Flush() string {
+	s := f.held
+	f.held = ""
+	f.dropSpace = false
+	return s
+}
+
+func couldBeVoiceTag(partial string) bool {
+	p := strings.ToLower(strings.TrimLeft(partial, " "))
+	for tag := range voiceTags {
+		if strings.HasPrefix(tag, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // StripVoiceTags removes every known [tag] occurrence from text — used when
 // recording transcripts so delivery hints never pollute what reviews and
 // the LLM history treat as spoken words.

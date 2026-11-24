@@ -112,11 +112,35 @@ func newProviderClient(cfg *config.Config) (Client, error) {
 	}
 }
 
+// Close releases a connection the client keeps open between syntheses. Only
+// the Cartesia WebSocket holds one; for every other provider this does
+// nothing. Without it each finished call left that socket and its read
+// goroutine running until Cartesia timed it out.
+func Close(c Client) {
+	if closer, ok := c.(interface{ Close() }); ok {
+		closer.Close()
+	}
+}
+
+// Warm opens a connection the client keeps between syntheses before the
+// first one needs it. Only the Cartesia WebSocket has one: dialling it on the
+// first synthesis put a TLS and WebSocket handshake in front of the greeting.
+// A no-op for every other provider.
+func Warm(ctx context.Context, c Client) {
+	if w, ok := c.(interface{ Warm(context.Context) }); ok {
+		w.Warm(ctx)
+	}
+}
+
 // sanitizingClient strips Markdown from every synthesis request before
 // handing it to the wrapped provider.
 type sanitizingClient struct {
 	inner Client
 }
+
+func (s *sanitizingClient) Close() { Close(s.inner) }
+
+func (s *sanitizingClient) Warm(ctx context.Context) { Warm(ctx, s.inner) }
 
 func (s *sanitizingClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	return s.inner.Synthesize(ctx, SanitizeForTTS(text))

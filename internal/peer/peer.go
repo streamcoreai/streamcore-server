@@ -39,6 +39,11 @@ type Peer struct {
 	localTrack    *webrtc.TrackLocalStaticRTP
 	RemoteTrackCh chan *webrtc.TrackRemote
 
+	// publicSTUN is set when this peer gathers its reflexive candidate from
+	// the public STUN server (no built-in STUN/TURN configured); only then
+	// may a local caller be answered early.
+	publicSTUN bool
+
 	// DataChannel used to send transcript / response / error events to the client.
 	dcMu sync.Mutex
 	dc   *webrtc.DataChannel
@@ -172,7 +177,7 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 	} else {
 		// Local development — no TURN needed, use Google STUN as fallback.
 		iceServers = append(iceServers,
-			webrtc.ICEServer{URLs: []string{"stun:stun.l.google.com:19302"}},
+			webrtc.ICEServer{URLs: []string{DefaultSTUNURL}},
 		)
 	}
 	config := webrtc.Configuration{
@@ -197,7 +202,10 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 		ctx:           peerCtx,
 		cancel:        peerCancel,
 		RemoteTrackCh: make(chan *webrtc.TrackRemote, 1),
+		publicSTUN:    !(turnCfg.PublicIP != "" && turnCfg.Secret != ""),
 	}
+
+	pc.OnICECandidate(noteReflexive)
 
 	pc.OnTrack(func(remoteTrack *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		log.Printf("[peer:%s] got remote track: %s", id, remoteTrack.Codec().MimeType)
@@ -368,10 +376,13 @@ func (p *Peer) HandleOffer(sdp string) (string, error) {
 	}
 
 	gatherDone := webrtc.GatheringCompletePromise(p.pc)
+	wait := gatherWait(p.ID, sdp, p.publicSTUN)
 	select {
 	case <-gatherDone:
-	case <-time.After(5 * time.Second):
-		log.Printf("[peer:%s] ICE gathering timed out, using partial candidates", p.ID)
+	case <-time.After(wait):
+		if wait > localAnswerWait {
+			log.Printf("[peer:%s] ICE gathering timed out, using partial candidates", p.ID)
+		}
 	}
 
 	answerSDP := p.pc.LocalDescription().SDP

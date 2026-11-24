@@ -46,7 +46,8 @@ greeting = ""
 greeting_outgoing = ""
 debug = false
 user_speech_quiet_ms = 600           # Quiet period after the caller stops before the agent speaks
-turn_merge_ms = 350                  # Debounce window for merging finals into one turn
+background_speech_db = 10            # Speech this far below the caller is the room, not the caller (0 = off)
+turn_merge_ms = 350                  # Caller silence (from their last voiced frame) before a turn is answered
 # rag_prefetch = false               # Start retrieval during the merge window instead of after it
 # readback_bargein_guard_enabled = false  # Ignore weak barge-ins while the agent reads values back
 # echo_guard = "auto"                # auto | always | off. Auto follows each client's aec hint
@@ -83,7 +84,7 @@ api_key = ""
 model = "nova-3"
 tts_model = "aura-2-thalia-en"       # Aura voice when tts.provider = "deepgram"; aura-2-theia-en is Australian feminine
 # language = ""                      # BCP-47 tag (en-US, es-MX); non-en/es routes to the multilingual model
-endpointing = "300"                  # Silence (ms) before a transcript is finalised
+endpointing = "25"                   # Silence (ms) before a transcript is finalised; the turn buffer decides the turn
 utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes a turn with no speech_final
 # keyterms = ["Tauranga", "BYD"]     # Nova-3 only: bias the decoder toward domain vocabulary
 
@@ -184,6 +185,7 @@ voice = "kokoro_af_heart"            # Prefix picks the vocoder: kokoro_, piper_
 
 说明：
 
+- 未设置 `server.public_ip` 和 `server.turn_secret` 时，peer 会向 Google 公共 STUN 服务获取 server-reflexive 候选。只有在用户可能需要它时，WHIP 应答才会等它：如果 offer 里有回环 host 候选、与服务器相同的公网地址，或同网段的 host 候选且没有指向别处的 reflexive 地址（另一个网络可能使用相同的私有网段），就立即带 host 候选应答（在某些地区 STUN 往返约 550 ms）。
 - `server.public_ip` 加上 `server.turn_secret` 会启用内置的 Pion STUN/TURN 服务，取代外部 coturn 容器。TURN 监听 UDP 与 TCP 3478，并在 UDP 50001–60000 上中转媒体。
 - `server.max_sessions` 用于限制分布式客户端的破坏半径：按 IP 的限流做不到这一点，而每个会话都在消耗 CPU 和服务商费用。超过上限后 `POST /whip` 返回 503 并带 `Retry-After`；会话恢复（resume）不受限制，因为它重新接入的会话已被计数。请按单实例实际能承载的量来设置。
 - `plugins.directory` 是插件与技能加载的必要条件；不设置则跳过发现流程。
@@ -194,11 +196,12 @@ voice = "kokoro_af_heart"            # Prefix picks the vocoder: kokoro_, piper_
 - `codex.*` 启用 Codex 开发者智能体。Codex 通过官方登录流程使用你的 ChatGPT 订阅认证 —— 没有 API key 配置项，也永远不会使用 `OPENAI_API_KEY`。
 - `codex.model_provider` 与 `codex.model` 会固定写在 Codex 命令行上。否则 `~/.codex/config.toml` 里指向其他供应商的默认值会悄悄接管，你的 ChatGPT 套餐将完全不会被使用。
 - `codex.workspace_root` 是 Codex 唯一可以写入的位置。每个开发任务在其下获得独立的 git worktree；服务器自身的工作副本永远不在其中。
-- `pipeline.barge_in` 允许用户在智能体说话时打断。用户一开口抢话，智能体音量立即压低；若判定只是回应词则恢复。
+- `pipeline.barge_in` 允许用户在智能体说话时打断。用户一开口抢话，智能体音量立即压低；若判定只是回应词则恢复。实时转写一旦读起来像真正的打断（"stop"、"wait"，或带内容的话如 "actually, tell me about cats"），就立即打断，不必等完回应词判定窗口；回应词（"嗯嗯"、"好的"）永远不会被这样判定，仍需撑过整个窗口。
 - `pipeline.greeting` 在会话连接时播放。存在 `pipeline.greeting_outgoing` 时，它用于 SIP 外呼。
-- `pipeline.debug = true` 会通过 DataChannel 发出时延事件，并在日志中记录每轮的时延分解。
-- `pipeline.turn_merge_ms` 是一条 final 转写被暂留多久，以便后续内容合并进同一轮。如果智能体总在用户话说到一半时抢答，就调高；如果回复显得迟钝，就调低。当文本结束在半句话或悬空词上时，等待会自动延长。
-- `pipeline.user_speech_quiet_ms` 是用户需要安静多久，智能体才开始说话。
+- `pipeline.debug = true` 会通过 DataChannel 发出时延事件，并在日志中记录每轮的时延分解（`[turn-timing]`）。其中 `endpoint_ms` 从用户最后一个有声帧算到第一条 final 转写，之后各阶段从这条 final 起算，所以 `total_user_to_speech_ms` 就是用户停下后到第一帧音频入队前的静默时长。DataChannel 的 `timing` 事件仍从 final 转写起算。
+- `pipeline.turn_merge_ms` 是用户需要安静多久（从其最后一个有声帧算起）才回答这一轮。服务商的端点检测通常在 final 转写到达前就已超过这段时间，所以说完的一轮会直接通过。用户又开口时永远不会回答：停顿（"我的号码是四一五……五五五"）会被暂留，下一条 final 合并进来。当文本结束在半句话或悬空词上时，则从 final 起等待完整的 900 ms。如果智能体仍在用户话说到一半时抢答，就调高；如果回复显得迟钝，就调低。
+- `pipeline.user_speech_quiet_ms` 是用户需要安静多久，智能体才开始说话。这个检查在回复的第一句准备好时才进行，与 LLM 并行，用户已经停下时没有额外开销；只有用户在 final 转写之后又开口时才会压住回复，且最多 1.5 秒。如果这一轮已经提交后用户又开口（句子中途的停顿），回复会改为等待 1.5 秒的安静、最多 4 秒，让用户的下一条 final 在半句话的回答被听到之前取代它。第一帧音频播放前还会再检查一次（最多 2.5 秒），因为回复可能在 VAD 察觉用户重新开口之前就已备好。以这种方式在播放前被取代的回复会从对话历史中移除（OpenAI 协议与 Ollama 提供方），模型不会接着用户从未听到的话往下说；期间请求的工具调用也会等待，而不是按半句指令执行。
+- `pipeline.background_speech_db` 用来区分用户与周围环境。用户几乎总是线路上最响的声音，因此服务器会学习它所回答轮次的音量；如果一段转写所对应的音频比这个水平低出超过设定的 dB 数（电视、邻桌），就不会回答；这个音量的帧也不再被当作用户仍在说话，因此背景交谈既不会拉长轮次暂留，也不会触发打断。用户声音变大时该水平几秒内即可跟上，没有新轮次时每 20 秒减半，因此比一次大声突发更轻的用户也能重新被听到。它不会降到距线路背景音量 10 dB 以内，因此在嘈杂环境里长时间沉默之后，智能体也不会开始回答周围的人。默认 10；设为 `0` 关闭。需要能报告转写所对应音频的 STT 提供方（Deepgram）；其他提供方下不起作用。
 - `pipeline.rag_prefetch` 让检索与轮次合并窗口重叠。默认关闭；它会发出一次推测性的 embedding + 检索，若该轮文本发生变化则丢弃。
 - `pipeline.readback_bargein_guard_enabled` 可避免弱纠正与回应词打断智能体的确认复述。只有明确的命令（stop、cancel、hang up）才会打断。默认关闭。
 - `pipeline.echo_guard` 防止智能体被自己的声音打断。浏览器会在音频到达服务器之前先做 AEC，因此 VAD 根本看不到智能体自己的输出绕回来；而在电话线路上整条链路没有任何 AEC，回声虽然衰减了，但结构上和语音完全一样，单靠能量判据无法与真人区分。该开关会维护一个滚动窗口，记录服务器实际发出音频的 RMS，只有当上行音频超过 `已发送 RMS x echo_guard_gain x echo_guard_margin` 时才算作打断。智能体沉默时该下限为零，判定重新交回自适应阈值，因此干净线路上说话轻的来电者不受影响。
@@ -213,11 +216,11 @@ voice = "kokoro_af_heart"            # Prefix picks the vocoder: kokoro_, piper_
 
   除非你有一个无法修改、又跑在无 AEC 链路上的客户端，否则请保持 `"auto"`。在同时服务浏览器的服务器上设为 `"always"`，会让浏览器端真实的插话必须先盖过智能体自身的输出电平，而按会话判断的默认值正是为了避免这种回退。
 - `pipeline.echo_guard_gain`、`pipeline.echo_guard_margin` 和 `pipeline.echo_guard_window_ms` 用于调节这个下限（仅对开启了该判定的会话生效）。gain 是回声相对于产生它的音频最多能有多响，margin 用于区分双讲与回声，window 应覆盖线路回声的往返时间。默认值（0.6、1.8、400ms）是在 8kHz µ-law 链路上实测得到的；只有拿到你自己链路的录音再去重新调参。该下限会自动跟随打断时的音量压低，因为它采样的是经过衰减后真正发到线路上的信号。
-- `deepgram.endpointing` 与 `deepgram.utterance_end_ms` 调节上游认定一轮结束的时机；轮次合并去抖运行在它们之上。
+- `deepgram.endpointing`（默认 25 ms）与 `deepgram.utterance_end_ms` 调节 Deepgram 何时定稿一段转写。默认值几乎在任何停顿处定稿，把判断交给轮次缓冲：用户还在说话时它会把这些片段合并起来。原默认 300 ms 让每一轮都慢了约 300 ms。如果 VAD 听不到某位用户（线路很安静），这一轮的暂留时间会补上与 300 ms 的差值，因此这样的用户需要的静默与以前相同。如果用户已安静 300 ms 而 Deepgram 仍未定稿（背景说话让它永远听不到停顿），服务器会请它把已有内容定稿。
 - `deepgram.tts_model` 选择 Aura 音色；STT（`model`）与 TTS（`tts_model`）共用同一个 API key。音色命名规则为 `[family]-[voice]-[language]` —— 见 [Deepgram 音色列表](https://developers.deepgram.com/docs/tts-models)。
 - `openai.stt_model` 独立于对话 `model` 选择批量转写模型，默认值为 `whisper-1`。
 - `openai.tts_model` 与 `openai.tts_voice` 在 `tts.provider = "openai"` 时选择语音模型与音色，与对话 `model` 及 STT `stt_model` 相互独立；默认值为 `gpt-4o-mini-tts` 和 `alloy`。该 provider 会跟随 `openai.base_url`，因此兼容端点必须实现 `/audio/speech`。
-- `cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致 —— Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。
+- **`cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致。** Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。默认值 3 对最小的套餐是安全的，但超过三个同时生成的请求都会排队：在 20 路并发的基准测试中，它让听到问候语的时间翻了一倍多（2.1 秒到 4.6 秒）。请调到你套餐的上限，或设为 `-1` 关闭这道闸门。日志里出现 `[tts:limit] ... queuing request` 说明通话正在等它。
 - `minimax.base_url` 用于选择区域。留空即使用全球端点；中国大陆账号必须指向 `https://api.minimaxi.com/v1`，因为两个平台的 key 不通用。
 - `minimax.model` 必须与你的套餐匹配：Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型走按量计费，余额为零时报错 `2056`。
 

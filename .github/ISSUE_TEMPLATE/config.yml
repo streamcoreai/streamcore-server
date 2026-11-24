@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & setup help — Discord
+    url: https://discord.gg/xKGFaGWawT
+    about: '"How do I…?" questions, provider setup, and config debugging move faster in chat than in an issue.'
+  - name: Documentation & guides
+    url: https://streamcore.ai
+    about: Quickstart, the full config schema, and SDK references.
+  - name: Report a security vulnerability
+    url: https://github.com/streamcoreai/streamcore-server/security/advisories/new
+    about: Private vulnerability reporting — see SECURITY.md. Never file vulnerabilities as public issues.

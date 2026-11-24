@@ -148,6 +148,14 @@ func (c *cartesiaWSClient) Close() {
 // Connection management
 // ---------------------------------------------------------------------------
 
+// Warm dials the socket ahead of the first synthesis. Failure is only
+// logged: the first synthesis dials again and reports the error properly.
+func (c *cartesiaWSClient) Warm(ctx context.Context) {
+	if err := c.ensureConnected(ctx); err != nil && ctx.Err() == nil {
+		log.Printf("[tts:cartesia-ws] warm-up dial failed: %v", err)
+	}
+}
+
 // ensureConnected dials the Cartesia WebSocket if no connection is active.
 // It is safe to call concurrently; the mutex serialises dial attempts.
 func (c *cartesiaWSClient) ensureConnected(ctx context.Context) error {
@@ -156,6 +164,13 @@ func (c *cartesiaWSClient) ensureConnected(ctx context.Context) error {
 
 	if c.connected && c.conn != nil {
 		return nil
+	}
+	// A reply still unwinding after Close must not dial a fresh socket that
+	// nothing will ever close.
+	select {
+	case <-c.closeCh:
+		return fmt.Errorf("cartesia ws: client closed")
+	default:
 	}
 
 	header := http.Header{}

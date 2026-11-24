@@ -82,6 +82,33 @@ Docker, TURN ports, and production notes: [Quick start guide](./docs/quickstart.
 
 Full capability list: [Capabilities](./docs/capabilities.md).
 
+## Performance
+
+We profile the server end to end the way a caller hears it: a harness dials in over WebRTC, speaks recorded sentences, and times the agent's audio as it arrives. Same machine and providers before and after (Deepgram nova-3, gpt-4o-mini, Cartesia sonic-3), one Go process for every call. Figures are p50 / p90.
+
+| | Before | Now |
+|---|---|---|
+| End of speech → first audio, 3 calls | 2,611 / 2,917 ms | **1,562 / 1,830 ms** |
+| End of speech → first audio, 10 calls | 2,409 / 2,587 ms | **1,512 / 1,628 ms** |
+| End of speech → first audio, 20 calls | 2,598 / 3,138 ms | **1,417 / 1,570 ms** |
+| Slowest turn, 20 calls | 4,583 ms | **1,854 ms** |
+| Connect → greeting heard | 1,973 / 1,987 ms | **1,441 / 1,473 ms** |
+| "Stop." → agent silent | 975 ms | **818 ms** |
+| "Actually, tell me about…" → agent silent | 1,731 ms | **851 ms** |
+| Audio gaps over 200 ms, 20 calls | 5 | **0** |
+| "Mm-hmm." while the agent talks | keeps talking | keeps talking |
+
+With background conversation mixed under the caller (three other voices, no noise suppression):
+
+| Background level | | End of speech → first audio | Paused sentences answered twice | Turns taken from the room |
+|---|---|---|---|---|
+| ~20 dB below the caller | Before | 3,982 / 5,945 ms | 5 of 9 | 11 |
+| | Now | **1,566 / 1,818 ms** | **0 of 9** | **3** |
+| ~10 dB below the caller | Before | 3,496 / 5,309 ms | 7 of 9 | 45 |
+| | Now | **1,582 / 1,729 ms** | **0 of 9** | **7** |
+
+Each call costs about 16 MB of memory and 2% of one CPU core. Your numbers will vary with the providers' latency on the day, which accounts for most of each turn.
+
 ## Not built yet
 
 Listed so the table above stays honest — unticked items are real gaps today, not soon-shipping promises. Ticked ones shipped recently and stay listed for a release or two so you can see what moved:

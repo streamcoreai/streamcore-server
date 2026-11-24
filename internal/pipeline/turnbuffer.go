@@ -2,8 +2,11 @@ package pipeline
 
 import (
 	"log"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/streamcoreai/streamcore-server/internal/config"
 )
 
 // Turn-buffer tuning. A caller who pauses mid-sentence ("I want to... um...
@@ -18,7 +21,69 @@ const (
 	// dangling word ("and", "my number is") or mid-dictation — the caller is
 	// clearly not finished.
 	turnMergeIncomplete = 900 * time.Millisecond
+	// turnMergeSpeakingMax bounds how long a turn can be held because the
+	// caller is talking again. Their next final normally lands well inside
+	// it and merges; this only stops a line that never goes quiet from
+	// holding a turn forever.
+	turnMergeSpeakingMax = 6 * time.Second
+	// callerRecheck is how often a turn held for a talking caller looks again.
+	callerRecheck = 50 * time.Millisecond
+	// callerVoiceFresh is how recent the VAD's last voiced frame must be to
+	// belong to the utterance a final describes. Older, and the VAD missed
+	// this utterance (a caller below its threshold), so the hold falls back
+	// to counting from the final.
+	callerVoiceFresh = 3 * time.Second
+	// callerTalking is how recently a voiced frame must have been seen for the
+	// caller to count as still talking. The VAD refreshes the stamp every
+	// frame while it hears speech, so this only needs to span a frame or two.
+	callerTalking = 100 * time.Millisecond
 )
+
+// holdFrom turns a merge wait into how long to hold from now. A
+// complete-looking turn's wait is caller silence, counted from their last
+// voiced frame: provider endpointing has usually spent more than the whole
+// wait before the final arrives, so the turn goes straight through. An
+// incomplete-looking turn keeps the full wait from the final, as it always had.
+func (p *Pipeline) holdFrom(wait, base time.Duration, now time.Time) time.Duration {
+	if wait != base {
+		return wait
+	}
+	at := p.callerVoiceAt.Load()
+	if at == 0 {
+		return wait + p.vadMissHold
+	}
+	since := now.Sub(time.Unix(0, at))
+	if since > callerVoiceFresh {
+		return wait + p.vadMissHold
+	}
+	return max(wait-since, 0)
+}
+
+// legacyEndpointing is the Deepgram endpointing the turn buffer's numbers were
+// first tuned against.
+const legacyEndpointing = 300 * time.Millisecond
+
+// vadMissHoldFor is the extra hold for a turn the VAD did not hear (a caller
+// below its threshold). Everything that keeps such a caller from being cut off
+// mid-sentence is then down to provider endpointing plus the hold, so with
+// endpointing shorter than it used to be the hold makes up the difference.
+func vadMissHoldFor(cfg *config.Config) time.Duration {
+	if cfg == nil || cfg.STT.Provider != "deepgram" {
+		return 0
+	}
+	ms, err := strconv.Atoi(strings.TrimSpace(cfg.Deepgram.Endpointing))
+	if err != nil || ms < 0 {
+		return 0
+	}
+	return max(legacyEndpointing-time.Duration(ms)*time.Millisecond, 0)
+}
+
+// callerStillTalking reports whether the VAD heard the caller in the last
+// frame or two.
+func (p *Pipeline) callerStillTalking(now time.Time) bool {
+	at := p.callerVoiceAt.Load()
+	return at != 0 && now.Sub(time.Unix(0, at)) < callerTalking
+}
 
 // mergeWait returns how long to hold a pending turn before answering it.
 //
@@ -116,10 +181,16 @@ func (p *Pipeline) runTurnBuffer() {
 			}
 
 			// A caller still mid-thought gets a longer grace period.
-			wait := mergeWait(pending.Text, base)
+			wait := p.holdFrom(mergeWait(pending.Text, base), base, time.Now())
 			if elapsed := time.Since(turnBegan); elapsed+wait > turnMergeMax {
 				if remaining := turnMergeMax - elapsed; remaining > 0 {
 					wait = remaining
+				} else if p.callerStillTalking(time.Now()) && elapsed < turnMergeSpeakingMax {
+					// A long sentence arrives as several finals when
+					// endpointing is short. Past the cap, keep merging
+					// while the caller is still talking; the timer path
+					// commits once they stop.
+					wait = callerRecheck
 				} else {
 					flush()
 					continue
@@ -134,6 +205,13 @@ func (p *Pipeline) runTurnBuffer() {
 			arm(wait)
 
 		case <-timerC:
+			// A hesitation is a final followed by more speech. Answering
+			// while the caller is talking again would answer half a
+			// sentence; their next final merges into this turn instead.
+			if pending != nil && p.callerStillTalking(time.Now()) && time.Since(turnBegan) < turnMergeSpeakingMax {
+				arm(callerRecheck)
+				continue
+			}
 			if pending != nil {
 				log.Printf("[turn-buffer] turn complete after %dms: %q",
 					time.Since(turnBegan).Milliseconds(), pending.Text)

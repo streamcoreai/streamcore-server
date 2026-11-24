@@ -1,6 +1,9 @@
 package vad
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 // Detector implements a simple energy-based Voice Activity Detector.
 // It requires consecutive frames above/below threshold to trigger state changes,
@@ -165,6 +168,12 @@ func (d *Detector) Process(samples []int16) (started, ended bool) {
 		}
 	}
 	return
+}
+
+// Hangover is how long after the last voiced frame Process reports ended,
+// at 20ms per frame.
+func (d *Detector) Hangover() time.Duration {
+	return time.Duration(d.silentFrames) * 20 * time.Millisecond
 }
 
 // IsSpeaking returns current speech state.

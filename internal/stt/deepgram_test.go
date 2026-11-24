@@ -197,3 +197,80 @@ func TestDeepgramCallbackMissingConfidenceFallsBackToZero(t *testing.T) {
 		t.Fatalf("text = %q, want preserved transcript", got[0].Text)
 	}
 }
+
+// A final says which audio it came from: the span of every is_final segment
+// merged into it, for both the speech_final and the UtteranceEnd paths.
+func TestDeepgramCallbackFinalCarriesAudioSpan(t *testing.T) {
+	var got []TranscriptResult
+	cb := &deepgramCallback{onResult: func(r TranscriptResult) { got = append(got, r) }}
+	defer cb.Close(nil)
+
+	first := deepgramMessage("my number is", true, false)
+	first.Start, first.Duration = 2.0, 1.2
+	second := deepgramMessage("four one five", true, true)
+	second.Start, second.Duration = 3.2, 0.9
+	cb.Message(first)
+	cb.Message(second)
+	var final *TranscriptResult
+	for i := range got {
+		if got[i].IsFinal {
+			final = &got[i]
+		}
+	}
+	near := func(a, b float64) bool { return a-b < 1e-9 && b-a < 1e-9 }
+	if final == nil || !near(final.AudioStart, 2.0) || !near(final.AudioEnd, 4.1) {
+		t.Fatalf("final span = %+v, want 2.0-4.1", final)
+	}
+
+	got = nil
+	third := deepgramMessage("and then", true, false)
+	third.Start, third.Duration = 6.0, 0.5
+	cb.Message(third)
+	cb.UtteranceEnd(&msginterfaces.UtteranceEndResponse{})
+	if n := len(got); n == 0 || !got[n-1].IsFinal || !near(got[n-1].AudioStart, 6.0) || !near(got[n-1].AudioEnd, 6.5) {
+		t.Fatalf("utterance-end final = %+v, want span 6.0-6.5", got)
+	}
+}
+
+// A finalize the pipeline asked for ends the utterance, whether Deepgram
+// answers with the last words or with nothing new.
+func TestDeepgramCallbackFinalizeEndsUtterance(t *testing.T) {
+	var got []TranscriptResult
+	cb := &deepgramCallback{onResult: func(r TranscriptResult) { got = append(got, r) }}
+	defer cb.Close(nil)
+
+	seg := deepgramMessage("what's the capital", true, false)
+	seg.Start, seg.Duration = 1, 1
+	cb.Message(seg)
+	tail := deepgramMessage("of France", true, false)
+	tail.FromFinalize, tail.Start, tail.Duration = true, 2, 0.6
+	cb.Message(tail)
+	if n := len(got); n == 0 || !got[n-1].IsFinal || got[n-1].Text != "what's the capital of France" {
+		t.Fatalf("finalize with text: %+v", got)
+	}
+
+	got = nil
+	cb.Message(deepgramMessage("tell me a joke", true, false))
+	empty := deepgramMessage("", true, false)
+	empty.FromFinalize = true
+	cb.Message(empty)
+	if n := len(got); n == 0 || !got[n-1].IsFinal || got[n-1].Text != "tell me a joke" {
+		t.Fatalf("empty finalize: %+v", got)
+	}
+}
+
+// The span is the words, not the chunk: a short "stop" in a long segment must
+// not be measured mostly as the silence before it.
+func TestDeepgramCallbackSpanUsesWordTimes(t *testing.T) {
+	var got []TranscriptResult
+	cb := &deepgramCallback{onResult: func(r TranscriptResult) { got = append(got, r) }}
+	defer cb.Close(nil)
+
+	m := deepgramMessage("Stop.", true, true)
+	m.Start, m.Duration = 10, 3
+	m.Channel.Alternatives[0].Words = []msginterfaces.Word{{Word: "stop", Start: 12.4, End: 12.8}}
+	cb.Message(m)
+	if len(got) != 1 || got[0].AudioStart != 12.4 || got[0].AudioEnd != 12.8 {
+		t.Fatalf("span = %+v, want the word's 12.4-12.8", got)
+	}
+}
