@@ -119,6 +119,19 @@ type Pipeline struct {
 	// agent's closing words routinely arrives after the flag has cleared;
 	// agentSpeechRecent uses this to still classify it as talking-over.
 	speechEndedAt atomic.Int64
+	// callerVoiceAt is the wall-clock nanosecond of the caller's last voiced
+	// frame. A final is stamped with it so turn timing can count provider
+	// endpointing, which happens before any STT event exists to time.
+	callerVoiceAt atomic.Int64
+	// turnCommittedAt is when the latest turn left the turn buffer. Caller
+	// speech after it means the reply being prepared answers a sentence the
+	// caller had not finished.
+	turnCommittedAt atomic.Int64
+	// speaker tells the caller's voice from the room; see foreground.go.
+	speaker *speakerGate
+	// vadMissHold is added to the turn hold when the VAD did not hear the
+	// utterance; see vadMissHoldFor.
+	vadMissHold time.Duration
 
 	// --- Turn quality state (rolling summary, misunderstanding, RAG prefetch) ---
 
@@ -286,6 +299,17 @@ func New(
 		markerNext:       true,
 	}
 
+	p.vadMissHold = vadMissHoldFor(cfg)
+	if db := cfg.Pipeline.BackgroundSpeechDB; db != nil {
+		p.speaker = newSpeakerGate(*db)
+	}
+
+	// Dial the TTS connection while ICE and DTLS are still settling, so the
+	// greeting does not wait on the handshake.
+	if ttsClient != nil {
+		go tts.Warm(pCtx, ttsClient)
+	}
+
 	// Per session, not per server: one instance serves browsers and SIP calls
 	// at once, and a browser has already cancelled its echo upstream.
 	if cfg.EchoGuardFor(opts.AECAbsent) {
@@ -295,6 +319,7 @@ func New(
 			cfg.Pipeline.EchoGuardMargin,
 		)
 		p.bargeInVAD.SetEchoReference(p.echoGuard)
+		p.vad.SetEchoReference(p.echoGuard)
 		log.Printf("[pipeline] echo guard on (mode %s, window %dms, gain %.2f, margin %.2f)",
 			cfg.Pipeline.EchoGuard, cfg.Pipeline.EchoGuardWindowMs,
 			cfg.Pipeline.EchoGuardGain, cfg.Pipeline.EchoGuardMargin)
@@ -361,7 +386,7 @@ func New(
 		skillsPrompt := pluginMgr.SkillsPrompt()
 		if skillsPrompt != "" {
 			llmClient.AppendSystemPrompt(skillsPrompt)
-			log.Printf("[pipeline] injected %d skills into system prompt", len(pluginMgr.Skills()))
+			log.Printf("[pipeline] injected %d of %d skills into system prompt", len(pluginMgr.PromptSkills()), len(pluginMgr.Skills()))
 		}
 	}
 
@@ -457,6 +482,10 @@ func (p *Pipeline) Start() {
 	}
 
 	wg.Wait()
+	// The TTS client is this pipeline's alone (a resume builds a new one), so
+	// nothing else is using its connection. A greeting or reply still
+	// unwinding gets an error from its stream, which it already handles.
+	tts.Close(p.ttsClient)
 	log.Println("[pipeline] stopped")
 }
 

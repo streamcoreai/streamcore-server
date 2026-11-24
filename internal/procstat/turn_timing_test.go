@@ -14,20 +14,21 @@ func TestTurnTimingLogHit(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	(&TurnTiming{
-		EndpointMs:     600,
-		MergeWaitMs:    400,
-		EmbeddingMs:    300,
-		VectorSearchMs: 20,
-		RAGChunks:      3,
-		QuietWaitMs:    100,
-		LLMTTFTMs:      800,
-		TTSFirstByteMs: 950,
+		EndpointMs:      600,
+		MergeWaitMs:     400,
+		EmbeddingMs:     300,
+		VectorSearchMs:  20,
+		RAGChunks:       3,
+		QuietWaitMs:     100,
+		LLMTTFTMs:       800,
+		FirstSentenceMs: 870,
+		TTSFirstByteMs:  950,
 	}).Log()
 
 	out := buf.String()
 	// total = endpoint (600) + turn-boundary→first-audio (950); the merge
 	// wait is already inside TTSFirstByteMs, which counts from the first final.
-	for _, want := range []string{"rag=hit", "endpoint_ms=600", "merge_wait_ms=400", "embed_ms=300", "vsearch_ms=20", "llm_ttft_ms=800", "total_user_to_speech_ms=1550"} {
+	for _, want := range []string{"rag=hit", "endpoint_ms=600", "merge_wait_ms=400", "embed_ms=300", "vsearch_ms=20", "llm_ttft_ms=800", "first_sentence_ms=870", "tts_ttfb_ms=950", "total_user_to_speech_ms=1550"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log line missing %q: %s", want, out)
 		}

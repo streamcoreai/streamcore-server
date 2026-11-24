@@ -14,6 +14,9 @@ type TranscriptEvent struct {
 	Text      string
 	Final     bool
 	TurnStart time.Time // set on final transcripts for latency measurement
+	// SpeechEndAt is the caller's last voiced frame before this final, zero if
+	// none was seen. A merged turn keeps its first chunk's, as with TurnStart.
+	SpeechEndAt time.Time
 	// MergeWaitMs is how long the turn buffer held this turn open merging
 	// continuations, so latency accounting can separate debounce from work.
 	MergeWaitMs int64

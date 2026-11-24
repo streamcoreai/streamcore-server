@@ -128,3 +128,28 @@ func TestReconcileHistoryPatchesDanglingCalls(t *testing.T) {
 		})
 	}
 }
+
+// A reply replaced before it played comes out of history, so the model does
+// not carry on from words the caller never heard. Tool messages stay.
+func TestDropUnheardReply(t *testing.T) {
+	c := &openaiClient{history: []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: "sys"},
+		{Role: openai.ChatMessageRoleUser, Content: "My phone number is four one five"},
+		{Role: openai.ChatMessageRoleAssistant, Content: "Could you give me the rest of it?"},
+		{Role: openai.ChatMessageRoleUser, Content: "five five five"},
+	}}
+	if !c.DropUnheardReply("[calm] Could you give me the rest of it?") {
+		t.Fatal("unheard reply not found")
+	}
+	if len(c.history) != 3 || c.history[2].Content != "five five five" {
+		t.Fatalf("history after drop: %+v", c.history)
+	}
+	if c.DropUnheardReply("something else") {
+		t.Error("dropped a reply that was never in history")
+	}
+
+	c.history = append(c.history, openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant, ToolCalls: []openai.ToolCall{{ID: "1"}}})
+	if c.DropUnheardReply("") {
+		t.Error("dropped an assistant tool-call message")
+	}
+}

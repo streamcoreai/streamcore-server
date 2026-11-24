@@ -72,6 +72,17 @@ type Client interface {
 	Reset()
 }
 
+// UnheardDropper is implemented by clients whose history the pipeline can
+// correct when a reply never reached the caller: it was generated, then
+// replaced by the caller's next turn before a word of it played. Left in
+// history, the model would carry on from something the caller never heard.
+// The agent provider keeps its history on the far side and cannot.
+type UnheardDropper interface {
+	// DropUnheardReply removes the most recent plain assistant message whose
+	// text ends reply, reporting whether one was found.
+	DropUnheardReply(reply string) bool
+}
+
 // NewClient returns an LLM client for the configured provider.
 //
 // resourceID is who is on the call, empty when nobody was identified. Only the

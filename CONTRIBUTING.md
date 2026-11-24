@@ -42,6 +42,27 @@ Deepgram covers both STT (`nova-3`) and TTS (`aura-2-thalia-en`), plus one LLM
 key. `config.toml.example` is the authoritative config schema; don't guess at
 keys.
 
+No API keys at all? A fully local pipeline still works: `moonshine` or
+`vibevoice` cover STT and TTS through Python sidecars under `external/`, and
+`ollama` covers the LLM against a local model:
+
+```toml
+[stt]
+provider = "moonshine"   # or "vibevoice"
+
+[llm]
+provider = "ollama"
+
+[tts]
+provider = "moonshine"   # or "vibevoice"
+```
+
+Start the sidecars before `go run .` — e.g.
+`python external/moonshine/moonshineStt/server.py` and
+`python external/moonshine/moonshineTts/server.py` — and have Ollama serving a
+model on :11434. The `[moonshine]`, `[vibevoice]`, and `[ollama]` blocks in
+`config.toml.example` list the URLs each adapter expects.
+
 ## Before you push
 
 Run exactly what CI runs — these four steps are the whole build job:
@@ -67,6 +88,13 @@ docker run -d --name pgvector-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=ragt
     -p 55433:5432 pgvector/pgvector:pg16
 STREAMCORE_TEST_PG=postgres://postgres:test@localhost:55433/ragtest go test -race ./internal/rag/
 ```
+
+Tests never need real provider credentials. Stub the vendor API with
+`httptest` — `internal/tts/mimo_test.go`, `internal/stt/moonshine_test.go`, and
+`internal/llm/agent_test.go` are the established patterns — and cover pure
+logic with table-driven tests like `internal/tts/http_test.go` and
+`internal/stt/deepgram_test.go`. A test that only works with a live API key
+will be sent back.
 
 Formatting and vet failures are the single most common reason a PR sits.
 
@@ -130,6 +158,8 @@ and include the migration story.
 ## Pull requests
 
 - One concern per PR; keep refactors separate from behaviour changes.
+- Match `git log` for commit style — short imperative subjects, with
+  conventional prefixes (`fix:`, `feat:`, `docs(scope):`) where they fit.
 - Explain what breaks today, what your change does, and how you verified it.
 - Match the surrounding code — naming, comment density, error handling.
 - Keep the README honest: capability tables describe what exists today, and the

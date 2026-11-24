@@ -18,6 +18,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/streamcoreai/streamcore-server/internal/config"
+	"github.com/streamcoreai/streamcore-server/internal/peer"
 	"github.com/streamcoreai/streamcore-server/internal/plugin"
 	"github.com/streamcoreai/streamcore-server/internal/rag"
 	"github.com/streamcoreai/streamcore-server/internal/session"
@@ -69,6 +70,10 @@ func main() {
 			log.Fatalf("turn server: %v", err)
 		}
 		defer turnSrv.Close()
+	} else {
+		// Peers fall back to the public STUN server. Learning our public
+		// address now lets the first LAN caller skip waiting on it.
+		peer.WarmReflexiveAddress(peer.DefaultSTUNURL)
 	}
 
 	sm := session.NewManager(cfg, pluginMgr, ragClient)

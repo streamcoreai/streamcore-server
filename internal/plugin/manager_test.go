@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,33 @@ func TestEventOnlyPluginIsNotExposedAsTool(t *testing.T) {
 	}
 	if len(output) != 1 || output[0].Type != "observed" {
 		t.Fatalf("output = %+v", output)
+	}
+}
+
+func TestSkillsPromptLeavesOutSkillsWithNoLoadedTools(t *testing.T) {
+	manager := NewManager("")
+	manager.RegisterTool(onlyTool{})
+	manager.loaded["gmail"] = true
+	manager.skills = []Skill{
+		{Name: "plain", Content: "be kind"},
+		{Name: "by-tool", Plugins: []string{"missing.tool", "legacy-tool"}, Content: "use the tool"},
+		{Name: "by-plugin", Plugins: []string{"gmail"}, Content: "read mail"},
+		{Name: "disabled", Plugins: []string{"movement.forward"}, Content: "drive"},
+	}
+
+	prompt := manager.SkillsPrompt()
+	for _, want := range []string{"Skill: plain", "Skill: by-tool", "Skill: by-plugin"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt is missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Skill: disabled") {
+		t.Errorf("skill for an unloaded tool reached the prompt:\n%s", prompt)
+	}
+
+	manager.skills = []Skill{{Name: "disabled", Plugins: []string{"movement.forward"}}}
+	if got := manager.SkillsPrompt(); got != "" {
+		t.Errorf("no applicable skills should give an empty supplement, got %q", got)
 	}
 }
 

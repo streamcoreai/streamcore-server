@@ -18,6 +18,9 @@ plugins/plugins/*/token.json
 # Local server config (API keys); keep *example* files tracked
 config.toml
 
+# Local benchmark runs, kept off the repo
+/profilling/
+
 # Python virtualenvs and bytecode (external sidecars, plugins)
 .venv/
 __pycache__/

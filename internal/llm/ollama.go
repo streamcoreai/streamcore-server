@@ -324,3 +324,16 @@ func (c *ollamaClient) OneShot(ctx context.Context, system, user string) (string
 	}
 	return strings.TrimSpace(out.String()), nil
 }
+
+func (c *ollamaClient) DropUnheardReply(reply string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := len(c.history) - 1; i >= 0; i-- {
+		m := c.history[i]
+		if m.Role == "assistant" && len(m.ToolCalls) == 0 && m.Content != "" && strings.HasSuffix(reply, m.Content) {
+			c.history = append(c.history[:i], c.history[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
