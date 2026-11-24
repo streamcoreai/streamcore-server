@@ -155,7 +155,10 @@ func TestDebugServerServesPprofOnLoopback(t *testing.T) {
 		}
 	})
 
-	resp, err := http.Get("http://" + srv.Addr + "/debug/pprof/")
+	// A client with a timeout, so a regression fails here instead of hanging
+	// until the go test deadline.
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://" + srv.Addr + "/debug/pprof/")
 	if err != nil {
 		t.Fatalf("GET pprof index: %v", err)
 	}
@@ -276,6 +279,53 @@ func TestDebugServerNamesAnAllInterfacesBind(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "every interface") {
 		t.Fatalf("error = %q, want it to say the bind covers every interface", err)
+	}
+}
+
+func TestDebugServerIsOffWhenBindIsEmpty(t *testing.T) {
+	// main's `if debugSrv != nil` shutdown path depends on this exact pair.
+	srv, err := startDebugServer(config.DebugConfig{})
+	if srv != nil || err != nil {
+		t.Fatalf("startDebugServer = (%v, %v), want (nil, nil)", srv, err)
+	}
+}
+
+func TestDebugServerRejectsNegativeProfilingRates(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  config.DebugConfig
+		want string
+	}{
+		{"block", config.DebugConfig{Bind: "127.0.0.1:0", BlockProfileRate: -1}, "block_profile_rate"},
+		{"mutex", config.DebugConfig{Bind: "127.0.0.1:0", MutexProfileFraction: -1}, "mutex_profile_fraction"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, err := startDebugServer(tc.cfg)
+			if err == nil {
+				srv.Close()
+				t.Fatal("negative profiling rate was accepted")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want it to name %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDebugServerAcceptsPublicBindWhenAcknowledged(t *testing.T) {
+	srv, err := startDebugServer(config.DebugConfig{Bind: "0.0.0.0:0", AllowPublic: true})
+	if err != nil {
+		t.Fatalf("startDebugServer with allow_public: %v", err)
+	}
+	defer srv.Close()
+
+	addr, err := net.ResolveTCPAddr("tcp", srv.Addr)
+	if err != nil {
+		t.Fatalf("resolve %q: %v", srv.Addr, err)
+	}
+	if !addr.IP.IsUnspecified() {
+		t.Fatalf("bound %s, want the unspecified (all interfaces) address the config asked for", srv.Addr)
 	}
 }
 
