@@ -202,7 +202,7 @@ func New(ctx context.Context, id string, publicIP string, turnCfg TURNConfig) (*
 		ctx:           peerCtx,
 		cancel:        peerCancel,
 		RemoteTrackCh: make(chan *webrtc.TrackRemote, 1),
-		publicSTUN:    !(turnCfg.PublicIP != "" && turnCfg.Secret != ""),
+		publicSTUN:    turnCfg.PublicIP == "" || turnCfg.Secret == "",
 	}
 
 	pc.OnICECandidate(noteReflexive)
