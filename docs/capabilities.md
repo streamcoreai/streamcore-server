@@ -74,7 +74,7 @@ StreamCore can run a complete speech-to-agent-to-speech pipeline, but that is on
 - Session resume for drops past the point ICE restart can help — a redial carrying a single-use token reattaches to the running conversation. Every SDK runs the two as a ladder (restart while recoverable, redial once not), so a backgrounded phone or a slept laptop rejoins the same conversation rather than starting a new one
 - Built-in STUN/TURN server using Pion (UDP **and TCP** 3478, relay range 50001–60000) — TCP so callers behind UDP-blocking firewalls still connect
 - Optional JWT auth on `/whip`, with `POST /token` issuing 1-hour tokens
-- `/health` endpoint and graceful shutdown with a forced-exit safety net
+- `/health` endpoint (plain `ok`, or uptime, active sessions and provider names as JSON) and `/version` build metadata, and graceful shutdown with a forced-exit safety net
 
 **Media path**
 

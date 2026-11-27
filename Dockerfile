@@ -10,7 +10,18 @@ COPY . .
 # No cgo: the Opus codec (github.com/godeps/opus) runs the codec as WebAssembly
 # through wazero, a pure-Go runtime, so there is no libopus to link against.
 # This yields a statically linked binary and keeps libopus out of both stages.
-RUN CGO_ENABLED=0 GOOS=linux go build -o /server .
+#
+# Build metadata for GET /version. The build context has no .git, so the binary
+# cannot read its commit from VCS stamping; pass it in instead, e.g.
+#   --build-arg COMMIT=$(git rev-parse HEAD) --build-arg VERSION=v0.1.0
+#   --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Left empty, /version reports "dev" and "unknown".
+ARG VERSION=""
+ARG COMMIT=""
+ARG BUILD_DATE=""
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X 'main.version=${VERSION}' -X 'main.commit=${COMMIT}' -X 'main.date=${BUILD_DATE}'" \
+    -o /server .
 
 # Run stage — Node.js base for TypeScript plugins; Python added for Python plugins
 FROM node:22-bookworm-slim

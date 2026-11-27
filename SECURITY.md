@@ -62,7 +62,7 @@ the fix. Pin your version in production and watch releases.
 - Session isolation failures — reading, injecting into, or hijacking another
   peer's session, transcript, or DataChannel events
 - Disclosure of provider API keys or JWT signing secrets via logs, error
-  responses, DataChannel events, or `/health`
+  responses, DataChannel events, `/health`, or `/version`
 - Plugin runtime issues that grant a plugin more than the server already grants
   it, or manifest handling that loads unintended code from untrusted input
 - Prompt-injection paths that reach beyond the model — where injected content
