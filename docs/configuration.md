@@ -80,7 +80,7 @@ provider = "deepgram"                # aliyun | assemblyai | deepgram | moonshin
 provider = "openai"                  # openai | ollama | agent
 
 [tts]
-provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | moonshine | speechify | telnyx | vibevoice
+provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | moonshine | openai | speechify | telnyx | vibevoice
 
 # [grok]                             # Used when realtime.provider = "grok"
 # api_key = ""
@@ -127,6 +127,8 @@ utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes
 api_key = ""
 model = "gpt-4o-mini"
 stt_model = "whisper-1"             # whisper-1 | gpt-4o-transcribe | gpt-4o-mini-transcribe
+tts_model = "gpt-4o-mini-tts"       # gpt-4o-mini-tts | tts-1 | tts-1-hd — used when tts.provider = "openai"
+tts_voice = "alloy"                 # alloy | ash | ballad | coral | echo | fable | nova | onyx | sage | shimmer | verse | marin | cedar
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [ollama]
@@ -235,6 +237,7 @@ Notes:
 - `deepgram.endpointing` (default 25 ms) and `deepgram.utterance_end_ms` tune when Deepgram finalises a transcript. The default finalises at almost any pause and leaves the decision to the turn buffer, which merges the fragments while the caller is still talking. It was 300 ms, which put every turn about 300 ms behind. If the VAD cannot hear a caller (a very quiet line), the turn hold for that turn grows by the difference to 300 ms, so such a caller needs the same silence as before. When the caller has been quiet for 300 ms and Deepgram still has not finalised (background speech means it never hears a pause), the server asks it to finalise what it has.
 - `deepgram.tts_model` picks the Aura voice; STT (`model`) and TTS (`tts_model`) share the one API key. Voices are named `[family]-[voice]-[language]` — see [Deepgram's voice list](https://developers.deepgram.com/docs/tts-models).
 - `openai.stt_model` selects the batch transcription model independently of the chat `model`; it defaults to `whisper-1`.
+- `openai.tts_model` and `openai.tts_voice` select the speech model and voice when `tts.provider = "openai"`, independently of the chat `model` and STT `stt_model`; they default to `gpt-4o-mini-tts` and `alloy`. The provider follows `openai.base_url`, so a compatible endpoint must implement `/audio/speech`.
 - **`cartesia.max_concurrency` should match your plan's TTS concurrency limit.** Cartesia counts active generations, not calls, and returns 429 past the limit. The default of 3 is safe for the smallest plan but queues everything beyond three simultaneous generations: in a 20-call benchmark it more than doubled the time to the greeting (2.1 s to 4.6 s). Raise it to your plan's limit, or set `-1` to turn the gate off. A `[tts:limit] ... queuing request` log line means calls are waiting on it.
 - `minimax.base_url` selects the region. Leave it unset for the global endpoint; mainland-China accounts must point it at `https://api.minimaxi.com/v1`, since keys do not work across the two platforms.
 - `minimax.model` must match your plan: a Token Plan key (`sk-cp-`) only covers `speech-2.8-hd`, while any other model bills pay-as-you-go and errors with `2056` on a zero balance.

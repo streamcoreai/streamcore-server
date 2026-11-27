@@ -363,11 +363,21 @@ type OpenAIConfig struct {
 	// STTModel selects the transcription model used when stt.provider =
 	// "openai". It is separate from Model because chat and transcription use
 	// different model families. Empty defaults to whisper-1.
-	STTModel     string `toml:"stt_model"`
+	STTModel string `toml:"stt_model"`
+	// TTSModel selects the speech model used when tts.provider = "openai":
+	// gpt-4o-mini-tts (the default), tts-1 or tts-1-hd. It is separate from
+	// Model because chat and speech use different model families.
+	TTSModel string `toml:"tts_model"`
+	// TTSVoice selects the voice used when tts.provider = "openai" — alloy
+	// (the default), ash, ballad, coral, echo, fable, nova, onyx, sage,
+	// shimmer, verse, marin or cedar.
+	TTSVoice     string `toml:"tts_voice"`
 	SystemPrompt string `toml:"system_prompt"`
 	// BaseURL points the client at an OpenAI-compatible endpoint other than
 	// OpenAI's own — DeepSeek, Moonshot, Qwen and MiniMax all speak the same
 	// protocol and differ only by host and model name. Empty uses OpenAI.
+	// tts.provider = "openai" follows it too, so the endpoint must implement
+	// /audio/speech for speech synthesis to work.
 	//
 	// This is not the same as the ollama provider's base_url, which speaks
 	// Ollama's own /api/chat protocol; the two are not interchangeable.
@@ -604,6 +614,8 @@ func Load(path string) (*Config, error) {
 	setDefault(&cfg.TTS.Provider, "cartesia")
 	setDefault(&cfg.OpenAI.Model, "gpt-4o-mini")
 	setDefault(&cfg.OpenAI.STTModel, "whisper-1")
+	setDefault(&cfg.OpenAI.TTSModel, "gpt-4o-mini-tts")
+	setDefault(&cfg.OpenAI.TTSVoice, "alloy")
 	setDefault(&cfg.OpenAI.SystemPrompt, "You are a helpful AI voice assistant having a natural phone conversation. Keep responses to 1-2 sentences unless asked for detail. When interrupted (indicated by bracketed context), respond the way a patient human would: if they say 'no', address the disagreement; if they redirect, follow their lead. Never repeat what you already said, never ask 'would you like me to continue', and never mention that you were interrupted.")
 	setDefault(&cfg.Ollama.BaseURL, "http://localhost:11434")
 	setDefault(&cfg.Ollama.Model, "llama3.2")

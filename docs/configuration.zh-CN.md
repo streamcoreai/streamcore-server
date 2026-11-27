@@ -66,7 +66,7 @@ provider = "deepgram"                # aliyun | assemblyai | deepgram | moonshin
 provider = "openai"                  # openai | ollama | agent
 
 [tts]
-provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | moonshine | speechify | telnyx | vibevoice
+provider = "cartesia"                # cartesia | deepgram | elevenlabs | mimo | minimax | moonshine | openai | speechify | telnyx | vibevoice
 
 # [grok]                             # Used when realtime.provider = "grok"
 # api_key = ""
@@ -113,6 +113,8 @@ utterance_end_ms = "1000"            # Silence (ms) before UtteranceEnd; flushes
 api_key = ""
 model = "gpt-4o-mini"
 stt_model = "whisper-1"             # whisper-1 | gpt-4o-transcribe | gpt-4o-mini-transcribe
+tts_model = "gpt-4o-mini-tts"       # gpt-4o-mini-tts | tts-1 | tts-1-hd — used when tts.provider = "openai"
+tts_voice = "alloy"                 # alloy | ash | ballad | coral | echo | fable | nova | onyx | sage | shimmer | verse | marin | cedar
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 
 [ollama]
@@ -217,6 +219,7 @@ voice = "kokoro_af_heart"            # Prefix picks the vocoder: kokoro_, piper_
 - `deepgram.endpointing`（默认 25 ms）与 `deepgram.utterance_end_ms` 调节 Deepgram 何时定稿一段转写。默认值几乎在任何停顿处定稿，把判断交给轮次缓冲：用户还在说话时它会把这些片段合并起来。原默认 300 ms 让每一轮都慢了约 300 ms。如果 VAD 听不到某位用户（线路很安静），这一轮的暂留时间会补上与 300 ms 的差值，因此这样的用户需要的静默与以前相同。如果用户已安静 300 ms 而 Deepgram 仍未定稿（背景说话让它永远听不到停顿），服务器会请它把已有内容定稿。
 - `deepgram.tts_model` 选择 Aura 音色；STT（`model`）与 TTS（`tts_model`）共用同一个 API key。音色命名规则为 `[family]-[voice]-[language]` —— 见 [Deepgram 音色列表](https://developers.deepgram.com/docs/tts-models)。
 - `openai.stt_model` 独立于对话 `model` 选择批量转写模型，默认值为 `whisper-1`。
+- `openai.tts_model` 与 `openai.tts_voice` 在 `tts.provider = "openai"` 时选择语音模型与音色，与对话 `model` 及 STT `stt_model` 相互独立；默认值为 `gpt-4o-mini-tts` 和 `alloy`。该 provider 会跟随 `openai.base_url`，因此兼容端点必须实现 `/audio/speech`。
 - **`cartesia.max_concurrency` 应与你套餐的 TTS 并发上限一致。** Cartesia 统计的是进行中的生成数而不是通话数，超限会返回 429。默认值 3 对最小的套餐是安全的，但超过三个同时生成的请求都会排队：在 20 路并发的基准测试中，它让听到问候语的时间翻了一倍多（2.1 秒到 4.6 秒）。请调到你套餐的上限，或设为 `-1` 关闭这道闸门。日志里出现 `[tts:limit] ... queuing request` 说明通话正在等它。
 - `minimax.base_url` 用于选择区域。留空即使用全球端点；中国大陆账号必须指向 `https://api.minimaxi.com/v1`，因为两个平台的 key 不通用。
 - `minimax.model` 必须与你的套餐匹配：Token Plan 的 key（`sk-cp-`）只覆盖 `speech-2.8-hd`，其他模型走按量计费，余额为零时报错 `2056`。

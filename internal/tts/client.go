@@ -67,6 +67,11 @@ func newProviderClient(cfg *config.Config) (Client, error) {
 			return nil, ErrMissingAPIKey{Provider: "elevenlabs", Field: "[elevenlabs] api_key"}
 		}
 		return NewElevenLabsClient(cfg.ElevenLabs.APIKey, cfg.ElevenLabs.VoiceID, cfg.ElevenLabs.Model), nil
+	case "openai":
+		if cfg.OpenAI.APIKey == "" {
+			return nil, ErrMissingAPIKey{Provider: "openai", Field: "[openai] api_key"}
+		}
+		return NewOpenAIClient(cfg.OpenAI.APIKey, cfg.OpenAI.TTSVoice, cfg.OpenAI.TTSModel, cfg.OpenAI.BaseURL), nil
 	case "speechify":
 		if cfg.Speechify.APIKey == "" {
 			return nil, ErrMissingAPIKey{Provider: "speechify", Field: "[speechify] api_key"}
@@ -103,7 +108,7 @@ func newProviderClient(cfg *config.Config) (Client, error) {
 	case "moonshine":
 		return NewMoonshineClient(cfg.Moonshine.TTSURL, cfg.Moonshine.Voice), nil
 	default:
-		return nil, fmt.Errorf("unknown tts provider %q (supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, moonshine, speechify, telnyx, vibevoice, volcengine)", cfg.TTS.Provider)
+		return nil, fmt.Errorf("unknown tts provider %q (supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, moonshine, openai, speechify, telnyx, vibevoice, volcengine)", cfg.TTS.Provider)
 	}
 }
 

@@ -119,7 +119,7 @@ provider = "deepgram"   # Supported: aliyun, assemblyai, deepgram, moonshine, op
 provider = "openai"     # Supported: openai, ollama, agent
 
 [tts]
-provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, moonshine, speechify, telnyx, vibevoice, volcengine
+provider = "cartesia"   # Supported: aliyun, cartesia, deepgram, elevenlabs, mimo, minimax, moonshine, openai, speechify, telnyx, vibevoice, volcengine
 
 # Provider credentials
 
@@ -171,9 +171,13 @@ language = ""           # Optional BCP-47 tag; region is stripped (en-NZ -> en).
 keyterms = []           # Bias the decoder toward domain words
 
 [openai]
-api_key = ""            # Required for LLM, and for OpenAI STT if selected
+api_key = ""            # Required for LLM, and for OpenAI STT/TTS if selected
 model = "gpt-4o-mini"
 stt_model = "whisper-1" # STT model: whisper-1, gpt-4o-transcribe, or gpt-4o-mini-transcribe
+tts_model = "gpt-4o-mini-tts"  # TTS model used when tts.provider = "openai": gpt-4o-mini-tts,
+                        # tts-1 (lower latency) or tts-1-hd (higher quality)
+tts_voice = "alloy"     # TTS voice: alloy, ash, ballad, coral, echo, fable, nova, onyx,
+                        # sage, shimmer, verse, marin, cedar
 system_prompt = "You are a helpful AI voice assistant. Keep your responses concise and conversational."
 base_url = ""           # Optional. Any endpoint speaking OpenAI's protocol — DeepSeek
                          # (https://api.deepseek.com/v1, model deepseek-chat), Moonshot
@@ -181,6 +185,8 @@ base_url = ""           # Optional. Any endpoint speaking OpenAI's protocol — 
                          # (https://api.telnyx.com/v2/ai, e.g. model glm-5.3). Empty targets OpenAI.
                          # Prefer a non-reasoning model here: reasoning models emit their
                          # thinking before the answer, and on a voice call that is dead air.
+                         # tts.provider = "openai" follows this too, so a compatible endpoint
+                         # must implement /audio/speech for speech synthesis to work.
                          # Note this is unrelated to [ollama] base_url, which speaks Ollama's
                          # own protocol — the two are not interchangeable
 

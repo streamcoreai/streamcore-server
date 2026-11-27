@@ -144,6 +144,8 @@ Providers: Deepgram, AssemblyAI, OpenAI, Cartesia, ElevenLabs, MiniMax, Speechif
 
 OpenAI STT supports `whisper-1`, `gpt-4o-transcribe`, and `gpt-4o-mini-transcribe` through the independent `openai.stt_model` setting.
 
+OpenAI TTS (`tts.provider = "openai"`) streams `gpt-4o-mini-tts` (or `tts-1` / `tts-1-hd`) through the independent `openai.tts_model` and `openai.tts_voice` settings, so one `[openai] api_key` can drive STT, LLM, and TTS together.
+
 Telnyx STT fronts a dozen engines behind one key (`telnyx.transcription_engine`, default `Deepgram` so barge-in and live captions work out of the box); the in-house `Telnyx` engine is finals-only, so live captions show finals only and barge-in waits out the full backchannel window on VAD alone, and a startup log line says so.
 
 ## Documentation
