@@ -154,7 +154,16 @@ The client must create a DataChannel labeled `events` before generating the offe
 | `connection` | `{ "type": "connection", "state": "reconnecting" \| "connected" }` | Transport dropped and is recovering, or has recovered |
 | `display.card` | `{ "type": "display.card", "version": 1, ... }` | Optional persistent-display projection; sent only when `[display] enabled = true` |
 
-Timing stages today: `llm_first_token`, `tts_first_byte`.
+Timing stages today:
+
+| Stage | Measured |
+|---|---|
+| `stt` | Caller's last voiced frame to the first final transcript |
+| `llm_first_token` | Final transcript to the first LLM token |
+| `tts_first_byte` | Final transcript to the first audio frame queued |
+| `total` | Caller's last voiced frame to the first audio frame queued (`stt` + `tts_first_byte`) |
+
+In speech-to-speech mode (`[realtime] provider` set) one model covers all three stages, so only `total` is sent: the provider's end-of-speech event to the first audio frame queued.
 
 Messages the client sends on the same channel are routed into the pipeline — currently used for camera image chunks consumed by the `vision.analyze` plugin.
 

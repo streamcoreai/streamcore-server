@@ -70,6 +70,9 @@ type Pipeline struct {
 	realtimeUserText    atomic.Value // string — final user turn for display events
 	realtimeCurrentGen  atomic.Uint64
 	realtimeInterrupted atomic.Bool
+	// realtimeSpeechStoppedAt is the UnixNano at which the provider last
+	// reported the caller going quiet, 0 once a reply or new speech used it.
+	realtimeSpeechStoppedAt atomic.Int64
 
 	// Plugins
 	pluginMgr *plugin.Manager

@@ -145,7 +145,16 @@ Content-Type: application/sdp
 | `timing` | `{ "type": "timing", "stage": string, "ms": number }` | `pipeline.debug = true` 时的时延数据 |
 | `connection` | `{ "type": "connection", "state": "reconnecting" \| "connected" }` | 传输已断开并正在恢复，或已恢复 |
 
-目前的 timing 阶段：`llm_first_token`、`tts_first_byte`。
+目前的 timing 阶段：
+
+| 阶段 | 含义 |
+|---|---|
+| `stt` | 用户最后一个有声帧到第一条 final 转写 |
+| `llm_first_token` | final 转写到第一个 LLM token |
+| `tts_first_byte` | final 转写到第一帧音频入队 |
+| `total` | 用户最后一个有声帧到第一帧音频入队（`stt` + `tts_first_byte`） |
+
+语音到语音模式（设置了 `[realtime] provider`）下由一个模型完成全部三个阶段，因此只发送 `total`：从服务商的说话结束事件到第一帧音频入队。
 
 客户端在同一通道上发送的消息会被路由进流水线 —— 目前用于 `vision.analyze` 插件消费的摄像头图像分片。
 

@@ -144,6 +144,9 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart, speechEnd tim
 			timing.EndpointMs = turnStart.Sub(speechEnd).Milliseconds()
 		}
 	}
+	if p.cfg.Pipeline.Debug && timing.EndpointMs > 0 {
+		p.sendEvent(timingMsg{Type: "timing", Stage: "stt", Ms: timing.EndpointMs})
+	}
 	if p.ragClient == nil {
 		timing.RAGSkipped, timing.RAGSkipReason = true, "off"
 	}
@@ -215,7 +218,7 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart, speechEnd tim
 	go func() {
 		defer wg.Done()
 		defer p.recoverPanic("synthesizeSentences")
-		first, quietWait := p.synthesizeSentences(respCtx, sentences, turnStart)
+		first, quietWait := p.synthesizeSentences(respCtx, sentences, turnStart, timing.EndpointMs)
 		heard = !first.IsZero()
 		timing.QuietWaitMs = quietWait.Milliseconds()
 		if !first.IsZero() && !turnStart.IsZero() {
@@ -308,8 +311,9 @@ func (p *Pipeline) respond(gen uint64, userText string, turnStart, speechEnd tim
 // synthesizeSentences reads sentences from the channel, calls TTS for each,
 // and pushes the resulting PCM frames into outPCMCh for the sender goroutine.
 // It returns when the first frame was queued (zero if none was) and how long
-// the quiet gate held the first sentence.
-func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan string, turnStart time.Time) (firstFrameAt time.Time, quietWait time.Duration) {
+// the quiet gate held the first sentence. endpointMs is the STT endpointing
+// time before turnStart, 0 when it was not measured.
+func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan string, turnStart time.Time, endpointMs int64) (firstFrameAt time.Time, quietWait time.Duration) {
 	emittedTTSTiming := false
 	emittedSpeaking := false
 	gated := turnStart.IsZero() // the greeting answers no one
@@ -339,11 +343,17 @@ func (p *Pipeline) synthesizeSentences(ctx context.Context, sentences <-chan str
 			}
 			if !emittedTTSTiming && p.cfg.Pipeline.Debug && !turnStart.IsZero() {
 				emittedTTSTiming = true
+				ttfb := time.Since(turnStart).Milliseconds()
 				p.sendEvent(timingMsg{
 					Type:  "timing",
 					Stage: "tts_first_byte",
-					Ms:    time.Since(turnStart).Milliseconds(),
+					Ms:    ttfb,
 				})
+				// Without the endpointing time this would only repeat
+				// tts_first_byte under a name that promises more.
+				if endpointMs > 0 {
+					p.sendEvent(timingMsg{Type: "timing", Stage: "total", Ms: endpointMs + ttfb})
+				}
 			}
 			// Send "speaking" state when the first audio frame is actually
 			// produced, not when respond() begins. This keeps the "thinking"
@@ -748,7 +758,7 @@ func (p *Pipeline) greet(text string) {
 	sentences <- text
 	close(sentences)
 
-	p.synthesizeSentences(ctx, sentences, time.Time{})
+	p.synthesizeSentences(ctx, sentences, time.Time{}, 0)
 }
 
 // greetingText returns the appropriate greeting based on call direction.

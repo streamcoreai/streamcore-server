@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/streamcoreai/streamcore-server/internal/audio"
 	"github.com/streamcoreai/streamcore-server/internal/realtime"
@@ -193,6 +194,7 @@ func (p *Pipeline) realtimeHandlers() realtime.Handlers {
 			p.realtimeCurrentGen.Store(0)
 			p.realtimeAudio.discard()
 			p.drainOutbound()
+			p.realtimeSpeechStoppedAt.Store(0)
 			if wasSpeaking {
 				log.Println("[realtime] barge-in — dropping queued audio")
 			}
@@ -200,6 +202,7 @@ func (p *Pipeline) realtimeHandlers() realtime.Handlers {
 		},
 
 		OnSpeechStopped: func() {
+			p.realtimeSpeechStoppedAt.Store(time.Now().UnixNano())
 			p.sendEvent(stateMsg{Type: "state", State: "thinking"})
 		},
 
@@ -246,6 +249,16 @@ func (p *Pipeline) runRealtimeOutbound() {
 			if newTalkspurt {
 				p.speaking.Store(true)
 				p.sendEvent(stateMsg{Type: "state", State: "speaking"})
+				// The model does STT, LLM and TTS in one hop, so total is
+				// the only stage there is to report. Swap so a talkspurt
+				// that restarts after an underrun does not report again.
+				if stopped := p.realtimeSpeechStoppedAt.Swap(0); stopped != 0 && p.cfg.Pipeline.Debug {
+					p.sendEvent(timingMsg{
+						Type:  "timing",
+						Stage: "total",
+						Ms:    time.Since(time.Unix(0, stopped)).Milliseconds(),
+					})
+				}
 			}
 
 			select {
