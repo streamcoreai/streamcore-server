@@ -1,0 +1,25 @@
+# Allowlist for the Trivy image scan in .github/workflows/deploy-ec2.yml.
+#
+# One CVE (or GHSA) ID per line, alone on the line; put the justification in a
+# comment on the line(s) above it. An entry suppresses the finding entirely,
+# including from the SARIF upload to code scanning — so every entry MUST carry
+# a comment explaining why it is accepted and, where possible, a link to the
+# upstream issue or advisory. An unexplained entry is a silent hole in the
+# release gate.
+#
+# Legitimate reasons look like:
+#   - a Debian "won't fix" / negligible CVE in the node:22-bookworm-slim base
+#     that upstream declines to patch
+#   - a fix exists but only in a package the runtime genuinely cannot drop or
+#     bump yet, with the reason recorded
+#
+# The scan already passes ignore-unfixed, so "no fix published yet" alone is
+# NOT a reason for an entry — those are filtered automatically.
+#
+# Example entry:
+#   # CVE-2024-12345 — in libfoo, marked wont-fix by Debian; the server never
+#   # reaches that code path. https://security-tracker.debian.org/...
+#   CVE-2024-12345
+#
+# There are no ignored vulnerabilities today; the file exists so the workflow
+# and contributors have a documented place for them.

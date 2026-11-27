@@ -1,0 +1,75 @@
+# Dependabot covers the dependency ecosystems that ship in the server image:
+# the root Go module, the Actions pinned under .github/workflows, the npm
+# manifests of the TypeScript plugins, and the pip requirements of the Python
+# plugins (the Dockerfile installs those into /opt/plugin-venv).
+#
+# The Go plugin modules under plugins/plugins/*/ are deliberately absent: they
+# resolve the plugin SDK through a `replace` pointing at a sibling checkout
+# outside this repo, which Dependabot cannot resolve.
+#
+# Minor and patch updates are grouped into one weekly PR per ecosystem —
+# ungrouped, this dependency set produces enough noise to get muted, which is
+# the same as having no updates at all. Major updates still arrive one PR at a
+# time so a breaking change never hides inside a batch.
+#
+# The Pion packages (the WebRTC media stack) sit in their own group and are
+# never auto-merged: even a minor bump there is a behavioural change on a
+# latency-sensitive audio path that CI cannot hear, so it should land on its
+# own for a manual listen test.
+
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      pion:
+        patterns:
+          - "github.com/pion*"
+      go-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "github.com/pion*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directories:
+      - "/plugins/plugins/*/"
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: pip
+    directories:
+      - "/plugins/plugins/*/"
+    schedule:
+      interval: weekly
+    groups:
+      pip-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

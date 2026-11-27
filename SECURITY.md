@@ -52,6 +52,12 @@ Pre-1.0 and moving fast. Security fixes land on `main` and in the next release â
 there are no backported patch branches. If you're on an older tag, upgrading is
 the fix. Pin your version in production and watch releases.
 
+| Version | Supported |
+|---|---|
+| Latest release | :white_check_mark: |
+| `main` ahead of the latest release | fixes are there, but unversioned â€” upgrade at your own discretion |
+| Older tags | :x: |
+
 ## In scope
 
 - Authentication bypass on `/whip` or the short-lived token endpoint when JWT
