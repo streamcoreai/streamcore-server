@@ -47,7 +47,7 @@ func WarmReflexiveAddress(stunURL string) {
 		if err != nil {
 			return
 		}
-		defer pc.Close()
+		defer func() { _ = pc.Close() }()
 		pc.OnICECandidate(noteReflexive)
 		if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio); err != nil {
 			return

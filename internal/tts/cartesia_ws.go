@@ -181,8 +181,11 @@ func (c *cartesiaWSClient) ensureConnected(ctx context.Context) error {
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.DialContext(ctx, c.wsURL, header)
+	conn, resp, err := dialer.DialContext(ctx, c.wsURL, header)
 	if err != nil {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		return fmt.Errorf("cartesia ws dial: %w", err)
 	}
 

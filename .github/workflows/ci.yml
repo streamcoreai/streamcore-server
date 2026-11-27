@@ -56,5 +56,14 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Kept as a separate step so a lint failure is distinguishable from a
+      # build/vet/test failure at a glance in the checks list. v8 of the
+      # action runs golangci-lint v2, which is the first release line that
+      # understands the Go version in go.mod.
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+
       - name: Test
         run: go test -race ./...

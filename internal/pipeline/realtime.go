@@ -272,8 +272,7 @@ func (p *Pipeline) handleRealtimeToolCall(ctx context.Context, name string, args
 		args = json.RawMessage(`{}`)
 	}
 
-	switch {
-	case name == ragToolName:
+	if name == ragToolName {
 		return p.realtimeRAGSearch(ctx, args)
 	}
 

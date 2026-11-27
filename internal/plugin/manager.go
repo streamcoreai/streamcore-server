@@ -249,12 +249,12 @@ func (m *Manager) SkillsPrompt() string {
 	var b strings.Builder
 	b.WriteString("\n\n--- Skills ---\n")
 	for _, s := range skills {
-		b.WriteString(fmt.Sprintf("\n## Skill: %s\n", s.Name))
+		fmt.Fprintf(&b, "\n## Skill: %s\n", s.Name)
 		if s.Description != "" {
-			b.WriteString(fmt.Sprintf("Description: %s\n", s.Description))
+			fmt.Fprintf(&b, "Description: %s\n", s.Description)
 		}
 		if len(s.Triggers) > 0 {
-			b.WriteString(fmt.Sprintf("Triggers: %s\n", strings.Join(s.Triggers, ", ")))
+			fmt.Fprintf(&b, "Triggers: %s\n", strings.Join(s.Triggers, ", "))
 		}
 		b.WriteString(s.Content)
 		b.WriteString("\n")

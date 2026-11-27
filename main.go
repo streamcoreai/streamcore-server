@@ -185,7 +185,7 @@ func startDebugServer(cfg config.DebugConfig) (*http.Server, error) {
 		}
 	}
 
-	listener, err := net.Listen("tcp", cfg.Bind)
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", cfg.Bind)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %q: %w", cfg.Bind, err)
 	}
@@ -230,7 +230,7 @@ func checkLoopbackBind(bind string) error {
 	var ips []net.IP
 	if ip := net.ParseIP(host); ip != nil {
 		ips = []net.IP{ip}
-	} else if ips, err = net.LookupIP(host); err != nil {
+	} else if ips, err = net.DefaultResolver.LookupIP(context.Background(), "ip", host); err != nil {
 		return fmt.Errorf("debug.bind %q: %w", bind, err)
 	}
 	for _, ip := range ips {

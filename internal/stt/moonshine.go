@@ -43,8 +43,11 @@ func NewMoonshineClient(ctx context.Context, wsURL string, onResult func(Transcr
 		HandshakeTimeout: 10 * time.Second,
 	}
 
-	conn, _, err := dialer.DialContext(sttCtx, wsURL, nil)
+	conn, resp, err := dialer.DialContext(sttCtx, wsURL, nil)
 	if err != nil {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		cancel()
 		return nil, fmt.Errorf("moonshine stt connect %s: %w", wsURL, err)
 	}

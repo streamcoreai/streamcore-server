@@ -63,12 +63,12 @@ func (t *externalTool) capture(ctx context.Context, sessionID string, params jso
 	for _, capability := range t.spec.Requires {
 		captured, err := t.host.callbacks.Capture(ctx, sessionID, capability)
 		if err != nil {
-			return nil, fmt.Errorf("Could not get %s: %v. Ask the user to try again.",
+			return nil, fmt.Errorf("could not get %s: %w. Ask the user to try again",
 				strings.ReplaceAll(capability, "_", " "), err)
 		}
 		var extra map[string]any
 		if err := json.Unmarshal(captured, &extra); err != nil {
-			return nil, fmt.Errorf("Could not read the %s. Ask the user to try again.",
+			return nil, fmt.Errorf("could not read the %s. Ask the user to try again",
 				strings.ReplaceAll(capability, "_", " "))
 		}
 		for key, value := range extra {
@@ -78,7 +78,7 @@ func (t *externalTool) capture(ctx context.Context, sessionID string, params jso
 
 	merged, err := json.Marshal(fields)
 	if err != nil {
-		return nil, fmt.Errorf("Could not prepare the request. Ask the user to try again.")
+		return nil, fmt.Errorf("could not prepare the request. Ask the user to try again")
 	}
 	return merged, nil
 }

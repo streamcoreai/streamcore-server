@@ -20,7 +20,6 @@ func (onlyTool) ConfirmationRequired() bool { return false }
 func (onlyTool) ThinkingSound() bool        { return false }
 
 type recordingHandler struct {
-	name   string
 	events []string
 	calls  *[]PluginEvent
 	err    error

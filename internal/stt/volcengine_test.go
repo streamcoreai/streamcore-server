@@ -20,7 +20,7 @@ func serverFrame(msgType byte, compressed bool, payload []byte) []byte {
 	}
 	frame := make([]byte, 12+len(payload))
 	frame[0] = 0x11
-	frame[1] = msgType<<4 | 0x00
+	frame[1] = msgType << 4
 	frame[2] = volcSerialisationJS
 	if compressed {
 		frame[2] |= volcCompressionGzip

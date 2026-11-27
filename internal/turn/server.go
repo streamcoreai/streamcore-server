@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -23,14 +24,18 @@ type Server struct {
 //     "voiceagent". Clients authenticate with username "voiceagent" and this
 //     password.
 func Start(publicIP, secret string) (*Server, error) {
-	udpListener, err := net.ListenPacket("udp4", "0.0.0.0:3478")
+	// The context only scopes the listen calls themselves (the same
+	// context.Background() net.ListenPacket/net.Listen use internally);
+	// the sockets live until Server.Close.
+	var listenCfg net.ListenConfig
+	udpListener, err := listenCfg.ListenPacket(context.Background(), "udp4", "0.0.0.0:3478")
 	if err != nil {
 		return nil, fmt.Errorf("turn: listen UDP :3478: %w", err)
 	}
 
 	// Also listen on TCP so clients behind firewalls that block outbound UDP
 	// can still reach the relay.
-	tcpListener, err := net.Listen("tcp4", "0.0.0.0:3478")
+	tcpListener, err := listenCfg.Listen(context.Background(), "tcp4", "0.0.0.0:3478")
 	if err != nil {
 		udpListener.Close()
 		return nil, fmt.Errorf("turn: listen TCP :3478: %w", err)
