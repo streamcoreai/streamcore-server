@@ -103,17 +103,10 @@ func (c *openaiClient) SynthesizeStream(ctx context.Context, text string) (<-cha
 	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("openai error %d: %s", resp.StatusCode, string(respBody))
 	}
-
-	ch := make(chan StreamChunk, 8)
-	go func() {
-		defer close(ch)
-		defer resp.Body.Close()
-		pumpResampledStream(ctx, resp.Body, ch)
-	}()
-	return ch, nil
+	return streamResampledHTTPResponse(ctx, resp), nil
 }
 
 func (c *openaiClient) Synthesize(ctx context.Context, text string) ([]byte, error) {
@@ -126,7 +119,7 @@ func (c *openaiClient) Synthesize(ctx context.Context, text string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("openai request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))

@@ -128,6 +128,18 @@ func streamHTTPResponse(ctx context.Context, resp *http.Response) <-chan StreamC
 	return ch
 }
 
+// streamResampledHTTPResponse is streamHTTPResponse for a body at 24 kHz.
+// It takes ownership of resp.Body.
+func streamResampledHTTPResponse(ctx context.Context, resp *http.Response) <-chan StreamChunk {
+	ch := make(chan StreamChunk, 8)
+	go func() {
+		defer close(ch)
+		defer func() { _ = resp.Body.Close() }()
+		pumpResampledStream(ctx, resp.Body, ch)
+	}()
+	return ch
+}
+
 // pumpResampledStream is pumpPCMStream for providers that return linear16 at
 // 24 kHz instead of the pipeline's 16 kHz. Each read goes through a streaming
 // resampler so playback still starts on the first bytes, with the filter
