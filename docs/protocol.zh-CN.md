@@ -297,6 +297,26 @@ Content-Type: application/sdp
 
 载荷里只有语义。StreamCore 不下发坐标、字体、颜色、帧缓冲、PNG，也不下发任何设备相关的渲染指令。排版、换行、配色，以及什么时候值得花一次刷新，都由客户端自己决定。推荐的设备策略是：只存最新的一张，等到助手播放结束、并且确认用户没有接着说话之后，再消抖 1–3 秒，然后花掉一次刷新。
 
+## 健康检查与版本
+
+这两个端点都无需鉴权，响应里绝不包含任何凭据。
+
+`GET /health` 一如既往地返回 `200` 和纯文本 `ok`，以兼容负载均衡器、现有的健康检查（包括部署工作流里的 `curl` 检查），以及依赖 `ok` 这个响应体的调用方。在请求里明确写出 `Accept: application/json`，它会改为报告进程自身掌握的信息：
+
+```json
+{"status":"ok","uptime":"1h2m3s","uptime_seconds":3723,"active_sessions":2,"providers":{"stt":"deepgram","llm":"openai","tts":"cartesia"}}
+```
+
+在语音到语音模式下，`providers` 只有 `{"realtime":"grok"}`，因为此时不会创建任何 STT、LLM 或 TTS provider。只有服务端认识的 provider 名称才会原样返回；其他任何配置值都显示为 `"unknown"`，所以误填进 provider 字段的密钥或 URL 永远不会被回显。provider 名称只是配置，不代表可达性：健康检查从不探测上游 provider，所以供应商故障永远不会让健康检查失败。`*/*` 这类通配符仍然得到纯文本；如果 `Accept` 给 `text/plain` 的权重不低于 `application/json`，同样得到纯文本——axios 默认的 `application/json, text/plain, */*` 得到的是 `ok`。
+
+`GET /version` 返回构建信息：
+
+```json
+{"version":"v0.1.0","commit":"7bff4de...","built":"2026-11-27T08:00:00Z","go":"go1.25.4"}
+```
+
+这些值在链接时通过 `go build -ldflags "-X main.version=... -X main.commit=... -X main.date=..."` 写入（与 goreleaser 的默认变量名一致）；`Dockerfile` 以 `VERSION`、`COMMIT`、`BUILD_DATE` 三个 build arg 接收它们，部署工作流会传入 release tag 和 commit SHA。直接 `go build` 时，会回退到工具链记录的 VCS 信息：模块版本、`vcs.revision`（工作区有改动时带 `-dirty` 后缀）和提交时间，再不行就是 `dev` 与 `unknown`。
+
 ## 鉴权
 
 设置 `server.jwt_secret` 后，`/whip` 会要求 `Authorization: Bearer <jwt>`。设置该项时，服务还会暴露 `POST /token`，签发有效期 1 小时的 HS256 token。再设置 `server.api_key`，则 `/token` 本身也要求 `Authorization: Bearer <api_key>`，这样只有你的后端才能签发会话 token。两者默认都为空，即关闭鉴权。

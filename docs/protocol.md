@@ -315,6 +315,26 @@ Both layouts are for plugins that emit their own cards. The display projector pr
 
 The payload contains semantics only. StreamCore does not send coordinates, fonts, colours, framebuffers, PNGs, or device-specific rendering instructions. The client chooses typography, wrapping, colour use, and when a refresh is affordable. A recommended device policy is: store latest-wins, wait until assistant playback and the next-user check have gone idle, debounce for 1–3 seconds, then spend one refresh.
 
+## Health and version
+
+Both endpoints are unauthenticated, and neither response ever contains a credential.
+
+`GET /health` answers `200` with the plain-text body `ok`, as it always has, for load balancers, existing health checks (including the deploy workflow's `curl` check) and any caller that expects the `ok` body. Ask for JSON by name with `Accept: application/json` and it reports what the process knows instead:
+
+```json
+{"status":"ok","uptime":"1h2m3s","uptime_seconds":3723,"active_sessions":2,"providers":{"stt":"deepgram","llm":"openai","tts":"cartesia"}}
+```
+
+In speech-to-speech mode `providers` is `{"realtime":"grok"}` alone, because no STT, LLM or TTS provider is constructed. Only provider names the server recognises are reported; any other configured value shows as `"unknown"`, so a key or URL pasted into a provider slot is never repeated. Provider names are configuration, not reachability: upstream providers are never probed, so a vendor outage never fails the health check. Wildcards such as `*/*` keep the plain form, and so does an `Accept` header that rates `text/plain` at least as high as `application/json` — axios's default `application/json, text/plain, */*` gets `ok`.
+
+`GET /version` returns the build:
+
+```json
+{"version":"v0.1.0","commit":"7bff4de...","built":"2026-11-27T08:00:00Z","go":"go1.25.4"}
+```
+
+The values are stamped at link time with `go build -ldflags "-X main.version=... -X main.commit=... -X main.date=..."` (goreleaser's default names); the `Dockerfile` takes them as the `VERSION`, `COMMIT` and `BUILD_DATE` build args, and the deploy workflow passes the release tag and commit SHA. A plain `go build` falls back to the toolchain's VCS stamp: the module version, `vcs.revision` (suffixed `-dirty` for a modified tree) and the commit time, then `dev` and `unknown`.
+
 ## Auth
 
 Set `server.jwt_secret` to require `Authorization: Bearer <jwt>` on `/whip`. When it is set, the server also exposes `POST /token`, which issues an HS256 token valid for one hour. Set `server.api_key` to require `Authorization: Bearer <api_key>` on `/token` itself, so only your backend can mint session tokens. Both are empty by default, which disables auth.

@@ -27,6 +27,10 @@ import (
 )
 
 func main() {
+	started := time.Now()
+	build := currentBuildInfo()
+	log.Printf("streamcore-server %s (commit %s, built %s, %s)", build.Version, build.Commit, build.Built, build.Go)
+
 	cfg, err := config.Load("")
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -89,7 +93,8 @@ func main() {
 		issueToken = tokenHandler(cfg.Server.JWTSecret, cfg.Server.APIKey)
 	}
 
-	handler := corsMiddleware(newPublicMux(whipHandler, issueToken))
+	health := newHealthHandler(cfg, started, sm.Count)
+	handler := corsMiddleware(newPublicMux(whipHandler, issueToken, health, versionHandler(build)))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Server.Port,
@@ -141,14 +146,12 @@ func main() {
 	log.Println("Server stopped")
 }
 
-func newPublicMux(whipHandler, issueToken http.HandlerFunc) *http.ServeMux {
+func newPublicMux(whipHandler, issueToken http.HandlerFunc, health, version http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/whip", whipHandler)
 	mux.HandleFunc("/whip/", whipHandler)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
+	mux.Handle("/health", health)
+	mux.Handle("/version", version)
 	if issueToken != nil {
 		mux.HandleFunc("/token", issueToken)
 	}

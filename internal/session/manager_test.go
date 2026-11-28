@@ -37,6 +37,27 @@ func TestGetOrCreateRefusesPastTheSessionCap(t *testing.T) {
 	}
 }
 
+func TestCountTracksLiveSessions(t *testing.T) {
+	m := testManager(1000)
+	if n := m.Count(); n != 0 {
+		t.Fatalf("Count() = %d on a new manager, want 0", n)
+	}
+	m.GetOrCreate("a")
+	m.GetOrCreate("b")
+	m.GetOrCreate("a") // an existing session is not a second one
+	if n := m.Count(); n != 2 {
+		t.Fatalf("Count() = %d, want 2", n)
+	}
+	m.Remove("a")
+	if n := m.Count(); n != 1 {
+		t.Fatalf("Count() = %d after Remove, want 1", n)
+	}
+	m.reap(time.Now().Add(time.Hour))
+	if n := m.Count(); n != 0 {
+		t.Fatalf("Count() = %d after the reaper ran, want 0", n)
+	}
+}
+
 func TestGetOrCreateUnlimitedWhenCapUnset(t *testing.T) {
 	m := testManager(30000)
 	for i := 0; i < 50; i++ {

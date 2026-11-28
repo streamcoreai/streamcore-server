@@ -131,7 +131,7 @@ func TestResourceIDCannotBeMintedWithoutTheAPIKey(t *testing.T) {
 }
 
 func TestPublicMuxDoesNotServePprof(t *testing.T) {
-	mux := newPublicMux(func(http.ResponseWriter, *http.Request) {}, nil)
+	mux := newTestPublicMux()
 	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
 	rec := httptest.NewRecorder()
 
@@ -410,7 +410,7 @@ func TestPublicMuxStillServesAfterTheDebugListenerDies(t *testing.T) {
 		t.Fatal("startDebugServer returned no server for a non-empty bind")
 	}
 
-	public := httptest.NewServer(newPublicMux(func(http.ResponseWriter, *http.Request) {}, nil))
+	public := httptest.NewServer(newTestPublicMux())
 	t.Cleanup(public.Close)
 
 	// Close the debug server out from under its own Serve loop. Serve then

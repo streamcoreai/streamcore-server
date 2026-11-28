@@ -46,14 +46,30 @@ jobs:
       # The commit SHA is always the tag the deploy job pulls (unambiguous for
       # both triggers). On a release we additionally tag the image with the
       # release name so you can tell at a glance which version a box is running.
+      #
+      # The release tag reaches the shell through env, never spliced into the
+      # script, so a tag name cannot inject commands.
       - name: Resolve image tags
         id: tags
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           TAGS="${{ env.DOCKER_IMAGE }}:${{ github.sha }},${{ env.DOCKER_IMAGE }}:latest"
           if [ "${{ github.event_name }}" = "release" ]; then
-            TAGS="$TAGS,${{ env.DOCKER_IMAGE }}:${{ github.event.release.tag_name }}"
+            TAGS="$TAGS,${{ env.DOCKER_IMAGE }}:$RELEASE_TAG"
           fi
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      # Stamped into the binary and served by GET /version, so a rollout can be
+      # confirmed from outside. The version is the release tag, or "dev" for a
+      # manual run.
+      - name: Resolve build metadata
+        id: build
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          echo "version=${RELEASE_TAG:-dev}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -61,6 +77,10 @@ jobs:
           context: .
           push: true
           tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.build.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.build.outputs.date }}
 
   deploy:
     name: Deploy to EC2

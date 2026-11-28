@@ -126,6 +126,13 @@ func (m *Manager) Get(sessionID string) *Session {
 	return m.sessions[sessionID]
 }
 
+// Count returns the number of live sessions.
+func (m *Manager) Count() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.sessions)
+}
+
 func (m *Manager) Remove(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
